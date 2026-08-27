@@ -1,0 +1,146 @@
+"""Unit tests for parse_scenario() (US1)."""
+
+import pytest
+
+from retirement_planner.scenario import ScenarioParseError
+from retirement_planner.scenario.loader import parse_scenario
+
+FULL_SCENARIO_YAML = """
+name: base_case
+household:
+  filing_status: married_filing_jointly
+  members:
+    - person_name: you
+      current_age: 60
+      ss_claim_age: 67
+      ss_annual_benefit: 32000
+    - person_name: spouse
+      current_age: 58
+      ss_claim_age: 67
+      ss_annual_benefit: 24000
+accounts:
+  - account_type: traditional
+    balance: 1500000
+  - account_type: roth
+    balance: 400000
+  - account_type: taxable
+    balance: 200000
+spending:
+  annual_need_real: 110000
+roth_conversion:
+  strategy: fill_to_bracket
+  bracket_ceiling_or_amount: 206700
+  window: [2028, 2034]
+state: GA
+market_assumptions:
+  equity_allocation: 0.60
+  equity_return_mean_real: 0.065
+  equity_return_std_real: 0.17
+  bond_allocation: 0.40
+  bond_return_mean_real: 0.015
+  bond_return_std_real: 0.06
+  correlation: -0.10
+simulation_settings:
+  n_paths: 5000
+  seed: 42
+  plan_to_age: 95
+"""
+
+
+def test_parse_scenario_happy_path_full_profile():
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+
+    assert scenario.name == "base_case"
+    assert scenario.household.filing_status == "married_filing_jointly"
+    assert [m.person_name for m in scenario.household.members] == ["you", "spouse"]
+    assert scenario.household.members[0].ss_claim_age == 67
+    assert [a.account_type for a in scenario.accounts] == ["traditional", "roth", "taxable"]
+    assert scenario.accounts[0].balance == 1_500_000
+    assert scenario.spending.annual_need_real == 110_000
+    assert scenario.roth_conversion.strategy == "fill_to_bracket"
+    assert scenario.roth_conversion.window == (2028, 2034)
+    assert scenario.state == "GA"
+    assert scenario.market_assumptions.equity_allocation == 0.60
+    assert scenario.simulation_settings.n_paths == 5000
+    assert scenario.simulation_settings.seed == 42
+    assert scenario.simulation_settings.plan_to_age == 95
+    # Loading alone doesn't run validation (that's validate()/load_scenario()'s job)
+    assert scenario.validation_flags == []
+
+
+def test_parse_scenario_name_override_parameter():
+    scenario = parse_scenario(FULL_SCENARIO_YAML, name="renamed")
+    assert scenario.name == "renamed"
+
+
+def test_parse_scenario_reports_missing_required_field():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "spending:\n  annual_need_real: 110000\n", ""
+    )
+    with pytest.raises(ScenarioParseError) as exc_info:
+        parse_scenario(yaml_text)
+    assert "spending" in exc_info.value.reason
+
+
+def test_parse_scenario_raises_on_malformed_yaml():
+    malformed = "name: base_case\nhousehold: [unclosed"
+    with pytest.raises(ScenarioParseError):
+        parse_scenario(malformed)
+
+
+def test_parse_scenario_malformed_yaml_error_distinct_from_value_error():
+    """A malformed file and a missing-field file both raise ScenarioParseError,
+    but the reason text must differ so callers/logs can tell them apart."""
+    malformed = "name: base_case\nhousehold: [unclosed"
+    missing_field = FULL_SCENARIO_YAML.replace(
+        "spending:\n  annual_need_real: 110000\n", ""
+    )
+
+    with pytest.raises(ScenarioParseError) as malformed_exc:
+        parse_scenario(malformed)
+    with pytest.raises(ScenarioParseError) as missing_exc:
+        parse_scenario(missing_field)
+
+    assert malformed_exc.value.reason != missing_exc.value.reason
+
+
+def test_parse_scenario_raises_on_member_count_mismatch_single():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "filing_status: married_filing_jointly", "filing_status: single"
+    )
+    with pytest.raises(ScenarioParseError) as exc_info:
+        parse_scenario(yaml_text)
+    assert "member" in exc_info.value.reason.lower()
+
+
+def test_parse_scenario_raises_on_member_count_mismatch_mfj():
+    single_member_yaml = """
+name: single_person
+household:
+  filing_status: married_filing_jointly
+  members:
+    - person_name: you
+      current_age: 60
+      ss_claim_age: 67
+      ss_annual_benefit: 32000
+accounts:
+  - account_type: traditional
+    balance: 100000
+spending:
+  annual_need_real: 50000
+state: FL
+market_assumptions:
+  equity_allocation: 0.6
+  equity_return_mean_real: 0.065
+  equity_return_std_real: 0.17
+  bond_allocation: 0.4
+  bond_return_mean_real: 0.015
+  bond_return_std_real: 0.06
+  correlation: -0.10
+simulation_settings:
+  n_paths: 1000
+  seed: 1
+  plan_to_age: 90
+"""
+    with pytest.raises(ScenarioParseError):
+        parse_scenario(single_member_yaml)

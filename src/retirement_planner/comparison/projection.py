@@ -23,16 +23,20 @@ from retirement_planner.tax import IncomeComponents, compute_federal_tax, comput
 from .models import PlanOutcome, PlanProjection, PlanYearProjection, ReturnSchedule, StrategyConfiguration
 
 
-def _member_age_in_tax_year(member: HouseholdMember, tax_year: int, reference_tax_year: int) -> int:
+def member_age_in_tax_year(member: HouseholdMember, tax_year: int, reference_tax_year: int) -> int:
     """Translates a member's current_age (as of reference_tax_year) into
-    their age in an arbitrary tax_year (research.md §2)."""
+    their age in an arbitrary tax_year (research.md §2). Renamed from
+    private to public in 006-reporting-aggregation (research.md §1) so
+    that feature can reuse this exact age-translation formula rather than
+    re-implementing it -- behavior unchanged."""
     return member.current_age + (tax_year - reference_tax_year)
 
 
-def _deemed_rmd_owner(household: Household) -> HouseholdMember:
+def deemed_rmd_owner(household: Household) -> HouseholdMember:
     """The older household member (or the sole member) is treated as the
     deemed owner of the household's entire traditional balance for RMD
-    purposes (research.md §4)."""
+    purposes (research.md §4). Renamed from private to public in
+    006-reporting-aggregation (research.md §1) -- behavior unchanged."""
     return max(household.members, key=lambda member: member.current_age)
 
 
@@ -66,7 +70,7 @@ def run_plan_projection(
     (the older household member) reaches plan_to_age (inclusive) (FR-001,
     FR-002). See contracts/comparison-api.md for the full per-year sequence.
     """
-    deemed_owner = _deemed_rmd_owner(household)
+    deemed_owner = deemed_rmd_owner(household)
     spouse = next((m for m in household.members if m is not deemed_owner), None)
 
     years: list[PlanYearProjection] = []
@@ -76,7 +80,7 @@ def run_plan_projection(
 
     while True:
         ages_this_year = {
-            member.person_name: _member_age_in_tax_year(member, tax_year, reference_tax_year)
+            member.person_name: member_age_in_tax_year(member, tax_year, reference_tax_year)
             for member in household.members
         }
         deemed_owner_age = ages_this_year[deemed_owner.person_name]

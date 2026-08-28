@@ -21,7 +21,7 @@ from .models import (
     PlanYearProjection,
     StrategyConfiguration,
 )
-from .projection import run_plan_projection
+from .projection import deemed_rmd_owner, member_age_in_tax_year, run_plan_projection
 from .returns import derive_deterministic_return
 
 __all__ = [
@@ -35,6 +35,8 @@ __all__ = [
     "compare_claiming_age_grid",
     "compare_roth_conversion_strategies",
     "compare_withdrawal_sequencing_strategies",
+    "deemed_rmd_owner",
     "derive_deterministic_return",
+    "member_age_in_tax_year",
     "run_plan_projection",
 ]

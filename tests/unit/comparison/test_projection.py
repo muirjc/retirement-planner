@@ -1,15 +1,21 @@
-"""Unit tests for run_plan_projection() and its private per-year helpers
-(US1).
+"""Unit tests for run_plan_projection() and its per-year helpers (US1).
+
+deemed_rmd_owner() and member_age_in_tax_year() were renamed from private
+to public in 006-reporting-aggregation (research.md §1) so that feature
+can reuse them rather than re-implementing the same age-translation
+formula -- behavior is unchanged, confirmed by these same tests.
 """
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
-from retirement_planner.comparison.projection import (
-    _deemed_rmd_owner,
-    _household_gross_social_security_benefit,
-    _member_age_in_tax_year,
+from retirement_planner.comparison import (
+    DeterministicReturnAssumption,
+    StrategyConfiguration,
+    deemed_rmd_owner,
+    member_age_in_tax_year,
+    run_plan_projection,
 )
+from retirement_planner.comparison.projection import _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.scenario import Household, HouseholdMember
 
@@ -42,19 +48,19 @@ def _strategy(**overrides):
 # --- private per-year helpers (research.md §2, §3-4, data-model.md § Relationships) ---
 
 
-def test_member_age_in_tax_year_translates_from_reference_year():
+def testmember_age_in_tax_year_translates_from_reference_year():
     member = HouseholdMember(person_name="you", current_age=60, ss_claim_age=67, ss_annual_benefit=0)
-    assert _member_age_in_tax_year(member, tax_year=2030, reference_tax_year=2026) == 64
-    assert _member_age_in_tax_year(member, tax_year=2026, reference_tax_year=2026) == 60
-    assert _member_age_in_tax_year(member, tax_year=2020, reference_tax_year=2026) == 54
+    assert member_age_in_tax_year(member, tax_year=2030, reference_tax_year=2026) == 64
+    assert member_age_in_tax_year(member, tax_year=2026, reference_tax_year=2026) == 60
+    assert member_age_in_tax_year(member, tax_year=2020, reference_tax_year=2026) == 54
 
 
-def test_deemed_rmd_owner_is_the_older_member():
+def testdeemed_rmd_owner_is_the_older_member():
     household = _mfj_household(you_age=60, spouse_age=58)
-    assert _deemed_rmd_owner(household).person_name == "you"
+    assert deemed_rmd_owner(household).person_name == "you"
 
     reversed_household = _mfj_household(you_age=58, spouse_age=60)
-    assert _deemed_rmd_owner(reversed_household).person_name == "spouse"
+    assert deemed_rmd_owner(reversed_household).person_name == "spouse"
 
 
 def test_household_gross_social_security_benefit_counts_only_after_claiming_age():

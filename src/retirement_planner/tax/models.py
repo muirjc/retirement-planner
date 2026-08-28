@@ -33,6 +33,16 @@ class UnsupportedTaxYearError(Exception):
             f"(documented years: {self.available_years})"
         )
 
+    def __reduce__(self):
+        """Makes this exception picklable with its actual __init__ signature
+        (figure_name, requested_year, available_years) rather than the
+        single formatted message BaseException.__reduce__ would otherwise
+        try to replay -- needed for this exception to survive crossing a
+        process boundary, e.g. when raised inside a
+        005-simulation-engine ProcessPoolExecutor worker
+        (specs/005-simulation-engine/research.md §7)."""
+        return (self.__class__, (self.figure_name, self.requested_year, self.available_years))
+
 
 @dataclass
 class IncomeComponents:

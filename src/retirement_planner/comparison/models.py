@@ -11,10 +11,21 @@ conventions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 
 from retirement_planner.mechanics import AccountBalances, PlanYearMechanicsResult, WithdrawalPlan
 from retirement_planner.tax import FederalTaxResult, FigureUsage, StateTaxResult
+
+
+class ReturnSchedule(Protocol):
+    """The seam 005-simulation-engine's research.md §1 adds: anything
+    run_plan_projection() can use for its per-plan-year growth factor.
+    DeterministicReturnAssumption (below) and 005's ReturnPath both satisfy
+    this by implementing return_for_plan_year(). See
+    specs/005-simulation-engine/contracts/simulation-api.md.
+    """
+
+    def return_for_plan_year(self, plan_year: int) -> float: ...
 
 
 @dataclass
@@ -22,6 +33,11 @@ class DeterministicReturnAssumption:
     """data-model.md § DeterministicReturnAssumption."""
 
     annual_real_return: float
+
+    def return_for_plan_year(self, plan_year: int) -> float:
+        """Satisfies ReturnSchedule: ignores plan_year, always returns
+        annual_real_return (005-simulation-engine research.md §1)."""
+        return self.annual_real_return
 
 
 @dataclass

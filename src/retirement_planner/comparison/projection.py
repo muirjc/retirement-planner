@@ -20,7 +20,7 @@ from retirement_planner.mechanics import (
 from retirement_planner.scenario import Household, HouseholdMember
 from retirement_planner.tax import IncomeComponents, compute_federal_tax, compute_state_tax
 
-from .models import DeterministicReturnAssumption, PlanOutcome, PlanProjection, PlanYearProjection, StrategyConfiguration
+from .models import PlanOutcome, PlanProjection, PlanYearProjection, ReturnSchedule, StrategyConfiguration
 
 
 def _member_age_in_tax_year(member: HouseholdMember, tax_year: int, reference_tax_year: int) -> int:
@@ -59,7 +59,7 @@ def run_plan_projection(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_assumption: DeterministicReturnAssumption,
+    return_assumption: ReturnSchedule,
 ) -> PlanProjection:
     """Runs one full-horizon projection, one plan year at a time, from
     start_plan_year through the plan year in which the deemed RMD owner
@@ -136,7 +136,10 @@ def run_plan_projection(
         shortfall = mechanics_result.withdrawal_plan.shortfall + tax_funding_withdrawal.shortfall
 
         post_tax_balances = tax_funding_withdrawal.ending_balances
-        growth_factor = 1.0 + return_assumption.annual_real_return
+        # return_assumption may be a DeterministicReturnAssumption (004, a
+        # fixed value every plan year) or a ReturnPath (005, one value per
+        # plan year) -- both satisfy ReturnSchedule (research.md §1).
+        growth_factor = 1.0 + return_assumption.return_for_plan_year(plan_year)
         ending_balances = AccountBalances(
             traditional=post_tax_balances.traditional * growth_factor,
             roth=post_tax_balances.roth * growth_factor,

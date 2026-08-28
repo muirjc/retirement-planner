@@ -173,6 +173,53 @@ def test_shortfall_continues_across_years_without_raising_and_never_goes_negativ
         assert year.ending_balances.taxable >= 0
 
 
+class _YearVaryingReturnStub:
+    """A minimal ReturnSchedule (005-simulation-engine research.md §1) whose
+    return varies by plan_year, used to confirm run_plan_projection() calls
+    return_for_plan_year(plan_year) for its growth factor rather than
+    reading a fixed .annual_real_return field."""
+
+    def __init__(self, returns_by_plan_year: dict[int, float]):
+        self._returns_by_plan_year = returns_by_plan_year
+
+    def return_for_plan_year(self, plan_year: int) -> float:
+        return self._returns_by_plan_year[plan_year]
+
+
+def test_growth_factor_calls_return_for_plan_year_and_varies_by_year():
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=70, ss_claim_age=99, ss_annual_benefit=0)],
+    )
+    accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    return_schedule = _YearVaryingReturnStub({1: 0.10, 2: 0.00, 3: 0.20})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=72,
+        strategy=strategy,
+        return_assumption=return_schedule,
+    )
+
+    assert len(result.years) == 3
+    assert result.years[0].ending_balances.taxable == pytest.approx(100_000 * 1.10)
+    assert result.years[1].ending_balances.taxable == pytest.approx(100_000 * 1.10 * 1.00)
+    assert result.years[2].ending_balances.taxable == pytest.approx(100_000 * 1.10 * 1.00 * 1.20)
+
+
+def test_deterministic_return_assumption_return_for_plan_year_ignores_plan_year():
+    return_assumption = DeterministicReturnAssumption(annual_real_return=0.045)
+    assert return_assumption.return_for_plan_year(1) == 0.045
+    assert return_assumption.return_for_plan_year(35) == 0.045
+
+
 def test_repeated_calls_with_identical_inputs_produce_identical_results():
     household = _mfj_household()
     accounts = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)

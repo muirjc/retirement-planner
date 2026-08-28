@@ -2,7 +2,7 @@
 
 Run with: streamlit run apps/streamlit_ui/app.py
 
-Renders a short description, navigation to the three pages under pages/
+Renders a short description, navigation to the four pages under pages/
 (Streamlit's own multi-page convention builds the sidebar automatically
 from that directory -- research.md §5), and a live backend-status check:
 if GET /reference/states fails, the Home page shows the error immediately
@@ -23,9 +23,10 @@ st.write(
     "axis, and download the results as CSV."
 )
 st.markdown(
-    "Use the sidebar to navigate: **Scenarios** to create, edit, or "
-    "delete a scenario; **Run Simulation** to run one and see a fan "
-    "chart; **Compare** to compare candidates on an axis."
+    "Use the sidebar to navigate: **Instructions** for what to gather "
+    "before you start; **Scenarios** to create, edit, or delete a "
+    "scenario; **Run Simulation** to run one and see a fan chart; "
+    "**Compare** to compare candidates on an axis."
 )
 
 st.divider()

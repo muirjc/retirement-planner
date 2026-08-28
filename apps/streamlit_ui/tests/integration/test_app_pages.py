@@ -21,6 +21,7 @@ from rp_ui import api_client
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 APP_PATH = PACKAGE_ROOT / "app.py"
+INSTRUCTIONS_PAGE = PACKAGE_ROOT / "pages" / "0_Instructions.py"
 SCENARIOS_PAGE = PACKAGE_ROOT / "pages" / "1_Scenarios.py"
 RUN_PAGE = PACKAGE_ROOT / "pages" / "2_Run_Simulation.py"
 COMPARE_PAGE = PACKAGE_ROOT / "pages" / "3_Compare.py"
@@ -795,3 +796,123 @@ def test_polish_full_quickstart_walkthrough():
     # -- §5 (Compare half): CSV download --
     compare_at.button(key="compare_prepare_csv_button").click().run()
     assert compare_at.session_state["compare_csv_text"].startswith("candidate_label,ending_balance")
+
+
+# -- Feature 009: Instructions page ------------------------------------------
+#
+# -- User Story 1: guidance content (T004) --
+
+
+def test_us1_instructions_page_renders_all_sections_with_zero_backend_calls():
+    """Acceptance Scenario US1.1 (spec.md 009) / contracts/ui-pages.md §
+    pages/0_Instructions.py: renders every section, and makes no HTTP call
+    at all -- api_client._transport is deliberately left unset (no mock
+    installed); a real network attempt to the default 127.0.0.1:8000
+    would fail fast (connection refused, nothing listening in a test
+    environment) and surface as at.exception, which this asserts against."""
+    from rp_ui.instructions_content import SECTIONS
+
+    at = AppTest.from_file(str(INSTRUCTIONS_PAGE)).run()
+
+    assert not at.exception
+    rendered_titles = {h.value for h in at.header}
+    assert rendered_titles == {section.title for section in SECTIONS}
+
+    rendered_text = " ".join(m.value for m in at.markdown)
+    for section in SECTIONS:
+        # A couple of words from each body, not the whole string -- proves
+        # the actual SECTIONS content made it to the page, without
+        # duplicating test_instructions_content.py's own detailed checks.
+        assert section.body.split(".")[0][:20] in rendered_text
+
+
+# -- User Story 2: findable at any time (T006) --
+
+
+def test_us2_home_page_navigation_mentions_instructions():
+    _install(_route({("GET", "/api/v1/reference/states"): httpx.Response(200, json={"states": ["FL"]})}))
+    at = AppTest.from_file(str(APP_PATH)).run()
+    assert not at.exception
+    assert any("Instructions" in m.value for m in at.markdown)
+
+
+def test_us2_instructions_page_sorts_before_scenarios_in_the_sidebar():
+    """Streamlit's own sidebar ordering is filename-lexicographic --
+    AppTest simulates one script's execution, not the full multipage
+    sidebar chrome, so this checks the actual guarantee (filename order)
+    directly rather than trying to read a sidebar AppTest doesn't model."""
+    assert INSTRUCTIONS_PAGE.name < SCENARIOS_PAGE.name
+
+
+def test_us2_round_trip_navigation_does_not_error_on_either_leg():
+    """Acceptance Scenario US2.2, structural half: visiting Instructions
+    mid-form and coming back doesn't crash either page. (AppTest's
+    switch_page() does not faithfully simulate real Streamlit's
+    cross-page st.session_state persistence -- confirmed empirically
+    while writing this test, a testing-tool limitation, not a claim
+    about the real running app, which does share session_state across
+    pages the same way every Streamlit multipage app does. The concrete,
+    testable form of "doesn't disturb another page's state" for *this*
+    page is the next test: it writes no session_state key at all.)"""
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.switch_page("pages/1_Scenarios.py").run()
+    _fill_minimal_valid_scenario(at, name="round_trip_case")
+    assert not at.exception
+
+    at.switch_page("pages/0_Instructions.py").run()
+    assert not at.exception
+
+    at.switch_page("pages/1_Scenarios.py").run()
+    assert not at.exception
+
+
+def test_us2_instructions_page_writes_no_session_state_of_its_own():
+    """data-model.md § State transitions: SECTIONS is a module-level
+    constant; this page holds no st.session_state entry -- the concrete
+    guarantee that it can never collide with or clear another page's
+    in-progress form state."""
+    at = AppTest.from_file(str(INSTRUCTIONS_PAGE)).run()
+    assert not at.exception
+    assert dict(at.session_state.filtered_state) == {}
+
+
+# -- Polish (009): the full quickstart.md (009) walkthrough, chained (T010) --
+
+
+def test_polish_009_full_quickstart_walkthrough():
+    """Both sections of specs/009-instructions-page/quickstart.md,
+    chained: find and read the guidance before creating a scenario (§1),
+    then reach it mid-form and return without disruption (§2)."""
+    from rp_ui.instructions_content import SECTIONS
+
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    # -- §1: find and read the guidance before creating a scenario --
+    home = AppTest.from_file(str(APP_PATH)).run()
+    assert not home.exception
+    assert any("Instructions" in m.value for m in home.markdown)
+    assert INSTRUCTIONS_PAGE.name < SCENARIOS_PAGE.name
+
+    instructions = AppTest.from_file(str(INSTRUCTIONS_PAGE)).run()
+    assert not instructions.exception
+    assert {h.value for h in instructions.header} == {section.title for section in SECTIONS}
+    accounts_body = next(s.body for s in SECTIONS if s.title == "Accounts")
+    assert "combined household total" in accounts_body
+    household_body = next(s.body for s in SECTIONS if s.title == "Household")
+    assert "claiming age" in household_body
+    state_body = next(s.body for s in SECTIONS if s.title == "State")
+    for code in ("SC", "DE", "FL"):
+        assert code not in state_body
+
+    # -- §2: reach it mid-form and return without losing your place --
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.switch_page("pages/1_Scenarios.py").run()
+    _fill_minimal_valid_scenario(at, name="quickstart_009_case")
+    at.switch_page("pages/0_Instructions.py").run()
+    assert not at.exception
+    at.switch_page("pages/1_Scenarios.py").run()
+    assert not at.exception

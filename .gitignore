@@ -185,3 +185,9 @@ cython_debug/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# User-entered scenario data -- real personal financial info (account
+# balances, ages, spending). Never committed, especially now that this
+# repo is public. Keeps the directory itself tracked via .gitkeep.
+config/scenarios/*
+!config/scenarios/.gitkeep

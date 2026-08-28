@@ -24,7 +24,7 @@ This is an application, not a library or network service — the "contract" is e
   - `charts.fan_chart(summary.percentile_bands)` (Acceptance Scenario US2.1);
   - `verification.render_verification_indicator(summary.unverified_figure_names)` (FR-013);
   - a *Download CSV* button → `export_simulation_csv(body)` (the identical request body, per data-model.md § Relationships) → a file download (Acceptance Scenario US5.1).
-- **Error states**: `ScenarioNotFoundError` → "This scenario no longer exists." `BlockingValidationError` → every flag's `message` listed, with a link back to `1_Scenarios.py` to fix them (Acceptance Scenario US2.2) — distinct wording from `ScenarioNotFoundError`. `UnknownReferenceValueError` → "`{field}` value `{value}` isn't currently supported — pick from the list." `CostBudgetExceededError` → "This request is too large (estimated {estimated_seconds:.0f}s against a {budget_seconds:.0f}s budget) — try fewer paths." (Acceptance Scenario US2.3). `BackendUnreachableError`/`UnexpectedBackendError` → the shared unreachable/unexpected message (Edge Cases).
+- **Error states**: `ScenarioNotFoundError` → "This scenario no longer exists." `BlockingValidationError` → every flag's `message` listed, with a link back to `1_Scenarios.py` to fix them (Acceptance Scenario US2.2) — distinct wording from `ScenarioNotFoundError`. `UnknownReferenceValueError` → "`{field}` value `{value}` isn't currently supported — pick from the list." `UnsupportedTaxYearError` → "Tax year `{requested_year}` isn't supported for `{figure_name}` — enter a year between `{min}` and `{max}`." (added post-launch — see [data-model.md](./data-model.md) § Error types for why). `CostBudgetExceededError` → "This request is too large (estimated {estimated_seconds:.0f}s against a {budget_seconds:.0f}s budget) — try fewer paths." (Acceptance Scenario US2.3). `BackendUnreachableError`/`UnexpectedBackendError` → the shared unreachable/unexpected message (Edge Cases).
 
 ## `pages/3_Compare.py` — Compare candidates (User Story 3)
 
@@ -35,7 +35,7 @@ This is an application, not a library or network service — the "contract" is e
   - `verification.render_verification_indicator()` per candidate (or once, over the union of every candidate's `unverified_figure_names`, if no single figure is more relevant than another — an implementation-level choice deferred to `tasks.md`, not scope-defining here);
   - a *Download CSV* button → `export_comparison_csv(body, engine)` (Acceptance Scenario US5.2).
 - **Single-candidate requests** are supported without any special-casing in the UI (Acceptance Scenario US3.4) — the candidate-list editor allows exactly one entry, submits normally, and the summary table/chart render with one row/series.
-- **Error states**: same four `007`-shaped errors as the Run page, plus `UnknownReferenceValueError` also covering an axis/candidate value invalid for the chosen engine (e.g. a state code `007` doesn't recognize).
+- **Error states**: same five `007`-shaped errors as the Run page, plus `UnknownReferenceValueError` also covering an axis/candidate value invalid for the chosen engine (e.g. a state code `007` doesn't recognize).
 
 ## Consumption expectations for a future second UI
 

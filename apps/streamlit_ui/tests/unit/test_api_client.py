@@ -3,7 +3,7 @@
 Uses httpx.MockTransport fixtures built from 007's actual documented
 response shapes (specs/007-bff-api-service/contracts/bff-api.md), not
 guessed shapes, per research.md §2's testing decision. Covers: each of
-007's 5 documented error responses raises the corresponding rp_ui.errors
+007's 6 documented error responses raises the corresponding rp_ui.errors
 type; a connection failure raises BackendUnreachableError; an
 unrecognized non-2xx raises UnexpectedBackendError; and a 2xx response
 returns its parsed JSON body (or CSV text for the export endpoints).
@@ -21,6 +21,7 @@ from rp_ui.errors import (
     ScenarioNotFoundError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
+    UnsupportedTaxYearError,
 )
 
 
@@ -117,6 +118,30 @@ def test_unknown_reference_value_raises_unknown_reference_value_error():
         api_client.run_simulation({"scenario_name": "base_case", "state": "ZZ"})
     assert exc_info.value.field == "state"
     assert exc_info.value.value == "ZZ"
+
+
+def test_unsupported_tax_year_raises_unsupported_tax_year_error():
+    """Regression: a real run against the unedited placeholder year
+    (1900) surfaced as a bare HTTP 500 before 007's fix; this is the
+    documented 422 shape it now produces."""
+
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "error": "unsupported_tax_year",
+                "figure_name": "rmd_start_age",
+                "requested_year": 1900,
+                "documented_years": [2020, 2026],
+            },
+        )
+
+    _install(handler)
+    with pytest.raises(UnsupportedTaxYearError) as exc_info:
+        api_client.run_simulation({"scenario_name": "base_case", "reference_tax_year": 1900})
+    assert exc_info.value.figure_name == "rmd_start_age"
+    assert exc_info.value.requested_year == 1900
+    assert exc_info.value.documented_years == [2020, 2026]
 
 
 def test_cost_budget_exceeded_raises_cost_budget_exceeded_error():

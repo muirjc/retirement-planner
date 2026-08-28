@@ -23,6 +23,7 @@ from retirement_planner.comparison import deemed_rmd_owner
 from retirement_planner.reporting import summarize_run
 from retirement_planner.scenario import ScenarioParseError
 from retirement_planner.simulation import SimulationRun, generate_return_paths, run_simulation
+from retirement_planner.tax import UnsupportedTaxYearError
 
 from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
@@ -32,6 +33,7 @@ from ..resolution import (
     UnknownReferenceValueError,
     check_run_cost,
     resolve_run_context,
+    unsupported_tax_year_error,
 )
 from ..serialization import to_jsonable
 
@@ -110,19 +112,22 @@ def resolve_and_run_simulation(
         start_plan_year=body.start_plan_year,
         seed=context.seed,
     )
-    run = run_simulation(
-        household=context.household,
-        accounts=context.accounts,
-        annual_spending_need=context.scenario.spending.annual_need_real,
-        state=context.state,
-        reference_tax_year=body.reference_tax_year,
-        start_plan_year=body.start_plan_year,
-        start_tax_year=body.start_tax_year,
-        plan_to_age=context.plan_to_age,
-        strategy=context.strategy,
-        return_paths=return_paths,
-        candidate_label=body.scenario_name,
-    )
+    try:
+        run = run_simulation(
+            household=context.household,
+            accounts=context.accounts,
+            annual_spending_need=context.scenario.spending.annual_need_real,
+            state=context.state,
+            reference_tax_year=body.reference_tax_year,
+            start_plan_year=body.start_plan_year,
+            start_tax_year=body.start_tax_year,
+            plan_to_age=context.plan_to_age,
+            strategy=context.strategy,
+            return_paths=return_paths,
+            candidate_label=body.scenario_name,
+        )
+    except UnsupportedTaxYearError as exc:
+        raise unsupported_tax_year_error(exc)
     return context, run
 
 

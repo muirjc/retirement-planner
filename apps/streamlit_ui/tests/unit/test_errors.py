@@ -14,6 +14,7 @@ from rp_ui.errors import (
     ScenarioNotFoundError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
+    UnsupportedTaxYearError,
 )
 
 
@@ -46,6 +47,13 @@ def test_cost_budget_exceeded_error_carries_estimate_and_budget():
     assert err.budget_seconds == 30.0
 
 
+def test_unsupported_tax_year_error_carries_figure_and_year_details():
+    err = UnsupportedTaxYearError(figure_name="rmd_start_age", requested_year=1900, documented_years=[2020, 2026])
+    assert err.figure_name == "rmd_start_age"
+    assert err.requested_year == 1900
+    assert err.documented_years == [2020, 2026]
+
+
 def test_backend_unreachable_error_carries_underlying_exception():
     underlying = ConnectionError("refused")
     err = BackendUnreachableError(underlying=underlying)
@@ -63,6 +71,7 @@ def test_every_error_type_is_an_rp_ui_error():
     assert issubclass(InvalidScenarioError, RpUiError)
     assert issubclass(BlockingValidationError, RpUiError)
     assert issubclass(UnknownReferenceValueError, RpUiError)
+    assert issubclass(UnsupportedTaxYearError, RpUiError)
     assert issubclass(CostBudgetExceededError, RpUiError)
     assert issubclass(BackendUnreachableError, RpUiError)
     assert issubclass(UnexpectedBackendError, RpUiError)

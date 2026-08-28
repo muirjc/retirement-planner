@@ -154,6 +154,26 @@ def test_run_against_a_scenario_with_blocking_flags_is_rejected_without_running(
     assert len(response.json()["flags"]) > 0
 
 
+def test_run_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(client):
+    """Regression test: a real UI session sent reference_tax_year=1900
+    (the Run Simulation page's unedited number_input placeholder) and got
+    an unhandled "HTTP 500" with no message -- 002's own figure schedule
+    only documents 2020-2074, and that UnsupportedTaxYearError was never
+    caught at the HTTP boundary. Fixed by routes/simulations.py catching
+    it around run_simulation() and translating it via
+    resolution.py::unsupported_tax_year_error()."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    bad_body = {**_RUN_BODY, "reference_tax_year": 1900, "start_tax_year": 1900}
+    response = client.post("/api/v1/simulations", json=bad_body)
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "unsupported_tax_year"
+    assert payload["requested_year"] == 1900
+    assert 2026 in payload["documented_years"]
+
+
 def test_identical_run_requests_produce_identical_results(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
@@ -237,6 +257,22 @@ def test_unrecognized_axis_or_candidate_value_is_rejected(client):
     bad_axis_body = {**_RUN_BODY, "axis": "state", "candidates": ["FL"]}
     axis_response = client.post("/api/v1/comparisons/deterministic", json=bad_axis_body)
     assert axis_response.status_code == 422                                        # 004 has no state axis
+
+
+def test_comparison_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(client):
+    """Same regression as test_run_with_an_out_of_range_tax_year_is_a_clean_422_...
+    for the comparison endpoints -- both dispatch UnsupportedTaxYearError
+    from deep inside 004/005, not during resolve_run_context()."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY, "reference_tax_year": 1900, "start_tax_year": 1900,
+        "plan_to_age": 60, "axis": "state", "candidates": ["FL"],
+    }
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "unsupported_tax_year"
 
 
 # --- User Story 5: export a run or comparison as a downloadable report ---

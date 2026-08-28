@@ -33,11 +33,14 @@ One function per `007` endpoint (research.md §2), each returning the parsed JSO
 | `InvalidScenarioError` | 422 `invalid_scenario` | `reason` |
 | `BlockingValidationError` | 422 `blocking_validation_flags` | `flags: list[dict]` (each `{field, message, severity}`) |
 | `UnknownReferenceValueError` | 422 `unknown_reference_value` | `field`, `value` |
+| `UnsupportedTaxYearError` | 422 `unsupported_tax_year` | `figure_name`, `requested_year`, `documented_years` |
 | `CostBudgetExceededError` | 413 `estimated_cost_exceeds_budget` | `estimated_seconds`, `budget_seconds` |
 | `BackendUnreachableError` | a connection/timeout failure reaching `007` at all | the underlying `httpx` exception |
 | `UnexpectedBackendError` | any other non-2xx response | `status_code`, raw body |
 
 Every page script catches these (never a bare `except Exception`) and renders the message FR-007/FR-015 require — see [contracts/ui-pages.md](./contracts/ui-pages.md) for the exact per-type message each page shows.
+
+`UnsupportedTaxYearError` was added post-launch (not part of the original `008` implementation): a real run against the Run Simulation page's unedited `reference_tax_year` placeholder (`1900`, from `min_value=1900` with no explicit default -- research.md §2's reasoning against reading the system clock) reached `002`'s figure schedules outside their documented range and surfaced as a bare, unexplained `HTTP 500` instead of a specific message. Fixed at both layers: `007`'s `routes/simulations.py`/`routes/comparisons.py` now catch the underlying `UnsupportedTaxYearError` (`retirement_planner.tax`) around the `run_simulation()`/`compare_*()` calls and translate it via `resolution.py::unsupported_tax_year_error()`, and this feature's `api_client.py`/`errors.py`/both pages render it distinctly, per this table.
 
 ## Verification Indicator (`src/rp_ui/verification.py`)
 

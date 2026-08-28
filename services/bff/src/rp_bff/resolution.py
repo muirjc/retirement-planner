@@ -13,10 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from retirement_planner.comparison import StrategyConfiguration, deemed_rmd_owner
 from retirement_planner.mechanics import AccountBalances, CONVERSION_STRATEGIES, WITHDRAWAL_STRATEGIES
 from retirement_planner.scenario import Household, Scenario, load_scenario
-from retirement_planner.tax import STATE_MODULES
+from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
 from .cost_estimation import check_cost_within_budget
 
@@ -48,6 +50,27 @@ class UnknownReferenceValueError(Exception):
         self.field = field
         self.value = value
         super().__init__(f"unknown {field}: {value!r}")
+
+
+def unsupported_tax_year_error(exc: UnsupportedTaxYearError) -> HTTPException:
+    """Translates a raised UnsupportedTaxYearError (tax/models.py's own
+    figure-lookup guard -- never falls back to the nearest documented
+    year or extrapolates) into a 422 response, so a reference_tax_year/
+    start_tax_year outside the documented range never reaches the client
+    as a bare, unexplained 500. Found via a real run against the UI's
+    unedited placeholder year (1900); reused by both
+    routes/simulations.py and routes/comparisons.py since either
+    reference_tax_year or start_tax_year can trigger this deep inside
+    004/005's own computation, not during resolve_run_context()."""
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": "unsupported_tax_year",
+            "figure_name": exc.figure_name,
+            "requested_year": exc.requested_year,
+            "documented_years": exc.available_years,
+        },
+    )
 
 
 @dataclass

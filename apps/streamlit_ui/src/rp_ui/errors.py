@@ -51,6 +51,21 @@ class UnknownReferenceValueError(RpUiError):
         super().__init__(f"Unrecognized value for {field!r}: {value!r}")
 
 
+class UnsupportedTaxYearError(RpUiError):
+    """007 returned 422 {"error": "unsupported_tax_year", "figure_name": ...,
+    "requested_year": ..., "documented_years": [...]}. Added after a real
+    run against the Run Simulation page's unedited reference_tax_year
+    placeholder (1900) surfaced as a bare "HTTP 500" -- 002's own figure
+    schedules only cover a bounded range of years; a year outside it is a
+    422, not a server error."""
+
+    def __init__(self, *, figure_name: str, requested_year: int, documented_years: list[int]) -> None:
+        self.figure_name = figure_name
+        self.requested_year = requested_year
+        self.documented_years = documented_years
+        super().__init__(f"{figure_name!r} has no documented value for tax year {requested_year}")
+
+
 class CostBudgetExceededError(RpUiError):
     """007 returned 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": ..., "budget_seconds": ...}."""
 

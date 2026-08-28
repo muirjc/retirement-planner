@@ -362,6 +362,35 @@ def test_us2_cost_budget_exceeded_shows_specific_message():
     assert any("too large" in e.value.lower() and "180" in e.value for e in at.error)
 
 
+def test_us2_unsupported_tax_year_shows_specific_message_not_a_bare_500():
+    """Regression: a real user left the Reference tax year field at its
+    unedited placeholder (1900) and got "Unexpected response from
+    backend: HTTP 500" -- 007 now returns a clean 422 for this, and this
+    page must render a specific message for it, not fall through to the
+    generic UnexpectedBackendError branch."""
+
+    def sim_response(request):
+        return httpx.Response(
+            422,
+            json={
+                "error": "unsupported_tax_year",
+                "figure_name": "rmd_start_age",
+                "requested_year": 1900,
+                "documented_years": [2020, 2026],
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert any("1900" in e.value and "2020" in e.value and "2026" in e.value for e in at.error)
+
+
 def test_us2_run_button_wrapped_in_spinner():
     """Acceptance Scenario US2.4 -- a progress indicator is visible for the
     duration of a run request. Verified structurally: run_simulation() is

@@ -17,6 +17,7 @@ from rp_ui.errors import (
     RpUiError,
     ScenarioNotFoundError,
     UnknownReferenceValueError,
+    UnsupportedTaxYearError,
 )
 
 st.set_page_config(page_title="Run Simulation -- Retirement Planner", page_icon="\U0001f3b2")
@@ -76,6 +77,13 @@ if st.button("Run", key="run_button"):
                 st.error(f"**{flag['field']}**: {flag['message']}")
         except UnknownReferenceValueError as err:
             st.error(f"{err.field!r} value {err.value!r} isn't currently supported -- pick from the list.")
+        except UnsupportedTaxYearError as err:
+            years = err.documented_years
+            st.error(
+                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- "
+                f"enter a year between {min(years)} and {max(years)}." if years else
+                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
+            )
         except CostBudgetExceededError as err:
             st.error(
                 f"This request is too large (estimated {err.estimated_seconds:.0f}s "

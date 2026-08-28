@@ -37,7 +37,7 @@ from retirement_planner.simulation import compare_states
 from retirement_planner.simulation import (
     compare_withdrawal_sequencing_strategies as compare_withdrawal_sequencing_strategies_simulated,
 )
-from retirement_planner.tax import STATE_MODULES
+from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
 from ..comparison_candidates import build_candidates_for_axis
 from ..cost_estimation import CostBudgetExceededError
@@ -48,6 +48,7 @@ from ..resolution import (
     UnknownReferenceValueError,
     check_run_cost,
     resolve_run_context,
+    unsupported_tax_year_error,
 )
 from ..serialization import to_jsonable
 
@@ -135,35 +136,38 @@ def resolve_and_compare_deterministic(
         return_assumption=return_assumption,
     )
 
-    if body.axis == "roth_conversion_strategy":
-        for candidate in candidates:
-            if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
-                _reject_unknown("conversion_strategy", candidate.conversion_strategy)
-        result = compare_roth_conversion_strategies_deterministic(
-            **common, withdrawal_strategy=context.strategy.withdrawal_strategy,
-            claiming_ages=context.strategy.claiming_ages, candidates=candidates,
-        )
-    elif body.axis == "withdrawal_sequencing":
-        for candidate in candidates:
-            if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
-                _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
-        result = compare_withdrawal_sequencing_strategies_deterministic(
-            **common, conversion_strategy=context.strategy.conversion_strategy,
-            conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
-            conversion_window=context.strategy.conversion_window,
-            claiming_ages=context.strategy.claiming_ages, candidates=candidates,
-        )
-    else:  # claiming_age_grid
-        try:
-            result = compare_claiming_age_grid_deterministic(
+    try:
+        if body.axis == "roth_conversion_strategy":
+            for candidate in candidates:
+                if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
+                    _reject_unknown("conversion_strategy", candidate.conversion_strategy)
+            result = compare_roth_conversion_strategies_deterministic(
                 **common, withdrawal_strategy=context.strategy.withdrawal_strategy,
-                conversion_strategy=context.strategy.conversion_strategy,
+                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+            )
+        elif body.axis == "withdrawal_sequencing":
+            for candidate in candidates:
+                if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
+                    _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
+            result = compare_withdrawal_sequencing_strategies_deterministic(
+                **common, conversion_strategy=context.strategy.conversion_strategy,
                 conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                 conversion_window=context.strategy.conversion_window,
-                claiming_age_grid=body.candidates,
+                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})
+        else:  # claiming_age_grid
+            try:
+                result = compare_claiming_age_grid_deterministic(
+                    **common, withdrawal_strategy=context.strategy.withdrawal_strategy,
+                    conversion_strategy=context.strategy.conversion_strategy,
+                    conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
+                    conversion_window=context.strategy.conversion_window,
+                    claiming_age_grid=body.candidates,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})
+    except UnsupportedTaxYearError as exc:
+        raise unsupported_tax_year_error(exc)
 
     return context, result
 
@@ -216,39 +220,42 @@ def resolve_and_compare_simulated(
         return_paths=return_paths,
     )
 
-    if body.axis == "state":
-        result = compare_states(**common, states=body.candidates, strategy=context.strategy)
-    else:
-        candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
-        if body.axis == "roth_conversion_strategy":
-            for candidate in candidates:
-                if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
-                    _reject_unknown("conversion_strategy", candidate.conversion_strategy)
-            result = compare_roth_conversion_strategies_simulated(
-                **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
-                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
-            )
-        elif body.axis == "withdrawal_sequencing":
-            for candidate in candidates:
-                if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
-                    _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
-            result = compare_withdrawal_sequencing_strategies_simulated(
-                **common, state=context.state, conversion_strategy=context.strategy.conversion_strategy,
-                conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
-                conversion_window=context.strategy.conversion_window,
-                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
-            )
-        else:  # claiming_age_grid
-            try:
-                result = compare_claiming_age_grid_simulated(
+    try:
+        if body.axis == "state":
+            result = compare_states(**common, states=body.candidates, strategy=context.strategy)
+        else:
+            candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
+            if body.axis == "roth_conversion_strategy":
+                for candidate in candidates:
+                    if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
+                        _reject_unknown("conversion_strategy", candidate.conversion_strategy)
+                result = compare_roth_conversion_strategies_simulated(
                     **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
-                    conversion_strategy=context.strategy.conversion_strategy,
+                    claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                )
+            elif body.axis == "withdrawal_sequencing":
+                for candidate in candidates:
+                    if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
+                        _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
+                result = compare_withdrawal_sequencing_strategies_simulated(
+                    **common, state=context.state, conversion_strategy=context.strategy.conversion_strategy,
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
-                    claiming_age_grid=body.candidates,
+                    claiming_ages=context.strategy.claiming_ages, candidates=candidates,
                 )
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})
+            else:  # claiming_age_grid
+                try:
+                    result = compare_claiming_age_grid_simulated(
+                        **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
+                        conversion_strategy=context.strategy.conversion_strategy,
+                        conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
+                        conversion_window=context.strategy.conversion_window,
+                        claiming_age_grid=body.candidates,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})
+    except UnsupportedTaxYearError as exc:
+        raise unsupported_tax_year_error(exc)
 
     return context, result
 

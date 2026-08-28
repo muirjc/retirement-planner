@@ -66,6 +66,11 @@ POST /api/v1/simulations
   -> 404 {"error": "no_such_scenario", "name": string}         (FR-005)
   -> 422 {"error": "blocking_validation_flags", "flags": [ValidationFlag, ...]}  (FR-009, US3.2)
   -> 422 {"error": "unknown_reference_value", "field": string, "value": string}  (FR-014, research.md §6)
+  -> 422 {"error": "unsupported_tax_year", "figure_name": string, "requested_year": int, "documented_years": [int, ...]}
+       # reference_tax_year/start_tax_year outside 002's documented figure-schedule
+       # range (e.g. RMD_START_AGE) -- added post-launch: a real UI session sent
+       # the unedited placeholder year 1900 and got a bare 500 (UnsupportedTaxYearError
+       # was never caught at this boundary). Same shape from /comparisons/*.
   -> 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": float, "budget_seconds": float}  (FR-018)
 ```
 
@@ -120,6 +125,6 @@ POST /api/v1/reports/comparisons.csv?engine=deterministic|simulated
 
 - `008` (and any future second/third UI) is expected to call this service exclusively over HTTP — never `import retirement_planner` directly — so this contract, not the underlying Python packages, is the one integration surface a UI needs (`docs/frontend_architecture.md` §7's explicit reasoning for why the first UI should exercise this boundary rather than bypass it).
 - `GET /api/v1/reference/*` responses are the single source of truth for what values are currently valid in a run/comparison request's `state`/`withdrawal_strategy`/`conversion_strategy`/`axis` fields — a client should query these rather than hardcoding a list, per Extensibility (Principle IV, FR-006–FR-007).
-- Every error response's `error` field is a stable, machine-matchable string (`no_such_scenario`, `blocking_validation_flags`, `unknown_reference_value`, `estimated_cost_exceeds_budget`) a client can branch on without parsing free-text messages.
+- Every error response's `error` field is a stable, machine-matchable string (`no_such_scenario`, `blocking_validation_flags`, `unknown_reference_value`, `estimated_cost_exceeds_budget`, `unsupported_tax_year`) a client can branch on without parsing free-text messages.
 - `reference_tax_year`/`start_plan_year`/`start_tax_year` are never defaulted by this service (research.md §4) — a client is expected to supply real calendar-year values itself (e.g., today's actual year) rather than expecting the service to infer "now."
 - A future async-job addition to this service (deferred per FR-018/spec.md Assumptions until the documented performance trigger is hit) would wrap these same request/response bodies in a job envelope (`202 {job_id}` + `GET /jobs/{id}`) without changing any field shape listed above — a client built against this contract today should not need to change its request-building code when that lands, only how it awaits a response.

@@ -23,6 +23,7 @@ from .errors import (
     ScenarioNotFoundError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
+    UnsupportedTaxYearError,
 )
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -50,7 +51,7 @@ def _request(method: str, path: str, *, json: object = None, params: dict | None
 
 
 def _raise_for_error_response(resp: httpx.Response) -> None:
-    """Maps one of 007's 5 documented error shapes (contracts/bff-api.md)
+    """Maps one of 007's 6 documented error shapes (contracts/bff-api.md)
     to its typed exception, by branching on the response's own stable
     `error` field (contracts/bff-api.md's "Consumption expectations" note)
     -- never by string-matching a free-text message. Anything else
@@ -74,6 +75,12 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
         raise CostBudgetExceededError(
             estimated_seconds=body.get("estimated_seconds", 0.0),
             budget_seconds=body.get("budget_seconds", 0.0),
+        )
+    if error == "unsupported_tax_year":
+        raise UnsupportedTaxYearError(
+            figure_name=body.get("figure_name", ""),
+            requested_year=body.get("requested_year", 0),
+            documented_years=body.get("documented_years", []),
         )
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 

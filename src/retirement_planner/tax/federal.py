@@ -18,6 +18,14 @@ Rev. Proc. 2026 figures — see quickstart.md and plan.md's Development
 Workflow gate. `verified=False` reflects that honestly; replacing these with
 real, cited figures is follow-on work, not a gap this feature hides.
 
+Schedule note (added for 004-strategy-comparison-layer): since these edges
+are already stated to be real (inflation-adjusted) dollars with "no further
+indexing engine," the same bracket table applies to every documented year —
+the schedule below repeats it across `_DOCUMENTED_YEARS` rather than adding
+a genuinely new table per year, so a multi-year caller (a full-horizon
+projection) does not hit `UnsupportedTaxYearError` for every year after
+2026.
+
 See specs/002-tax-calculation-engine/contracts/tax-api.md ("Operations"
 section) for the locked public signature of compute_federal_tax().
 """
@@ -30,37 +38,39 @@ from .bracket_math import apply_progressive_brackets
 from .models import BracketRow, BracketTable, FederalTaxResult, FilingStatus, IncomeComponents, SourcedFigure
 from .social_security import compute_taxable_social_security
 
+_DOCUMENTED_YEARS = range(2020, 2075)
+
+_MFJ_BRACKETS: BracketTable = (
+    BracketRow(rate=0.10, income_up_to=24_000.0),
+    BracketRow(rate=0.12, income_up_to=96_000.0),
+    BracketRow(rate=0.22, income_up_to=206_000.0),
+    BracketRow(rate=0.24, income_up_to=394_000.0),
+    BracketRow(rate=0.32, income_up_to=500_000.0),
+    BracketRow(rate=0.35, income_up_to=750_000.0),
+    BracketRow(rate=0.37, income_up_to=None),
+)
+
+_SINGLE_BRACKETS: BracketTable = (
+    BracketRow(rate=0.10, income_up_to=12_000.0),
+    BracketRow(rate=0.12, income_up_to=48_000.0),
+    BracketRow(rate=0.22, income_up_to=103_000.0),
+    BracketRow(rate=0.24, income_up_to=197_000.0),
+    BracketRow(rate=0.32, income_up_to=250_000.0),
+    BracketRow(rate=0.35, income_up_to=625_000.0),
+    BracketRow(rate=0.37, income_up_to=None),
+)
+
 _FEDERAL_BRACKETS: dict[FilingStatus, SourcedFigure[BracketTable]] = {
     "married_filing_jointly": SourcedFigure(
         name="federal_brackets_mfj",
-        schedule={
-            2026: (
-                BracketRow(rate=0.10, income_up_to=24_000.0),
-                BracketRow(rate=0.12, income_up_to=96_000.0),
-                BracketRow(rate=0.22, income_up_to=206_000.0),
-                BracketRow(rate=0.24, income_up_to=394_000.0),
-                BracketRow(rate=0.32, income_up_to=500_000.0),
-                BracketRow(rate=0.35, income_up_to=750_000.0),
-                BracketRow(rate=0.37, income_up_to=None),
-            ),
-        },
+        schedule={year: _MFJ_BRACKETS for year in _DOCUMENTED_YEARS},
         citation="IRS Rev. Proc. 2026-XX, MFJ schedule (placeholder — pending verification)",
         last_verified=date(2026, 8, 27),
         verified=False,
     ),
     "single": SourcedFigure(
         name="federal_brackets_single",
-        schedule={
-            2026: (
-                BracketRow(rate=0.10, income_up_to=12_000.0),
-                BracketRow(rate=0.12, income_up_to=48_000.0),
-                BracketRow(rate=0.22, income_up_to=103_000.0),
-                BracketRow(rate=0.24, income_up_to=197_000.0),
-                BracketRow(rate=0.32, income_up_to=250_000.0),
-                BracketRow(rate=0.35, income_up_to=625_000.0),
-                BracketRow(rate=0.37, income_up_to=None),
-            ),
-        },
+        schedule={year: _SINGLE_BRACKETS for year in _DOCUMENTED_YEARS},
         citation="IRS Rev. Proc. 2026-XX, single schedule (placeholder — pending verification)",
         last_verified=date(2026, 8, 27),
         verified=False,

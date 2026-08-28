@@ -13,6 +13,13 @@ actual, longstanding statutory base amounts and have not changed since 1983
 ship here as `verified=False` because they have not been cross-checked
 against 26 U.S.C. §86 as part of this implementation.
 
+Schedule note (added for 004-strategy-comparison-layer): these thresholds
+are not inflation-indexed by statute (unlike federal brackets), so the same
+dollar figures apply to every documented year — the schedule below repeats
+them across `_DOCUMENTED_YEARS` rather than adding a genuinely new value
+per year, so a multi-year caller (a full-horizon projection) does not hit
+`UnsupportedTaxYearError` for every year after 2026.
+
 See specs/002-tax-calculation-engine/contracts/tax-api.md ("Operations"
 section) for the locked public signature of compute_taxable_social_security().
 """
@@ -23,6 +30,8 @@ from dataclasses import dataclass
 from datetime import date
 
 from .models import FigureUsage, FilingStatus, IncomeComponents, SourcedFigure
+
+_DOCUMENTED_YEARS = range(2020, 2075)
 
 
 @dataclass
@@ -36,14 +45,20 @@ class _ProvisionalIncomeThresholds:
 _THRESHOLDS: dict[FilingStatus, SourcedFigure[_ProvisionalIncomeThresholds]] = {
     "married_filing_jointly": SourcedFigure(
         name="ss_provisional_income_thresholds_mfj",
-        schedule={2026: _ProvisionalIncomeThresholds(threshold_1=32_000.0, threshold_2=44_000.0)},
+        schedule={
+            year: _ProvisionalIncomeThresholds(threshold_1=32_000.0, threshold_2=44_000.0)
+            for year in _DOCUMENTED_YEARS
+        },
         citation="26 U.S.C. §86(c)(1)(B), (c)(2)(B) — MFJ base and adjusted base amounts",
         last_verified=date(2026, 8, 27),
         verified=False,
     ),
     "single": SourcedFigure(
         name="ss_provisional_income_thresholds_single",
-        schedule={2026: _ProvisionalIncomeThresholds(threshold_1=25_000.0, threshold_2=34_000.0)},
+        schedule={
+            year: _ProvisionalIncomeThresholds(threshold_1=25_000.0, threshold_2=34_000.0)
+            for year in _DOCUMENTED_YEARS
+        },
         citation="26 U.S.C. §86(c)(1)(A), (c)(2)(A) — single filer base and adjusted base amounts",
         last_verified=date(2026, 8, 27),
         verified=False,

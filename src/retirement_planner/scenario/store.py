@@ -106,6 +106,20 @@ def list_scenarios(*, scenarios_dir: Path | None = None) -> list[str]:
     return sorted(path.stem for path in directory.glob("*.yaml"))
 
 
+def delete_scenario(name: str, *, scenarios_dir: Path | None = None) -> None:
+    """Removes the named scenario's saved file. Raises ScenarioParseError
+    (the same exception type and message shape load_scenario() already
+    raises for a missing scenario) if no file exists for `name` -- added
+    for 007-bff-api-service (research.md §1), so a client can remove a
+    saved scenario over HTTP; not part of 001's original locked contract.
+    """
+    directory = _resolve_dir(scenarios_dir)
+    path = _path_for(name, directory)
+    if not path.exists():
+        raise ScenarioParseError(name, f"no saved scenario named '{name}'")
+    path.unlink()
+
+
 def load_scenario(name: str, *, scenarios_dir: Path | None = None) -> Scenario:
     """Load the named scenario, parse it, and populate its validation_flags
     (i.e., loader.parse_scenario() + validation.validate() combined). Raises

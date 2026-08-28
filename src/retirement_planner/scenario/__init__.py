@@ -6,7 +6,7 @@ engine, reporting) should code against.
 """
 
 from .loader import ScenarioParseError, parse_scenario
-from .store import list_scenarios, load_scenario, save_scenario
+from .store import delete_scenario, list_scenarios, load_scenario, save_scenario
 from .models import (
     Account,
     Household,
@@ -31,6 +31,7 @@ __all__ = [
     "SimulationSettings",
     "SpendingProfile",
     "ValidationFlag",
+    "delete_scenario",
     "list_scenarios",
     "load_scenario",
     "parse_scenario",

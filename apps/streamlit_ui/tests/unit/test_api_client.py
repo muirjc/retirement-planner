@@ -3,7 +3,7 @@
 Uses httpx.MockTransport fixtures built from 007's actual documented
 response shapes (specs/007-bff-api-service/contracts/bff-api.md), not
 guessed shapes, per research.md §2's testing decision. Covers: each of
-007's 6 documented error responses raises the corresponding rp_ui.errors
+007's 7 documented error responses raises the corresponding rp_ui.errors
 type; a connection failure raises BackendUnreachableError; an
 unrecognized non-2xx raises UnexpectedBackendError; and a 2xx response
 returns its parsed JSON body (or CSV text for the export endpoints).
@@ -17,6 +17,7 @@ from rp_ui.errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
+    InheritedAccountsUnsupportedForSimulationError,
     InvalidScenarioError,
     ScenarioNotFoundError,
     UnexpectedBackendError,
@@ -142,6 +143,25 @@ def test_unsupported_tax_year_raises_unsupported_tax_year_error():
     assert exc_info.value.figure_name == "rmd_start_age"
     assert exc_info.value.requested_year == 1900
     assert exc_info.value.documented_years == [2020, 2026]
+
+
+def test_inherited_accounts_unsupported_for_simulation_raises_typed_error():
+    """Regression: a real run against a scenario built with the Scenarios
+    page's own Inherited IRA section previously fell through to the
+    generic UnexpectedBackendError ("Unexpected response from backend:
+    HTTP 422") with no actionable message -- this is the documented 422
+    shape 007 actually produces for it (bff-api.md)."""
+
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": ["traditional-6"]},
+        )
+
+    _install(handler)
+    with pytest.raises(InheritedAccountsUnsupportedForSimulationError) as exc_info:
+        api_client.run_simulation({"scenario_name": "base_case"})
+    assert exc_info.value.account_ids == ["traditional-6"]
 
 
 def test_cost_budget_exceeded_raises_cost_budget_exceeded_error():

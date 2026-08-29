@@ -66,6 +66,20 @@ class UnsupportedTaxYearError(RpUiError):
         super().__init__(f"{figure_name!r} has no documented value for tax year {requested_year}")
 
 
+class InheritedAccountsUnsupportedForSimulationError(RpUiError):
+    """007 returned 422 {"error": "inherited_accounts_unsupported_for_simulation",
+    "account_ids": [...]}. Monte Carlo simulation (this page, and the
+    simulated engine on Compare) isn't threaded through 012-inherited-ira-rmd's
+    inherited-account support yet -- only the deterministic engine is.
+    Found via a real run against a scenario built with the Scenarios
+    page's own new Inherited IRA section, which previously fell through
+    to the generic UnexpectedBackendError with no actionable message."""
+
+    def __init__(self, *, account_ids: list[str]) -> None:
+        self.account_ids = account_ids
+        super().__init__(f"{len(account_ids)} inherited account(s) not supported for Monte Carlo simulation")
+
+
 class CostBudgetExceededError(RpUiError):
     """007 returned 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": ..., "budget_seconds": ...}."""
 

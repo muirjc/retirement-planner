@@ -67,6 +67,15 @@ DEFAULTS = {
     "conversion_bracket_ceiling_or_amount": 0.0,
     "conversion_window_start": 0,
     "conversion_window_end": 0,
+    "include_inherited_ira": False,
+    "inherited_owner": None,
+    "inherited_account_id": "",
+    "inherited_balance": 0.0,
+    "inherited_death_year": 2020,
+    "inherited_decedent_age_at_death": 75,
+    "inherited_decedent_was_taking_rmds": True,
+    "inherited_beneficiary_relationship": "other_individual",
+    "inherited_beneficiary_classification": "non_eligible_designated_beneficiary",
 }
 
 
@@ -101,6 +110,11 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     member_names = [m["person_name"] for m in members]
     balances_by_owner: dict[tuple[str, str], float] = {}
     for account in scenario["accounts"]:
+        if account.get("inherited"):
+            continue  # 012-inherited-ira-rmd: handled separately below, never
+            # folded into a member's own ordinary balance -- an inherited
+            # account is never legally commingled with the beneficiary's own
+            # account (research.md §5), so it must not double-count here.
         owner = account.get("owner")
         if owner in member_names:
             balances_by_owner[(account["account_type"], owner)] = account["balance"]
@@ -109,6 +123,23 @@ def _apply_scenario_to_form(scenario: dict) -> None:
             st.session_state[f"member{index}_{account_type}_balance"] = balances_by_owner.get(
                 (account_type, person_name), 0.0
             )
+
+    # 012-inherited-ira-rmd: this form supports at most one inherited
+    # account (mirrors this page's other fixed-shape conventions -- see
+    # module docstring); the first account carrying an `inherited` block
+    # is the one shown here.
+    inherited_account = next((a for a in scenario["accounts"] if a.get("inherited")), None)
+    st.session_state["include_inherited_ira"] = inherited_account is not None
+    if inherited_account is not None:
+        st.session_state["inherited_owner"] = inherited_account.get("owner") or ""
+        st.session_state["inherited_account_id"] = inherited_account.get("account_id") or ""
+        st.session_state["inherited_balance"] = inherited_account["balance"]
+        inherited = inherited_account["inherited"]
+        st.session_state["inherited_death_year"] = inherited["death_year"]
+        st.session_state["inherited_decedent_age_at_death"] = inherited["decedent_age_at_death"]
+        st.session_state["inherited_decedent_was_taking_rmds"] = inherited["decedent_was_taking_rmds"]
+        st.session_state["inherited_beneficiary_relationship"] = inherited["beneficiary_relationship"]
+        st.session_state["inherited_beneficiary_classification"] = inherited["beneficiary_classification"]
     st.session_state["annual_need_real"] = scenario["spending"]["annual_need_real"]
     st.session_state["state"] = scenario["state"]
     ma = scenario["market_assumptions"]
@@ -156,8 +187,15 @@ except RpUiError as err:
 
 load_col, delete_col = st.columns(2)
 with load_col:
-    selected_name = st.selectbox("Saved scenarios", options=[""] + existing_names, key="scenario_load_select")
-    if st.button("Load", key="load_button") and selected_name:
+    selected_name = st.selectbox(
+        "Saved scenarios",
+        options=[""] + existing_names,
+        key="scenario_load_select",
+        help="Pick a previously saved scenario, then Load to populate the form below with its data, or Delete to remove it.",
+    )
+    if st.button(
+        "Load", key="load_button", help="Replaces everything in the form below with the selected scenario's saved data."
+    ) and selected_name:
         try:
             scenario = get_scenario(selected_name)
         except ScenarioNotFoundError:
@@ -167,7 +205,11 @@ with load_col:
         else:
             _apply_scenario_to_form(scenario)
 with delete_col:
-    if st.button("Delete selected", key="delete_button") and selected_name:
+    if st.button(
+        "Delete selected",
+        key="delete_button",
+        help="Permanently removes the selected saved scenario. Doesn't affect the form below.",
+    ) and selected_name:
         try:
             delete_scenario(selected_name)
         except ScenarioNotFoundError:
@@ -194,28 +236,49 @@ except RpUiError as err:
 # -- Form -----------------------------------------------------------------
 
 st.subheader("Scenario")
-st.text_input("Scenario name", key="scenario_name")
+st.text_input(
+    "Scenario name",
+    key="scenario_name",
+    help="A short name to save this scenario under. Saving again under the same name completely overwrites it.",
+)
 
 st.subheader("Household")
-st.selectbox("Filing status", options=["single", "married_filing_jointly"], key="filing_status")
+st.selectbox(
+    "Filing status",
+    options=["single", "married_filing_jointly"],
+    key="filing_status",
+    help=(
+        "`single` -- one person, only Member 1 below. "
+        "`married_filing_jointly` -- two people; Member 2's fields and account balances appear "
+        "below once selected. See the Instructions page's Household section for more."
+    ),
+)
+
+_NAME_HELP = "This person's name or a short label -- used to identify them elsewhere (account owner, Roth conversion candidate, inherited-IRA beneficiary)."
+_CURRENT_AGE_HELP = "Their age today, as of right now -- not a future planning age."
+_SS_CLAIM_AGE_HELP = "The age they plan to start claiming Social Security, between 62 and 70."
+_SS_BENEFIT_HELP = (
+    "Their estimated annual Social Security benefit **at the claim age entered here** -- not the "
+    "full-retirement-age amount if claiming earlier or later. See the Instructions page's Household section."
+)
 
 st.markdown("**Member 1**")
 c1, c2, c3, c4 = st.columns(4)
-c1.text_input("Name", key="member1_person_name")
-c2.number_input("Current age", min_value=0, step=1, key="member1_current_age")
-c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age")
+c1.text_input("Name", key="member1_person_name", help=_NAME_HELP)
+c2.number_input("Current age", min_value=0, step=1, key="member1_current_age", help=_CURRENT_AGE_HELP)
+c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
 c4.number_input(
-    "SS annual benefit ($)", min_value=0.0, step=100.0, key="member1_ss_annual_benefit"
+    "SS annual benefit ($)", min_value=0.0, step=100.0, key="member1_ss_annual_benefit", help=_SS_BENEFIT_HELP
 )
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
     c1, c2, c3, c4 = st.columns(4)
-    c1.text_input("Name", key="member2_person_name")
-    c2.number_input("Current age", min_value=0, step=1, key="member2_current_age")
-    c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age")
+    c1.text_input("Name", key="member2_person_name", help=_NAME_HELP)
+    c2.number_input("Current age", min_value=0, step=1, key="member2_current_age", help=_CURRENT_AGE_HELP)
+    c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
     c4.number_input(
-        "SS annual benefit ($)", min_value=0.0, step=100.0, key="member2_ss_annual_benefit"
+        "SS annual benefit ($)", min_value=0.0, step=100.0, key="member2_ss_annual_benefit", help=_SS_BENEFIT_HELP
     )
 
 st.subheader("Accounts")
@@ -229,61 +292,278 @@ st.subheader("Accounts")
 # module docstring -- so every dollar-amount field below signals its unit
 # via a "($)" label suffix instead, the only mechanism that actually works
 # for an editable field.
+_TRADITIONAL_HELP = "This person's own pre-tax IRA/401(k) balance. Entered per person, never combined with a spouse's."
+_ROTH_HELP = "This person's own Roth IRA/401(k) balance."
+_TAXABLE_HELP = "This person's own ordinary (non-retirement) brokerage or savings balance."
+
 member1_label = st.session_state["member1_person_name"] or "Member 1"
 st.markdown(f"**{member1_label}**")
 a1, a2, a3 = st.columns(3)
-a1.number_input("Traditional balance ($)", step=1000.0, key="member1_traditional_balance")
-a2.number_input("Roth balance ($)", step=1000.0, key="member1_roth_balance")
-a3.number_input("Taxable balance ($)", step=1000.0, key="member1_taxable_balance")
+a1.number_input("Traditional balance ($)", step=1000.0, key="member1_traditional_balance", help=_TRADITIONAL_HELP)
+a2.number_input("Roth balance ($)", step=1000.0, key="member1_roth_balance", help=_ROTH_HELP)
+a3.number_input("Taxable balance ($)", step=1000.0, key="member1_taxable_balance", help=_TAXABLE_HELP)
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     member2_label = st.session_state["member2_person_name"] or "Member 2"
     st.markdown(f"**{member2_label}**")
     a1, a2, a3 = st.columns(3)
-    a1.number_input("Traditional balance ($)", step=1000.0, key="member2_traditional_balance")
-    a2.number_input("Roth balance ($)", step=1000.0, key="member2_roth_balance")
-    a3.number_input("Taxable balance ($)", step=1000.0, key="member2_taxable_balance")
+    a1.number_input("Traditional balance ($)", step=1000.0, key="member2_traditional_balance", help=_TRADITIONAL_HELP)
+    a2.number_input("Roth balance ($)", step=1000.0, key="member2_roth_balance", help=_ROTH_HELP)
+    a3.number_input("Taxable balance ($)", step=1000.0, key="member2_taxable_balance", help=_TAXABLE_HELP)
+
+st.subheader("Inherited IRA (optional)")
+# 012-inherited-ira-rmd: a separate, always-independent account from the
+# ordinary per-member balances above (never pooled with them -- see
+# module docstring's equivalent note in _apply_scenario_to_form()).
+# This form supports at most one inherited account, mirroring every
+# other optional block on this page (Roth conversion below) -- a
+# beneficiary with more than one inherited account still needs to edit
+# the scenario's YAML/API directly for the second one.
+def _seed_inherited_ira_defaults() -> None:
+    """Streamlit gotcha workaround: a widget that's *conditionally
+    revealed for the first time on the same rerun that flips its gating
+    checkbox* does not reliably pick up a value pre-seeded via a plain
+    st.session_state.setdefault() earlier in the script -- it silently
+    falls back to its own constructor default (False / first option)
+    instead, even when an explicit value=/index= is also passed. A
+    value written from an on_change callback (which runs before the
+    main script body, in the phase Streamlit's widget machinery expects
+    state mutations to happen in) is honored correctly. Only forces
+    fresh defaults on the check transition -- unchecking then
+    re-checking intentionally resets the sub-fields rather than trying
+    to preserve a half-entered, hidden state."""
+    if st.session_state["include_inherited_ira"]:
+        st.session_state["inherited_owner"] = ""  # blank placeholder -- see selectbox's own comment below
+        st.session_state["inherited_account_id"] = ""
+        st.session_state["inherited_balance"] = 0.0
+        st.session_state["inherited_death_year"] = 2020
+        st.session_state["inherited_decedent_age_at_death"] = 75
+        st.session_state["inherited_decedent_was_taking_rmds"] = True
+        st.session_state["inherited_beneficiary_relationship"] = "other_individual"
+        st.session_state["inherited_beneficiary_classification"] = "non_eligible_designated_beneficiary"
+
+
+st.checkbox(
+    "Include an inherited traditional IRA",
+    key="include_inherited_ira",
+    on_change=_seed_inherited_ira_defaults,
+    help=(
+        "Only a traditional account inherited from an original owner who had already begun "
+        "their own RMDs before dying is computed by this tool today. See the Instructions "
+        "page's Inherited IRA section for what each field below means and what's not yet "
+        "supported."
+    ),
+)
+if st.session_state["include_inherited_ira"]:
+    # Explicit blank placeholder, matching State/Conversion strategy's
+    # own established convention -- forces an active choice (important
+    # for who a beneficiary is) rather than trying to pre-select a
+    # "likely" member, which also sidesteps a Streamlit quirk where a
+    # freshly-revealed selectbox's session_state-seeded value doesn't
+    # reliably resolve against an explicit index= (see
+    # _seed_inherited_ira_defaults()'s docstring for the general issue).
+    inherited_owner_options = [""] + [st.session_state["member1_person_name"]]
+    if st.session_state["filing_status"] == "married_filing_jointly":
+        inherited_owner_options.append(st.session_state["member2_person_name"])
+
+    i1, i2 = st.columns(2)
+    i1.selectbox(
+        "Beneficiary",
+        options=inherited_owner_options,
+        key="inherited_owner",
+        help="Which household member inherited this account -- they're the one it's taxed to.",
+    )
+    i2.number_input(
+        "Balance ($)",
+        step=1000.0,
+        key="inherited_balance",
+        help="The inherited account's own balance -- tracked entirely separately from this person's ordinary Traditional balance above.",
+    )
+
+    i3, i4 = st.columns(2)
+    i3.number_input(
+        "Decedent's death year",
+        min_value=1900,
+        step=1,
+        key="inherited_death_year",
+        help="The calendar year the original account owner died.",
+    )
+    i4.number_input(
+        "Decedent's age at death",
+        min_value=0,
+        step=1,
+        key="inherited_decedent_age_at_death",
+        help="Their age in the death year above -- drives the required-distribution divisor.",
+    )
+
+    st.checkbox(
+        "Original owner had already begun their own RMDs before death",
+        key="inherited_decedent_was_taking_rmds",
+        help=(
+            "Must stay checked -- if the owner died *before* starting their own RMDs, this "
+            "tool doesn't compute that case yet and will block the scenario rather than "
+            "guess, once you Save or Validate."
+        ),
+    )
+
+    i5, i6 = st.columns(2)
+    i5.selectbox(
+        "Beneficiary relationship",
+        options=["spouse", "minor_child", "other_individual", "trust_or_entity"],
+        key="inherited_beneficiary_relationship",
+        help="Descriptive only -- doesn't by itself change what's computed.",
+    )
+    i6.selectbox(
+        "Beneficiary classification",
+        options=[
+            "non_eligible_designated_beneficiary",
+            "eligible_designated_beneficiary_spouse",
+            "eligible_designated_beneficiary_other",
+        ],
+        key="inherited_beneficiary_classification",
+        help=(
+            "Must stay `non_eligible_designated_beneficiary` -- the SECURE 2.0 10-year-rule "
+            "case, the only one this tool computes today. An eligible-designated-beneficiary "
+            "case (spouse, minor child, disabled/chronically ill, <10-years-younger) follows "
+            "different rules not yet supported, and will block the scenario rather than guess."
+        ),
+    )
 
 st.subheader("Spending")
 st.number_input(
-    "Annual spending need ($, today's dollars)", step=1000.0, key="annual_need_real"
+    "Annual spending need ($, today's dollars)",
+    step=1000.0,
+    key="annual_need_real",
+    help="Your planned annual spending in today's dollars, before taxes. See the Instructions page's Spending section.",
 )
 
 st.subheader("State")
 state_options = [""] + states
 current_state = st.session_state.get("state") or ""
 state_index = state_options.index(current_state) if current_state in state_options else 0
-st.selectbox("State", options=state_options, index=state_index, key="state")
+st.selectbox(
+    "State",
+    options=state_options,
+    index=state_index,
+    key="state",
+    help=(
+        "The state you plan to reside in for tax purposes. States differ in whether they tax "
+        "income at all, flat vs. graduated brackets, and whether retirees get an age-based "
+        "exclusion -- see the Instructions page's State section for details."
+    ),
+)
 
 st.subheader("Market assumptions")
+# These are your own forward-looking planning inputs, not something the
+# tool looks up (see the Instructions page's Market Assumptions section)
+# -- every help text below explains what the number means, not what
+# value to use.
 m1, m2 = st.columns(2)
 with m1:
-    st.number_input("Equity allocation", min_value=0.0, max_value=1.0, key="equity_allocation")
-    st.number_input("Equity return mean (real)", key="equity_return_mean_real")
-    st.number_input("Equity return std (real)", key="equity_return_std_real")
-    st.number_input("Correlation", min_value=-1.0, max_value=1.0, key="correlation")
+    st.number_input(
+        "Equity allocation",
+        min_value=0.0,
+        max_value=1.0,
+        key="equity_allocation",
+        help="Fraction of the portfolio in equities, 0 to 1 (e.g. 0.6 = 60% stocks). Together with Bond allocation, should sum to 1.",
+    )
+    st.number_input(
+        "Equity return mean (real)",
+        key="equity_return_mean_real",
+        help="Expected average annual equity return, inflation-adjusted (real), as a decimal (e.g. 0.05 = 5%).",
+    )
+    st.number_input(
+        "Equity return std (real)",
+        key="equity_return_std_real",
+        help="Expected annual volatility (standard deviation) of equity returns, inflation-adjusted.",
+    )
+    st.number_input(
+        "Correlation",
+        min_value=-1.0,
+        max_value=1.0,
+        key="correlation",
+        help="Correlation between equity and bond returns, -1 to 1. 0 means uncorrelated.",
+    )
 with m2:
-    st.number_input("Bond allocation", min_value=0.0, max_value=1.0, key="bond_allocation")
-    st.number_input("Bond return mean (real)", key="bond_return_mean_real")
-    st.number_input("Bond return std (real)", key="bond_return_std_real")
+    st.number_input(
+        "Bond allocation",
+        min_value=0.0,
+        max_value=1.0,
+        key="bond_allocation",
+        help="Fraction of the portfolio in bonds, 0 to 1. Together with Equity allocation, should sum to 1.",
+    )
+    st.number_input(
+        "Bond return mean (real)",
+        key="bond_return_mean_real",
+        help="Expected average annual bond return, inflation-adjusted (real), as a decimal.",
+    )
+    st.number_input(
+        "Bond return std (real)",
+        key="bond_return_std_real",
+        help="Expected annual volatility (standard deviation) of bond returns, inflation-adjusted.",
+    )
 
 st.subheader("Simulation settings")
 s1, s2, s3 = st.columns(3)
-s1.number_input("Paths", min_value=1, step=100, key="n_paths")
-s2.number_input("Seed", min_value=0, step=1, key="seed")
-s3.number_input("Plan to age", min_value=1, step=1, key="plan_to_age")
+s1.number_input(
+    "Paths",
+    min_value=1,
+    step=100,
+    key="n_paths",
+    help="How many randomized future paths to simulate by default. More paths give a smoother, more stable success-rate estimate at the cost of a slower run.",
+)
+s2.number_input(
+    "Seed",
+    min_value=0,
+    step=1,
+    key="seed",
+    help="Fixes the randomness so re-running with the same inputs reproduces the same result.",
+)
+s3.number_input(
+    "Plan to age",
+    min_value=1,
+    step=1,
+    key="plan_to_age",
+    help="The horizon this scenario's simulations run until by default -- not a prediction of how long you'll live.",
+)
 
 st.subheader("Roth conversion (optional)")
-st.checkbox("Include a Roth conversion strategy", key="include_roth_conversion")
+st.checkbox(
+    "Include a Roth conversion strategy",
+    key="include_roth_conversion",
+    help="Leave unchecked if you don't plan to convert traditional balances to Roth. See the Instructions page's Roth Conversion section.",
+)
 if st.session_state["include_roth_conversion"]:
     strategy_options = [""] + conversion_strategies
     current_strategy = st.session_state.get("conversion_strategy") or ""
     strategy_index = strategy_options.index(current_strategy) if current_strategy in strategy_options else 0
-    st.selectbox("Conversion strategy", options=strategy_options, index=strategy_index, key="conversion_strategy")
-    st.number_input("Bracket ceiling or amount ($)", key="conversion_bracket_ceiling_or_amount")
+    st.selectbox(
+        "Conversion strategy",
+        options=strategy_options,
+        index=strategy_index,
+        key="conversion_strategy",
+        help=(
+            "`fill_to_bracket` -- converts just enough each year to reach the income ceiling "
+            "you set below, without going over. `fixed_amount` -- converts that same flat "
+            "dollar amount every year, regardless of income. See the Instructions page's Roth "
+            "Conversion section for the full explanation."
+        ),
+    )
+    st.number_input(
+        "Bracket ceiling or amount ($)",
+        key="conversion_bracket_ceiling_or_amount",
+        help=(
+            "For `fill_to_bracket`: the income ceiling in dollars to fill up to. "
+            "For `fixed_amount`: the flat dollar amount to convert each year."
+        ),
+    )
     w1, w2 = st.columns(2)
-    w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start")
-    w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end")
+    _WINDOW_HELP = (
+        "The plan years (1 = the scenario's first plan year) during which this conversion "
+        "strategy is active -- outside this window, no conversions happen, regardless of strategy."
+    )
+    w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start", help=_WINDOW_HELP)
+    w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end", help=_WINDOW_HELP)
 
 
 def _build_body() -> dict:
@@ -368,6 +648,22 @@ def _build_body() -> dict:
             "bracket_ceiling_or_amount": st.session_state["conversion_bracket_ceiling_or_amount"],
             "window": [st.session_state["conversion_window_start"], st.session_state["conversion_window_end"]],
         }
+    if st.session_state["include_inherited_ira"]:
+        inherited_account = {
+            "account_type": "traditional",
+            "balance": st.session_state["inherited_balance"],
+            "owner": st.session_state["inherited_owner"],
+            "inherited": {
+                "death_year": st.session_state["inherited_death_year"],
+                "decedent_age_at_death": st.session_state["inherited_decedent_age_at_death"],
+                "decedent_was_taking_rmds": st.session_state["inherited_decedent_was_taking_rmds"],
+                "beneficiary_relationship": st.session_state["inherited_beneficiary_relationship"],
+                "beneficiary_classification": st.session_state["inherited_beneficiary_classification"],
+            },
+        }
+        if st.session_state["inherited_account_id"]:
+            inherited_account["account_id"] = st.session_state["inherited_account_id"]
+        body["accounts"].append(inherited_account)
     return body
 
 
@@ -375,7 +671,9 @@ st.divider()
 save_col, validate_col = st.columns(2)
 
 with save_col:
-    if st.button("Save", key="save_button"):
+    if st.button(
+        "Save", key="save_button", help="Saves the form above under Scenario name, overwriting any existing scenario with that name."
+    ):
         try:
             saved = put_scenario(st.session_state["scenario_name"], _build_body())
         except InvalidScenarioError as err:
@@ -387,7 +685,9 @@ with save_col:
             _render_flags(saved.get("validation_flags", []))
 
 with validate_col:
-    if st.button("Validate", key="validate_button"):
+    if st.button(
+        "Validate", key="validate_button", help="Checks the form above for problems without saving it."
+    ):
         try:
             result = validate_scenario(st.session_state["scenario_name"], _build_body())
         except InvalidScenarioError as err:

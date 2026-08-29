@@ -86,12 +86,25 @@ def make_fake_bff():
 
     def compute_flags(body: dict) -> list[dict]:
         flags = []
-        for acct in body["accounts"]:
+        for index, acct in enumerate(body["accounts"]):
             if acct["balance"] < 0:
                 flags.append(
                     {
                         "field": f"accounts[{acct['account_type']}].balance",
                         "message": "balance must be >= 0",
+                        "severity": "blocking",
+                    }
+                )
+            # 012-inherited-ira-rmd: a minimal mirror of one of the real
+            # backend's four inherited-account blocking rules, enough to
+            # exercise this page's inline flag-rendering path end-to-end
+            # without reimplementing every rule here.
+            inherited = acct.get("inherited")
+            if inherited and inherited.get("decedent_was_taking_rmds") is False:
+                flags.append(
+                    {
+                        "field": f"accounts[{index}].inherited",
+                        "message": "pre-RBD inherited accounts are not yet supported",
                         "severity": "blocking",
                     }
                 )
@@ -293,6 +306,165 @@ def test_us3_loading_a_stale_owner_account_leaves_its_balance_absent_not_guessed
     assert at.number_input(key="member2_traditional_balance").value == 0.0
     # No error/flag rendered automatically at load time (Load never calls Validate).
     assert len(at.error) == 0
+
+
+# -- 012-inherited-ira-rmd: Inherited IRA (optional) section (rp-8ap) --------
+
+
+def test_inherited_ira_section_hidden_until_checkbox_checked():
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="include_inherited_ira").value is False
+    with pytest.raises(KeyError):
+        at.number_input(key="inherited_balance")
+
+    at.checkbox(key="include_inherited_ira").set_value(True)
+    at.run()
+    assert at.number_input(key="inherited_balance") is not None
+    assert at.number_input(key="inherited_death_year") is not None
+    assert at.number_input(key="inherited_decedent_age_at_death") is not None
+    assert at.checkbox(key="inherited_decedent_was_taking_rmds").value is True
+    assert at.selectbox(key="inherited_beneficiary_relationship").value == "other_individual"
+    assert at.selectbox(key="inherited_beneficiary_classification").value == "non_eligible_designated_beneficiary"
+
+
+def test_inherited_ira_beneficiary_options_are_current_household_members():
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="filing_status").set_value("married_filing_jointly")
+    at.run()
+    at.text_input(key="member1_person_name").set_value("you")
+    at.text_input(key="member2_person_name").set_value("spouse")
+    at.checkbox(key="include_inherited_ira").set_value(True)
+    at.run()
+
+    assert at.selectbox(key="inherited_owner").options == ["", "you", "spouse"]
+
+
+def test_inherited_ira_save_round_trip_produces_inherited_account():
+    """The filled-in fields save as a fourth account entry, carrying an
+    `inherited` block, alongside the three ordinary per-member accounts."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="inherited_case")
+    at.checkbox(key="include_inherited_ira").set_value(True)
+    at.run()
+    at.selectbox(key="inherited_owner").set_value("Alex")
+    at.number_input(key="inherited_balance").set_value(250_000.0)
+    at.number_input(key="inherited_death_year").set_value(2023)
+    at.number_input(key="inherited_decedent_age_at_death").set_value(80)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved_accounts = store["inherited_case"]["accounts"]
+    assert len(saved_accounts) == 4  # 3 ordinary + 1 inherited
+    inherited_account = next(a for a in saved_accounts if a.get("inherited") is not None)
+    assert inherited_account["account_type"] == "traditional"
+    assert inherited_account["balance"] == 250_000.0
+    assert inherited_account["owner"] == "Alex"
+    assert inherited_account["inherited"] == {
+        "death_year": 2023,
+        "decedent_age_at_death": 80,
+        "decedent_was_taking_rmds": True,
+        "beneficiary_relationship": "other_individual",
+        "beneficiary_classification": "non_eligible_designated_beneficiary",
+    }
+
+
+def test_inherited_ira_unchecked_submits_no_inherited_account():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="ordinary_case")
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert all(a.get("inherited") is None for a in store["ordinary_case"]["accounts"])
+
+
+def test_inherited_ira_load_round_trip_populates_fields_without_double_counting():
+    """Loading a scenario with an inherited account fills the Inherited
+    IRA section's fields, and its balance never leaks into the owning
+    member's own ordinary traditional balance (research.md §5)."""
+    handler, store = make_fake_bff()
+    _install(handler)
+    store["inherited_case"] = {
+        "name": "inherited_case",
+        "household": {
+            "filing_status": "single",
+            "members": [{"person_name": "Alex", "current_age": 55, "ss_claim_age": 67, "ss_annual_benefit": 28_000}],
+        },
+        "accounts": [
+            {"account_type": "traditional", "balance": 100_000.0, "owner": "Alex"},
+            {
+                "account_type": "traditional",
+                "balance": 250_000.0,
+                "owner": "Alex",
+                "account_id": "inherited-1",
+                "inherited": {
+                    "death_year": 2023,
+                    "decedent_age_at_death": 80,
+                    "decedent_was_taking_rmds": True,
+                    "beneficiary_relationship": "other_individual",
+                    "beneficiary_classification": "non_eligible_designated_beneficiary",
+                },
+            },
+        ],
+        "spending": {"annual_need_real": 60_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6, "equity_return_mean_real": 0.05, "equity_return_std_real": 0.15,
+            "bond_allocation": 0.4, "bond_return_mean_real": 0.02, "bond_return_std_real": 0.05, "correlation": 0.0,
+        },
+        "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": None,
+        "validation_flags": [],
+        "is_usable": True,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("inherited_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    # The member's own ordinary traditional balance is $100k -- the
+    # inherited account's $250k must not be added into it.
+    assert at.number_input(key="member1_traditional_balance").value == 100_000.0
+    assert at.checkbox(key="include_inherited_ira").value is True
+    assert at.number_input(key="inherited_balance").value == 250_000.0
+    assert at.selectbox(key="inherited_owner").value == "Alex"
+    assert at.number_input(key="inherited_death_year").value == 2023
+    assert at.number_input(key="inherited_decedent_age_at_death").value == 80
+
+
+def test_inherited_ira_pre_rbd_blocking_flag_shown_inline():
+    """Unchecking 'already begun their own RMDs' and saving surfaces a
+    blocking flag inline, the same way every other blocking flag on this
+    page already does (rp-8ap: 'inline surfacing of the four new blocking
+    validation flags')."""
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="pre_rbd_case")
+    at.checkbox(key="include_inherited_ira").set_value(True)
+    at.run()
+    at.selectbox(key="inherited_owner").set_value("Alex")
+    at.number_input(key="inherited_balance").set_value(250_000.0)
+    at.checkbox(key="inherited_decedent_was_taking_rmds").set_value(False)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert any("pre-rbd" in e.value.lower() for e in at.error)
 
 
 # -- User Story 1: Scenario management (T009-T012) ---------------------------
@@ -511,6 +683,31 @@ def test_us2_unsupported_tax_year_shows_specific_message_not_a_bare_500():
     assert any("1900" in e.value and "2020" in e.value and "2026" in e.value for e in at.error)
 
 
+def test_run_simulation_inherited_accounts_unsupported_shows_specific_message():
+    """Regression: running a scenario built with the Scenarios page's own
+    Inherited IRA section against Monte Carlo simulation previously fell
+    through to "Unexpected response from backend: HTTP 422" with no
+    actionable message -- 012-inherited-ira-rmd's own documented 422
+    shape (bff-api.md) must render a specific message here instead."""
+
+    def sim_response(request):
+        return httpx.Response(
+            422,
+            json={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": ["traditional-6"]},
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert any("inherited" in e.value.lower() and "traditional-6" in e.value for e in at.error)
+    assert any("deterministic" in e.value.lower() for e in at.error)
+
+
 def test_us2_run_button_wrapped_in_spinner():
     """Acceptance Scenario US2.4 -- a progress indicator is visible for the
     duration of a run request. Verified structurally: run_simulation() is
@@ -609,6 +806,35 @@ def test_us3_simulated_state_comparison_shows_overlay_and_table():
     assert table["ending_balance"].iloc[0] == "$1,500,000.00"
     assert table["median_lifetime_tax_paid"].iloc[0] == "$250,000.00"
     assert any(type(child).__name__ == "UnknownElement" for child in at.main.children.values())
+
+
+def test_compare_simulated_inherited_accounts_unsupported_shows_specific_message():
+    """Regression: comparing a scenario built with the Scenarios page's
+    own Inherited IRA section on the Monte Carlo engine previously fell
+    through to "Unexpected response from backend: HTTP 422" -- the
+    documented 422 shape (bff-api.md) must render a specific message,
+    pointing at the Deterministic engine as the supported alternative."""
+
+    def compare_response(request):
+        return httpx.Response(
+            422,
+            json={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": ["traditional-6"]},
+        )
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("FL")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert any("inherited" in e.value.lower() and "traditional-6" in e.value for e in at.error)
+    assert any("deterministic" in e.value.lower() for e in at.error)
 
 
 def test_us3_deterministic_engine_hides_state_axis():

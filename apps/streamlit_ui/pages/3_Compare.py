@@ -21,6 +21,7 @@ from rp_ui.api_client import (
 )
 from rp_ui.charts import comparison_bar_chart, comparison_overlay_chart
 from rp_ui.formatting import format_currency
+from rp_ui.narration import render_results_explanation
 from rp_ui.verification import render_verification_indicator
 from rp_ui.errors import (
     BackendUnreachableError,
@@ -290,11 +291,21 @@ if "compare_last_result" in st.session_state:
                 "success_rate": f"{s['success_rate'] * 100:.1f}%" if s.get("success_rate") is not None else "n/a",
                 "ending_balance": format_currency(s.get("ending_balance")),
                 "median_lifetime_tax_paid": format_currency(s.get("median_lifetime_tax_paid")),
+                "median_lifetime_irmaa_paid": format_currency(s.get("median_lifetime_irmaa_paid")),
+                "median_lifetime_niit_paid": format_currency(s.get("median_lifetime_niit_paid")),
                 "median_depletion_age": s.get("median_depletion_age") if s.get("median_depletion_age") is not None else "n/a",
             }
             for s in summaries
         ]
     )
+
+    # rp-r07: one plain-language explanation per candidate, right under
+    # the table above -- Compare's simulated engine doesn't expose a path
+    # count in its response (unlike Run Simulation's `run`), so no
+    # path_count is passed here; narrate_metrics() falls back to
+    # percentage-only for success rate rather than guessing a count.
+    for s in summaries:
+        render_results_explanation(s, title=s.get("candidate_label"))
 
     # Per-candidate unverified figures shown as one union list -- no single
     # candidate is more relevant than another for this purpose

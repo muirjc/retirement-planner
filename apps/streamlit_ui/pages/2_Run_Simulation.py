@@ -9,6 +9,7 @@ import streamlit as st
 
 from rp_ui.api_client import export_simulation_csv, list_scenarios, list_withdrawal_strategies, run_simulation
 from rp_ui.charts import fan_chart
+from rp_ui.narration import render_results_explanation
 from rp_ui.verification import render_verification_indicator
 from rp_ui.errors import (
     BackendUnreachableError,
@@ -141,9 +142,15 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
             st.session_state["run_last_body"] = _build_run_body()
 
 if "run_last_result" in st.session_state:
+    run = st.session_state["run_last_result"]["run"]
     summary = st.session_state["run_last_result"]["summary"]
     st.metric("Success rate", f"{summary['success_rate'] * 100:.1f}%" if summary["success_rate"] is not None else "n/a")
     st.plotly_chart(fan_chart(summary["percentile_bands"] or []))
+    # rp-r07: the numbers behind the chart above, in plain language --
+    # path_count comes from this same response (every path's own result
+    # is already in `run`), so "success rate" can read "N of M paths"
+    # rather than just a percentage.
+    render_results_explanation(summary, path_count=len(run["path_results"]))
     render_verification_indicator(summary.get("unverified_figure_names", []))
 
     # US5, FR-014: the *same* request body already used for the on-screen

@@ -600,7 +600,7 @@ def test_us2_run_displays_success_rate_and_fan_chart():
         body = json.loads(request.content)
         assert body["scenario_name"] == "base_case"
         assert body["reference_tax_year"] == 2026
-        return httpx.Response(200, json={"run": {"candidate_label": "base_case"}, "summary": summary})
+        return httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": summary})
 
     routes = _run_reference_routes()
     routes[("POST", "/api/v1/simulations")] = sim_response
@@ -864,7 +864,7 @@ def test_us4_run_page_shows_verification_indicator():
     }
 
     def sim_response(request):
-        return httpx.Response(200, json={"run": {"candidate_label": "base_case"}, "summary": summary})
+        return httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": summary})
 
     routes = _run_reference_routes()
     routes[("POST", "/api/v1/simulations")] = sim_response
@@ -929,7 +929,7 @@ def test_us5_run_page_csv_download_matches_on_screen_request():
 
     def sim_response(request):
         captured_bodies.append(("simulate", json.loads(request.content)))
-        return httpx.Response(200, json={"run": {"candidate_label": "base_case"}, "summary": summary})
+        return httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": summary})
 
     def csv_response(request):
         captured_bodies.append(("export", json.loads(request.content)))
@@ -1013,7 +1013,7 @@ def test_polish_full_quickstart_walkthrough():
     def handler(request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path
         if method == "POST" and path == "/api/v1/simulations":
-            return httpx.Response(200, json={"run": {"candidate_label": "base_case"}, "summary": run_summary})
+            return httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": run_summary})
         if method == "POST" and path == "/api/v1/comparisons/simulated":
             return httpx.Response(200, json={"axis": "state", "summaries": compare_summaries})
         if method == "POST" and path == "/api/v1/reports/simulations.csv":

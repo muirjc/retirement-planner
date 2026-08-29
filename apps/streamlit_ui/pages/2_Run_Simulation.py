@@ -14,7 +14,6 @@ from rp_ui.errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
-    InheritedAccountsUnsupportedForSimulationError,
     RpUiError,
     ScenarioNotFoundError,
     UnknownReferenceValueError,
@@ -121,12 +120,6 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
                 st.error(f"**{flag['field']}**: {flag['message']}")
         except UnknownReferenceValueError as err:
             st.error(f"{err.field!r} value {err.value!r} isn't currently supported -- pick from the list.")
-        except InheritedAccountsUnsupportedForSimulationError as err:
-            st.error(
-                "Monte Carlo simulation doesn't support inherited accounts yet "
-                f"({', '.join(err.account_ids)}). Use the Compare page's Deterministic engine "
-                "for this scenario instead -- it fully supports inherited accounts."
-            )
         except UnsupportedTaxYearError as err:
             years = err.documented_years
             st.error(

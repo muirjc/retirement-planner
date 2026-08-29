@@ -44,11 +44,9 @@ from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
 from ..resolution import (
     BlockingValidationFlagsError,
-    InheritedAccountsUnsupportedForSimulationError,
     ResolvedRunContext,
     UnknownReferenceValueError,
     check_run_cost,
-    check_simulation_supports_inherited_accounts,
     resolve_run_context,
     unsupported_tax_year_error,
 )
@@ -211,14 +209,6 @@ def resolve_and_compare_simulated(
             if state not in STATE_MODULES:
                 _reject_unknown("state", state)
 
-    try:
-        check_simulation_supports_inherited_accounts(context)
-    except InheritedAccountsUnsupportedForSimulationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": exc.account_ids},
-        )
-
     candidate_count = len(body.candidates) or 1
     try:
         check_run_cost(context, candidate_count=candidate_count)
@@ -249,6 +239,10 @@ def resolve_and_compare_simulated(
         start_tax_year=body.start_tax_year,
         plan_to_age=context.plan_to_age,
         return_paths=return_paths,
+        # 012-inherited-ira-rmd rp-mt7: now threaded through 005's
+        # compare_*() the same way resolve_and_compare_deterministic()'s
+        # own `common` already forces it into every deterministic branch.
+        inherited_accounts=context.inherited_accounts,
     )
 
     try:

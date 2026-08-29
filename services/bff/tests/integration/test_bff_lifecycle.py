@@ -477,7 +477,7 @@ def test_an_oversized_run_request_is_rejected_before_it_would_actually_run(clien
     assert response.json()["estimated_seconds"] > response.json()["budget_seconds"]
 
 
-# --- 012-inherited-ira-rmd: Monte Carlo requests are rejected, not silently run ---
+# --- 012-inherited-ira-rmd rp-mt7: Monte Carlo now supports inherited accounts ---
 
 _INHERITED_SCENARIO_BODY = {
     **_SCENARIO_BODY,
@@ -499,25 +499,30 @@ _INHERITED_SCENARIO_BODY = {
 }
 
 
-def test_simulation_request_against_an_inherited_account_scenario_is_rejected(client):
+def test_simulation_request_against_an_inherited_account_scenario_now_works(client):
+    """Regression for rp-mt7: inherited_accounts is now threaded through
+    005 (retirement_planner.simulation) -- what used to be a documented
+    422 (inherited_accounts_unsupported_for_simulation) must now run to
+    completion and produce a normal success-rate summary."""
     save_response = client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
     assert save_response.json()["is_usable"] is True
 
     response = client.post("/api/v1/simulations", json=_RUN_BODY)
 
-    assert response.status_code == 422
-    assert response.json()["error"] == "inherited_accounts_unsupported_for_simulation"
-    assert response.json()["account_ids"] == ["traditional-3"]
+    assert response.status_code == 200
+    assert 0.0 <= response.json()["summary"]["success_rate"] <= 1.0
 
 
-def test_simulated_comparison_against_an_inherited_account_scenario_is_rejected(client):
+def test_simulated_comparison_against_an_inherited_account_scenario_now_works(client):
+    """Regression for rp-mt7: see
+    test_simulation_request_against_an_inherited_account_scenario_now_works."""
     client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
 
     body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["FL"]}
     response = client.post("/api/v1/comparisons/simulated", json=body)
 
-    assert response.status_code == 422
-    assert response.json()["error"] == "inherited_accounts_unsupported_for_simulation"
+    assert response.status_code == 200
+    assert len(response.json()["summaries"]) == 1
 
 
 def test_deterministic_comparison_against_an_inherited_account_scenario_still_works(client):

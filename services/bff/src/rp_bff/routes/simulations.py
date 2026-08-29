@@ -29,11 +29,9 @@ from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
 from ..resolution import (
     BlockingValidationFlagsError,
-    InheritedAccountsUnsupportedForSimulationError,
     ResolvedRunContext,
     UnknownReferenceValueError,
     check_run_cost,
-    check_simulation_supports_inherited_accounts,
     resolve_run_context,
     unsupported_tax_year_error,
 )
@@ -90,14 +88,6 @@ def resolve_and_run_simulation(
         )
 
     try:
-        check_simulation_supports_inherited_accounts(context)
-    except InheritedAccountsUnsupportedForSimulationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": exc.account_ids},
-        )
-
-    try:
         check_run_cost(context)
     except CostBudgetExceededError as exc:
         raise HTTPException(
@@ -136,6 +126,7 @@ def resolve_and_run_simulation(
             strategy=context.strategy,
             return_paths=return_paths,
             candidate_label=body.scenario_name,
+            inherited_accounts=context.inherited_accounts,
         )
     except UnsupportedTaxYearError as exc:
         raise unsupported_tax_year_error(exc)

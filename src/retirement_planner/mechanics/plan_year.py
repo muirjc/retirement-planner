@@ -43,6 +43,8 @@ def compute_plan_year_mechanics(
     withdrawal_strategy: str = "rmd_taxable_traditional_roth",
     rmd_figures_used: list[FigureUsage] | None = None,
     hsa_contribution: HsaContributionResult | None = None,
+    inherited_distribution_amount: float = 0.0,
+    inherited_rmd_figures_used: list[FigureUsage] | None = None,
 ) -> PlanYearMechanicsResult:
     """Orchestrates one plan year: calls compute_withdrawal_plan() first
     (rmd_amount is caller-supplied — typically the sum of one or more
@@ -60,18 +62,30 @@ def compute_plan_year_mechanics(
     same amount, and its figures_used are folded into the returned
     figures_used union. Optional, defaults to None (no HSA modeled —
     reproduces this function's exact prior behavior when omitted).
+
+    inherited_distribution_amount/inherited_rmd_figures_used
+    (012-inherited-ira-rmd, research.md §10): passed straight through to
+    compute_withdrawal_plan() as its own new parameter of the same name;
+    ordinary_income_established becomes rmd_drawn + traditional_draws +
+    withdrawal_plan.inherited_distribution_drawn (was: the first two terms
+    only). figures_used gains (inherited_rmd_figures_used or []) as a
+    fourth unioned source. Both default such that omitting them reproduces
+    this function's exact prior behavior unchanged.
     """
     withdrawal_plan = compute_withdrawal_plan(
         spending_need=spending_need,
         rmd_amount=rmd_amount,
         starting_balances=starting_balances,
         strategy=withdrawal_strategy,
+        inherited_distribution_amount=inherited_distribution_amount,
     )
 
     traditional_draws = sum(
         item.amount for item in withdrawal_plan.sequence_withdrawals if item.account_type == "traditional"
     )
-    ordinary_income_established = withdrawal_plan.rmd_drawn + traditional_draws
+    ordinary_income_established = (
+        withdrawal_plan.rmd_drawn + traditional_draws + withdrawal_plan.inherited_distribution_drawn
+    )
 
     conversion = compute_roth_conversion(
         plan_year=plan_year,
@@ -100,6 +114,7 @@ def compute_plan_year_mechanics(
         *(rmd_figures_used or []),
         *conversion.figures_used,
         *(hsa_contribution.figures_used if hsa_contribution is not None else []),
+        *(inherited_rmd_figures_used or []),
     ]
 
     return PlanYearMechanicsResult(

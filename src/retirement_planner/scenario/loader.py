@@ -22,6 +22,7 @@ from .models import (
     Household,
     HouseholdMember,
     HsaContributionPlan,
+    InheritedIraDetails,
     MarketAssumptions,
     RothConversionPlan,
     Scenario,
@@ -108,20 +109,49 @@ def _build_household(data: object, source: str) -> Household:
     return Household(filing_status=filing_status, members=members)
 
 
-def _build_account(data: object, source: str, context: str, household: Household) -> Account:
+def _build_inherited_ira_details(data: object, source: str, context: str) -> InheritedIraDetails | None:
+    """012-inherited-ira-rmd: mirrors _build_roth_conversion()'s own
+    optional-block pattern exactly -- absent block parses to None; a
+    present block requires every one of its five fields (scenario-api.md)."""
+    if data is None:
+        return None
+    inherited_context = f"{context}.inherited"
+    return InheritedIraDetails(
+        death_year=_require(data, "death_year", source, inherited_context),
+        decedent_age_at_death=_require(data, "decedent_age_at_death", source, inherited_context),
+        decedent_was_taking_rmds=_require(data, "decedent_was_taking_rmds", source, inherited_context),
+        beneficiary_relationship=_require(data, "beneficiary_relationship", source, inherited_context),
+        beneficiary_classification=_require(data, "beneficiary_classification", source, inherited_context),
+    )
+
+
+def _build_account(data: object, source: str, context: str, household: Household, index: int) -> Account:
     """011-per-owner-accounts: `owner` is read permissively (never
     _require()'d) -- a missing key never raises ScenarioParseError, for any
     household size; only validate() surfaces a problem for the ambiguous
     (multi-member) case. A single-member household is unambiguous, so an
     omitted owner is auto-filled from the sole member's person_name here
-    (FR-003) -- no existing single-filer scenario file needs an edit."""
+    (FR-003) -- no existing single-filer scenario file needs an edit.
+
+    012-inherited-ira-rmd: `account_id` is read permissively too -- when
+    omitted, it's assigned deterministically from this account's own type
+    and its zero-based `index` within scenario.accounts (research.md §10),
+    never a random value, so parse_scenario() stays a pure function of its
+    YAML input. `inherited` is parsed by _build_inherited_ira_details()."""
     owner = data.get("owner") if isinstance(data, dict) else None
     if owner is None and len(household.members) == 1:
         owner = household.members[0].person_name
+    account_type = _require(data, "account_type", source, context)
+    account_id = data.get("account_id") if isinstance(data, dict) else None
+    if account_id is None:
+        account_id = f"{account_type}-{index}"
+    inherited_data = data.get("inherited") if isinstance(data, dict) else None
     return Account(
-        account_type=_require(data, "account_type", source, context),
+        account_type=account_type,
         balance=_require(data, "balance", source, context),
         owner=owner,
+        account_id=account_id,
+        inherited=_build_inherited_ira_details(inherited_data, source, context),
     )
 
 
@@ -198,7 +228,7 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
         name=scenario_name,
         household=household,
         accounts=[
-            _build_account(account, source, f"accounts[{i}]", household)
+            _build_account(account, source, f"accounts[{i}]", household, i)
             for i, account in enumerate(accounts_data)
         ],
         spending=_build_spending(data["spending"], source),

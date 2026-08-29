@@ -70,6 +70,47 @@ def _validate_accounts(scenario: Scenario) -> list[ValidationFlag]:
                     severity="blocking",
                 )
             )
+        # 012-inherited-ira-rmd (data-model.md § Validation rules): three
+        # independent checks, each firing on its own -- an inherited
+        # account can fail more than one at once (e.g. wrong account_type
+        # AND an unsupported beneficiary_classification), and every
+        # problem is reported, not just the first (FR-006, 001).
+        if account.inherited is not None:
+            if account.inherited.decedent_was_taking_rmds is False:
+                flags.append(
+                    ValidationFlag(
+                        field=f"accounts[{index}].inherited",
+                        message=(
+                            "This inherited account's original owner had not yet begun "
+                            "required distributions before death (\"pre-RBD\") — this case "
+                            "is not yet supported."
+                        ),
+                        severity="blocking",
+                    )
+                )
+            if account.inherited.beneficiary_classification != "non_eligible_designated_beneficiary":
+                flags.append(
+                    ValidationFlag(
+                        field=f"accounts[{index}].inherited",
+                        message=(
+                            "This inherited account's beneficiary is classified as "
+                            f"'{account.inherited.beneficiary_classification}' — eligible "
+                            "designated beneficiary cases are not yet supported."
+                        ),
+                        severity="blocking",
+                    )
+                )
+            if account.account_type != "traditional":
+                flags.append(
+                    ValidationFlag(
+                        field=f"accounts[{index}].inherited",
+                        message=(
+                            f"This inherited account is '{account.account_type}' — only "
+                            "inherited traditional accounts are supported."
+                        ),
+                        severity="blocking",
+                    )
+                )
     return flags
 
 

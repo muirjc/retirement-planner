@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from .loader import ScenarioParseError, parse_scenario
-from .models import Scenario
+from .models import Account, Scenario
 from .validation import validate
 
 DEFAULT_SCENARIOS_DIR = Path("config/scenarios")
@@ -37,6 +37,26 @@ def _sanitize_filename(name: str) -> str:
 
 def _path_for(name: str, scenarios_dir: Path) -> Path:
     return scenarios_dir / f"{_sanitize_filename(name)}.yaml"
+
+
+def _account_to_dict(account: Account) -> dict:
+    """012-inherited-ira-rmd: account_id/inherited round-trip like every
+    other Account field (scenario-api.md)."""
+    data: dict = {
+        "account_type": account.account_type,
+        "balance": account.balance,
+        "owner": account.owner,
+        "account_id": account.account_id,
+    }
+    if account.inherited is not None:
+        data["inherited"] = {
+            "death_year": account.inherited.death_year,
+            "decedent_age_at_death": account.inherited.decedent_age_at_death,
+            "decedent_was_taking_rmds": account.inherited.decedent_was_taking_rmds,
+            "beneficiary_relationship": account.inherited.beneficiary_relationship,
+            "beneficiary_classification": account.inherited.beneficiary_classification,
+        }
+    return data
 
 
 def _scenario_to_dict(scenario: Scenario) -> dict:
@@ -60,7 +80,10 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             # like every other Account field -- found missing here via the
             # same class of save/load round-trip gap 010's hdhp_coverage/
             # hsa_contribution fields hit (see hsa_contribution note below).
-            {"account_type": account.account_type, "balance": account.balance, "owner": account.owner}
+            # 012-inherited-ira-rmd: account_id/inherited round-trip the same
+            # way -- built via _account_to_dict() below rather than inline,
+            # since inherited is itself a nested optional block.
+            _account_to_dict(account)
             for account in scenario.accounts
         ],
         "spending": {"annual_need_real": scenario.spending.annual_need_real},

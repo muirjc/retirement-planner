@@ -203,3 +203,95 @@ simulation_settings:
 """
     with pytest.raises(ScenarioParseError):
         parse_scenario(single_member_yaml)
+
+
+def test_parse_scenario_auto_fills_account_id_when_omitted():
+    """012-inherited-ira-rmd: account_id is optional in the YAML -- when
+    omitted, it's assigned deterministically from the account's own type
+    and position (research.md §10), never a random value."""
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert [a.account_id for a in scenario.accounts] == ["traditional-0", "roth-1", "taxable-2"]
+
+
+def test_parse_scenario_passes_through_explicit_account_id():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "  - account_type: traditional\n    balance: 1500000\n",
+        "  - account_type: traditional\n    balance: 1500000\n    account_id: my-custom-id\n",
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.accounts[0].account_id == "my-custom-id"
+    assert scenario.accounts[1].account_id == "roth-1"
+
+
+def test_parse_scenario_leaves_inherited_none_when_omitted():
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert [a.inherited for a in scenario.accounts] == [None, None, None]
+
+
+_INHERITED_ACCOUNT_YAML = """
+name: inherited_case
+household:
+  filing_status: single
+  members:
+    - person_name: you
+      current_age: 55
+      ss_claim_age: 67
+      ss_annual_benefit: 28000
+accounts:
+  - account_type: traditional
+    balance: 250000
+    owner: you
+    inherited:
+      death_year: 2023
+      decedent_age_at_death: 80
+      decedent_was_taking_rmds: true
+      beneficiary_relationship: other_individual
+      beneficiary_classification: non_eligible_designated_beneficiary
+spending:
+  annual_need_real: 60000
+state: FL
+market_assumptions:
+  equity_allocation: 0.6
+  equity_return_mean_real: 0.05
+  equity_return_std_real: 0.15
+  bond_allocation: 0.4
+  bond_return_mean_real: 0.02
+  bond_return_std_real: 0.05
+  correlation: 0.0
+simulation_settings:
+  n_paths: 1
+  seed: 1
+  plan_to_age: 95
+"""
+
+
+def test_parse_scenario_parses_full_inherited_block():
+    """012-inherited-ira-rmd: a present `inherited:` block parses into
+    InheritedIraDetails with all five fields (data-model.md § InheritedIraDetails)."""
+    scenario = parse_scenario(_INHERITED_ACCOUNT_YAML, name="inherited_case")
+    inherited = scenario.accounts[0].inherited
+    assert inherited is not None
+    assert inherited.death_year == 2023
+    assert inherited.decedent_age_at_death == 80
+    assert inherited.decedent_was_taking_rmds is True
+    assert inherited.beneficiary_relationship == "other_individual"
+    assert inherited.beneficiary_classification == "non_eligible_designated_beneficiary"
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "death_year: 2023\n",
+        "decedent_age_at_death: 80\n",
+        "decedent_was_taking_rmds: true\n",
+        "beneficiary_relationship: other_individual\n",
+        "beneficiary_classification: non_eligible_designated_beneficiary\n",
+    ],
+)
+def test_parse_scenario_raises_when_inherited_block_missing_a_required_field(missing_field):
+    """012-inherited-ira-rmd: an `inherited:` block, once present, requires
+    every one of its five fields -- mirrors _build_roth_conversion()'s
+    existing "present block, required inner fields" pattern (scenario-api.md)."""
+    yaml_text = _INHERITED_ACCOUNT_YAML.replace(f"      {missing_field}", "")
+    with pytest.raises(ScenarioParseError):
+        parse_scenario(yaml_text, name="inherited_case")

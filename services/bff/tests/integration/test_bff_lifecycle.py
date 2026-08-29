@@ -42,7 +42,14 @@ def test_save_read_and_list_round_trip(client):
 
     read_response = client.get("/api/v1/scenarios/base_case")
     assert read_response.status_code == 200
-    assert read_response.json()["accounts"] == _SCENARIO_BODY["accounts"]         # US1.1
+    # 012-inherited-ira-rmd: the response now also carries account_id
+    # (auto-filled deterministically since the request omitted it) and
+    # inherited (None -- no account in this request is inherited).
+    expected_accounts = [
+        {**account, "account_id": f"{account['account_type']}-{index}", "inherited": None}
+        for index, account in enumerate(_SCENARIO_BODY["accounts"])
+    ]
+    assert read_response.json()["accounts"] == expected_accounts                  # US1.1
 
     list_response = client.get("/api/v1/scenarios")
     assert "base_case" in list_response.json()["scenarios"]                       # US1.2
@@ -445,3 +452,68 @@ def test_an_oversized_run_request_is_rejected_before_it_would_actually_run(clien
     assert response.status_code == 413                                            # FR-018
     assert response.json()["error"] == "estimated_cost_exceeds_budget"
     assert response.json()["estimated_seconds"] > response.json()["budget_seconds"]
+
+
+# --- 012-inherited-ira-rmd: Monte Carlo requests are rejected, not silently run ---
+
+_INHERITED_SCENARIO_BODY = {
+    **_SCENARIO_BODY,
+    "accounts": [
+        *_SCENARIO_BODY["accounts"],
+        {
+            "account_type": "traditional",
+            "balance": 250_000,
+            "owner": "you",
+            "inherited": {
+                "death_year": 2023,
+                "decedent_age_at_death": 80,
+                "decedent_was_taking_rmds": True,
+                "beneficiary_relationship": "other_individual",
+                "beneficiary_classification": "non_eligible_designated_beneficiary",
+            },
+        },
+    ],
+}
+
+
+def test_simulation_request_against_an_inherited_account_scenario_is_rejected(client):
+    save_response = client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
+    assert save_response.json()["is_usable"] is True
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "inherited_accounts_unsupported_for_simulation"
+    assert response.json()["account_ids"] == ["traditional-3"]
+
+
+def test_simulated_comparison_against_an_inherited_account_scenario_is_rejected(client):
+    client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
+
+    body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["FL"]}
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "inherited_accounts_unsupported_for_simulation"
+
+
+def test_deterministic_comparison_against_an_inherited_account_scenario_still_works(client):
+    """The deterministic path is fully supported -- only Monte Carlo is
+    rejected (US1/US2 already computed and included the inherited
+    account's distributions correctly)."""
+    client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY, "axis": "withdrawal_sequencing",
+        "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+    }
+    response = client.post("/api/v1/comparisons/deterministic", json=body)
+
+    assert response.status_code == 200
+    assert len(response.json()["summaries"]) == 1
+
+
+def test_validate_endpoint_against_an_inherited_account_scenario_is_unaffected(client):
+    response = client.post("/api/v1/scenarios/base_case/validate", json=_INHERITED_SCENARIO_BODY)
+    assert response.status_code == 200
+    assert response.json()["is_usable"] is True

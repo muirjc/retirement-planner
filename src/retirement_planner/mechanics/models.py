@@ -54,6 +54,43 @@ class WithdrawalPlan:
     sequence_withdrawals: list[WithdrawalLineItem]
     ending_balances: AccountBalances
     shortfall: float
+    inherited_distribution_drawn: float = 0.0
+    """012-inherited-ira-rmd: an amount already distributed this plan year
+    from one or more inherited accounts, tracked entirely outside
+    ending_balances (research.md §10, §5) -- set by compute_withdrawal_plan()
+    to exactly whatever inherited_distribution_amount it was called with,
+    never capped here. Defaults to 0.0, reproducing every existing caller's
+    exact prior behavior."""
+
+
+@dataclass
+class InheritedRmdResult:
+    """One inherited traditional account's required distribution for one
+    tax year, computed by compute_inherited_rmd() (mechanics/inherited_rmd.py).
+    data-model.md § derived InheritedAccountBalance's sibling result type;
+    contracts/mechanics-api.md (012-inherited-ira-rmd, addendum to 003)."""
+
+    required_amount: float
+    table_used: Literal["single_life_expectancy"] | None
+    divisor: float | None
+    figures_used: list[FigureUsage] = field(default_factory=list)
+    depletion_deadline_year: int | None = None
+    is_within_ten_year_window: bool = True
+
+
+@dataclass
+class InheritedAccountBalance:
+    """One inherited traditional account's independently-tracked runtime
+    state, threaded through a multi-year projection (research.md §5, §8).
+    Never pooled with AccountBalances.traditional -- mutated in place by
+    run_plan_projection() as distributions are taken and growth applied.
+    data-model.md § Derived: InheritedAccountBalance."""
+
+    account_id: str
+    balance: float
+    death_year: int
+    decedent_age_at_death: int
+    depletion_deadline_year: int
 
 
 @dataclass

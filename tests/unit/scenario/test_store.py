@@ -9,6 +9,7 @@ from retirement_planner.scenario import (
     Household,
     HouseholdMember,
     HsaContributionPlan,
+    InheritedIraDetails,
     MarketAssumptions,
     Scenario,
     ScenarioParseError,
@@ -112,6 +113,42 @@ def test_single_member_account_owner_auto_fills_after_a_save_load_round_trip(sce
 
     assert reloaded.accounts[0].owner == "you"
     assert reloaded.is_usable
+
+
+def test_account_id_and_inherited_survive_a_save_load_round_trip(scenario_store_dir):
+    """012-inherited-ira-rmd regression: the same class of bug the owner/
+    hsa_contribution tests above guard against -- _account_to_dict() must
+    include account_id and inherited or this feature silently loses
+    decedent/beneficiary data on every save/load cycle."""
+    scenario = _scenario("inherited_case")
+    scenario.accounts = [
+        Account(
+            account_type="traditional",
+            balance=250_000.0,
+            owner="you",
+            account_id="my-custom-id",
+            inherited=InheritedIraDetails(
+                death_year=2023,
+                decedent_age_at_death=80,
+                decedent_was_taking_rmds=True,
+                beneficiary_relationship="other_individual",
+                beneficiary_classification="non_eligible_designated_beneficiary",
+            ),
+        )
+    ]
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("inherited_case", scenarios_dir=scenario_store_dir)
+
+    account = reloaded.accounts[0]
+    assert account.account_id == "my-custom-id"
+    assert account.inherited == InheritedIraDetails(
+        death_year=2023,
+        decedent_age_at_death=80,
+        decedent_was_taking_rmds=True,
+        beneficiary_relationship="other_individual",
+        beneficiary_classification="non_eligible_designated_beneficiary",
+    )
 
 
 def test_hdhp_coverage_defaults_false_and_hsa_contribution_defaults_none(scenario_store_dir):

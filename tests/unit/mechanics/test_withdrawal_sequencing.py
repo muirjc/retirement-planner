@@ -62,3 +62,45 @@ def test_traditional_taxable_roth_order_draws_traditional_before_taxable():
     )
     assert plan.rmd_drawn == 40_000
     assert plan.sequence_withdrawals[0].account_type == "traditional"
+
+
+def test_omitted_inherited_distribution_amount_reproduces_prior_behavior():
+    # 012-inherited-ira-rmd (research.md §10): defaulting to 0.0 must be a
+    # strict no-op -- identical to every call above that never passes it.
+    balances = AccountBalances(traditional=500_000, roth=200_000, taxable=100_000)
+    plan = compute_withdrawal_plan(spending_need=80_000, rmd_amount=40_000, starting_balances=balances)
+    assert plan.inherited_distribution_drawn == 0.0
+
+
+def test_inherited_distribution_amount_reduces_remaining_need_like_rmd_drawn():
+    # 012-inherited-ira-rmd: an inherited account's distribution funds
+    # spending_need "first, unconditionally" exactly like rmd_amount, but
+    # is never subtracted from starting_balances.traditional -- it was
+    # never part of that pooled balance (research.md §10).
+    balances = AccountBalances(traditional=500_000, roth=200_000, taxable=100_000)
+    plan = compute_withdrawal_plan(
+        spending_need=80_000,
+        rmd_amount=40_000,
+        starting_balances=balances,
+        inherited_distribution_amount=30_000,
+    )
+    assert plan.inherited_distribution_drawn == 30_000
+    assert plan.rmd_drawn == 40_000
+    assert plan.ending_balances.traditional == 500_000 - 40_000  # unaffected by inherited_distribution_amount
+    # remaining_need = 80,000 - 40,000 (rmd) - 30,000 (inherited) = 10,000
+    assert sum(item.amount for item in plan.sequence_withdrawals) == pytest.approx(10_000)
+
+
+def test_inherited_distribution_amount_never_capped_by_this_functions_own_logic():
+    # The caller has already confirmed the amount doesn't exceed the
+    # source inherited account's own balance before calling this function
+    # -- compute_withdrawal_plan() itself applies no cap (mechanics-api.md).
+    balances = AccountBalances(traditional=0, roth=0, taxable=0)
+    plan = compute_withdrawal_plan(
+        spending_need=10_000,
+        rmd_amount=0,
+        starting_balances=balances,
+        inherited_distribution_amount=250_000,
+    )
+    assert plan.inherited_distribution_drawn == 250_000
+    assert plan.shortfall == 0.0

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 from retirement_planner.mechanics import (
     AccountBalances,
+    InheritedAccountBalance,
     WithdrawalPlan,
     compute_hsa_contribution,
     compute_hsa_eligibility,
+    compute_inherited_rmd,
     compute_plan_year_mechanics,
     compute_rmd,
     compute_withdrawal_plan,
@@ -90,6 +92,7 @@ def run_plan_projection(
     plan_to_age: int,
     strategy: StrategyConfiguration,
     return_assumption: ReturnSchedule,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see docstring: never mutated as a list
 ) -> PlanProjection:
     """Runs one full-horizon projection, one plan year at a time, from
     start_plan_year through the plan year in which the deemed RMD owner
@@ -106,6 +109,22 @@ def run_plan_projection(
     Raises KeyError immediately, before processing any plan year, if this
     dict omits any of household.members[*].person_name (mirrors 005's
     survival_curves precedent).
+
+    inherited_accounts (012-inherited-ira-rmd, comparison-api.md): each
+    already-in-RMD-status inherited traditional account this household's
+    beneficiary holds, tracked entirely independently of accounts/
+    traditional_ownership_shares (never pooled -- research.md §5). Each
+    instance's balance is mutated in place, year by year, as this
+    function runs (distribution subtracted, then growth applied) -- a
+    caller comparing multiple candidates (compare.py) must pass a fresh,
+    independently-copied list per call, never the same instances reused
+    across candidates (comparison-api.md's per-candidate independent-copy
+    requirement). This default parameter is itself never mutated as a
+    list (no account is ever appended/removed) -- only elements already
+    inside a caller-supplied list are mutated -- so sharing the default
+    empty list across calls is safe (data-model.md § Consumption).
+    Defaults to [], reproducing every existing caller's exact prior
+    output unchanged.
     """
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
@@ -154,6 +173,45 @@ def run_plan_projection(
         rmd_amount = sum(result.required_amount for result in rmd_results)
         rmd_figures_used = [figure for result in rmd_results for figure in result.figures_used]
 
+        # 012-inherited-ira-rmd (research.md §7, §8, §10): one
+        # compute_inherited_rmd() call per inherited account still holding
+        # a positive balance. decedent_was_taking_rmds=True and
+        # beneficiary_classification="non_eligible_designated_beneficiary"
+        # are hardcoded here -- the only case scenario.validation's
+        # blocking flags ever let reach this point (data-model.md §
+        # Construction) -- mirroring compute_rmd()'s own
+        # spouse_is_sole_beneficiary=False hardcode immediately above.
+        # In the account's depletion_deadline_year (and, as a safety net,
+        # any later year a positive balance somehow still remains), the
+        # ENTIRE remaining balance is force-distributed instead of the
+        # divisor-computed amount (US2, FR-003) -- the 10-year deadline and
+        # the annual divisor arithmetic are two independent IRS rules that
+        # happen to interact, so this deadline check is never folded into
+        # compute_inherited_rmd()'s own divisor math (research.md §8).
+        # This year's distribution is subtracted from each account's own
+        # balance immediately; step 7 below (investment growth) applies
+        # the household's growth_factor to whatever balance remains.
+        inherited_distribution_total = 0.0
+        inherited_rmd_figures_used: list = []
+        for inherited_account in inherited_accounts:
+            if inherited_account.balance <= 0:
+                continue
+            if tax_year >= inherited_account.depletion_deadline_year:
+                distribution = inherited_account.balance
+            else:
+                inherited_result = compute_inherited_rmd(
+                    inherited_balance=inherited_account.balance,
+                    tax_year=tax_year,
+                    death_year=inherited_account.death_year,
+                    decedent_age_at_death=inherited_account.decedent_age_at_death,
+                    decedent_was_taking_rmds=True,
+                    beneficiary_classification="non_eligible_designated_beneficiary",
+                )
+                distribution = min(inherited_result.required_amount, inherited_account.balance)
+                inherited_rmd_figures_used.extend(inherited_result.figures_used)
+            inherited_account.balance -= distribution
+            inherited_distribution_total += distribution
+
         # HSA (010-advanced-tax-benefits FR-008-FR-012): eligibility is
         # always computed (informative even when no contribution is
         # configured -- the same "always present" auditability discipline
@@ -196,6 +254,8 @@ def run_plan_projection(
             withdrawal_strategy=strategy.withdrawal_strategy,
             rmd_figures_used=rmd_figures_used,
             hsa_contribution=hsa_contribution,
+            inherited_distribution_amount=inherited_distribution_total,
+            inherited_rmd_figures_used=inherited_rmd_figures_used,
         )
 
         income = IncomeComponents(
@@ -267,6 +327,14 @@ def run_plan_projection(
             roth=post_tax_balances.roth * growth_factor,
             taxable=post_tax_balances.taxable * growth_factor,
         )
+
+        # 012-inherited-ira-rmd (research.md §10): each inherited account
+        # grows using the same household growth_factor -- no separate
+        # per-account return assumption exists in this codebase (an
+        # explicitly documented simplification). A depleted account's
+        # balance is already 0.0 here and growing it is a no-op either way.
+        for inherited_account in inherited_accounts:
+            inherited_account.balance *= growth_factor
 
         # mechanics_result.figures_used already includes hsa_contribution's
         # own figures_used (compute_plan_year_mechanics() folds it in), so

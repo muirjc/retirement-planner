@@ -15,11 +15,14 @@ from .models import (
     ConversionResult,
     HsaContributionResult,
     HsaEligibility,
+    InheritedAccountBalance,
+    InheritedRmdResult,
     PlanYearMechanicsResult,
     RmdResult,
     WithdrawalLineItem,
     WithdrawalPlan,
 )
+from .inherited_rmd import SINGLE_LIFE_EXPECTANCY_TABLE, compute_inherited_rmd
 from .plan_year import compute_plan_year_mechanics
 from .rmd import JOINT_LIFE_TABLE, RMD_START_AGE, UNIFORM_LIFETIME_TABLE, compute_rmd
 from .roth_conversion import (
@@ -38,8 +41,11 @@ __all__ = [
     "ConversionResult",
     "HsaContributionResult",
     "HsaEligibility",
+    "InheritedAccountBalance",
+    "InheritedRmdResult",
     "JOINT_LIFE_TABLE",
     "PlanYearMechanicsResult",
+    "SINGLE_LIFE_EXPECTANCY_TABLE",
     "RMD_START_AGE",
     "RmdResult",
     "RothConversionFunction",
@@ -49,6 +55,7 @@ __all__ = [
     "WithdrawalPlan",
     "compute_hsa_contribution",
     "compute_hsa_eligibility",
+    "compute_inherited_rmd",
     "compute_plan_year_mechanics",
     "compute_rmd",
     "compute_roth_conversion",

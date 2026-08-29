@@ -44,6 +44,25 @@ class Household:
 
 
 @dataclass
+class InheritedIraDetails:
+    """Decedent and beneficiary facts for an inherited traditional account
+    already in RMD status -- covers only the case the original owner died
+    on or after their Required Beginning Date (012-inherited-ira-rmd
+    research.md §2). Attached to an Account via Account.inherited.
+    data-model.md § InheritedIraDetails."""
+
+    death_year: int
+    decedent_age_at_death: int
+    decedent_was_taking_rmds: bool
+    beneficiary_relationship: Literal["spouse", "minor_child", "other_individual", "trust_or_entity"]
+    beneficiary_classification: Literal[
+        "eligible_designated_beneficiary_spouse",
+        "eligible_designated_beneficiary_other",
+        "non_eligible_designated_beneficiary",
+    ]
+
+
+@dataclass
 class Account:
     """A single balance bucket. data-model.md § Account."""
 
@@ -55,6 +74,18 @@ class Account:
     Scenario built directly rather than via parse_scenario() -- a Scenario
     that has passed validation with is_usable=True never has an owner=None
     account in a household with more than one member (see validation.py)."""
+    account_id: str | None = None
+    """012-inherited-ira-rmd: a stable per-account handle, used only to key
+    an inherited account's independently-tracked runtime state through a
+    projection (research.md §8). parse_scenario() auto-fills it
+    deterministically (f"{account_type}-{index}") when the YAML omits it
+    -- every parsed Account has a non-None account_id, whether or not it
+    is inherited."""
+    inherited: InheritedIraDetails | None = None
+    """012-inherited-ira-rmd: None for an ordinary, owner-held account
+    (every account before this feature). Present only for an account
+    whose original owner has died and whose current owner is the
+    beneficiary (research.md §4)."""
 
 
 @dataclass

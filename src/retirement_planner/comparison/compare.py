@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HsaContributionPlan
 
 from .models import ComparisonResult, DeterministicReturnAssumption, StrategyConfiguration
@@ -18,6 +18,16 @@ from .projection import run_plan_projection
 
 _MIN_CLAIMING_AGE = 62
 _MAX_CLAIMING_AGE = 70
+
+
+def _fresh_inherited_accounts(inherited_accounts: list[InheritedAccountBalance]) -> list[InheritedAccountBalance]:
+    """012-inherited-ira-rmd (comparison-api.md): each candidate's own
+    run_plan_projection() call mutates every InheritedAccountBalance's
+    balance in place year by year -- a fresh, independently-copied list
+    (and instances) must be built per candidate, never the same instances
+    reused across candidates, or one candidate's projection would corrupt
+    another's starting balance."""
+    return [replace(account) for account in inherited_accounts]
 
 
 def compare_roth_conversion_strategies(
@@ -35,12 +45,19 @@ def compare_roth_conversion_strategies(
     return_assumption: DeterministicReturnAssumption,
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared withdrawal_strategy/claiming_ages/hsa_contribution onto every
     candidate so only the conversion dimension varies (FR-005, FR-009;
     hsa_contribution forced the same way per
     010-advanced-tax-benefits contracts/comparison-api.md).
+
+    inherited_accounts (012-inherited-ira-rmd, comparison-api.md): forwarded
+    to every candidate's run_plan_projection() call as its own fresh,
+    independently-copied list (_fresh_inherited_accounts()) -- never the
+    same instances shared across candidates. Defaults to [], reproducing
+    every existing caller's exact prior behavior.
     """
     projections = [
         run_plan_projection(
@@ -60,6 +77,7 @@ def compare_roth_conversion_strategies(
                 hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
+            inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
         )
         for candidate in candidates
     ]
@@ -87,6 +105,7 @@ def compare_withdrawal_sequencing_strategies(
     return_assumption: DeterministicReturnAssumption,
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -94,6 +113,10 @@ def compare_withdrawal_sequencing_strategies(
     so only the withdrawal-sequencing dimension varies (FR-006, FR-009;
     hsa_contribution forced the same way per
     010-advanced-tax-benefits contracts/comparison-api.md).
+
+    inherited_accounts (012-inherited-ira-rmd): see
+    compare_roth_conversion_strategies()'s own docstring -- identical
+    per-candidate fresh-copy treatment. Defaults to [].
     """
     projections = [
         run_plan_projection(
@@ -115,6 +138,7 @@ def compare_withdrawal_sequencing_strategies(
                 hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
+            inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
         )
         for candidate in candidates
     ]
@@ -142,6 +166,7 @@ def compare_claiming_age_grid(
     return_assumption: DeterministicReturnAssumption,
     claiming_age_grid: list[dict[str, int]],
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -155,6 +180,10 @@ def compare_claiming_age_grid(
     above that already take candidates: list[StrategyConfiguration]).
     Raises ValueError if any grid entry names a claiming age outside
     62-70 inclusive (FR-010).
+
+    inherited_accounts (012-inherited-ira-rmd): see
+    compare_roth_conversion_strategies()'s own docstring -- identical
+    per-entry fresh-copy treatment. Defaults to [].
     """
     for entry in claiming_age_grid:
         for person_name, age in entry.items():
@@ -185,6 +214,7 @@ def compare_claiming_age_grid(
                 hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
+            inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

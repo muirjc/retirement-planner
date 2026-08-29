@@ -4,6 +4,7 @@ from retirement_planner.scenario import (
     Account,
     Household,
     HouseholdMember,
+    InheritedIraDetails,
     MarketAssumptions,
     Scenario,
     SimulationSettings,
@@ -186,3 +187,133 @@ def test_validate_returns_empty_list_for_clean_scenario():
     assert validate(scenario) == []
     scenario.validation_flags = validate(scenario)
     assert scenario.is_usable is True
+
+
+# --- 012-inherited-ira-rmd: the four new blocking rules (data-model.md § Validation rules) ---
+
+
+def _inherited_details(**overrides):
+    base = dict(
+        death_year=2023,
+        decedent_age_at_death=80,
+        decedent_was_taking_rmds=True,
+        beneficiary_relationship="other_individual",
+        beneficiary_classification="non_eligible_designated_beneficiary",
+    )
+    base.update(overrides)
+    return InheritedIraDetails(**base)
+
+
+def test_validate_accepts_a_fully_supported_inherited_account():
+    scenario = _clean_scenario(
+        accounts=[
+            Account(
+                account_type="traditional",
+                balance=250_000.0,
+                owner="you",
+                inherited=_inherited_details(),
+            )
+        ]
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_flags_pre_rbd_decedent_as_blocking():
+    scenario = _clean_scenario(
+        accounts=[
+            Account(
+                account_type="traditional",
+                balance=250_000.0,
+                owner="you",
+                inherited=_inherited_details(decedent_was_taking_rmds=False),
+            )
+        ]
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].inherited"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_eligible_designated_beneficiary_as_blocking():
+    scenario = _clean_scenario(
+        accounts=[
+            Account(
+                account_type="traditional",
+                balance=250_000.0,
+                owner="you",
+                inherited=_inherited_details(
+                    beneficiary_relationship="spouse",
+                    beneficiary_classification="eligible_designated_beneficiary_spouse",
+                ),
+            )
+        ]
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].inherited"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_non_traditional_inherited_account_as_blocking():
+    scenario = _clean_scenario(
+        accounts=[
+            Account(
+                account_type="roth",
+                balance=250_000.0,
+                owner="you",
+                inherited=_inherited_details(),
+            )
+        ]
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].inherited"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_inherited_account_with_no_owner_still_produces_missing_owner_flag():
+    """The existing owner check (011) applies unchanged to an inherited
+    account -- it still needs a beneficiary owner."""
+    scenario = _clean_scenario(
+        household=Household(filing_status="married_filing_jointly", members=[_member("you"), _member("spouse")]),
+        accounts=[
+            Account(
+                account_type="traditional",
+                balance=250_000.0,
+                owner=None,
+                inherited=_inherited_details(),
+            )
+        ],
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].owner"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_reports_every_inherited_problem_at_once_not_just_the_first():
+    """FR-006 (001): validate() always runs every rule to completion."""
+    scenario = _clean_scenario(
+        household=Household(filing_status="married_filing_jointly", members=[_member("you"), _member("spouse")]),
+        accounts=[
+            Account(
+                account_type="roth",  # wrong account_type
+                balance=250_000.0,
+                owner=None,  # missing owner
+                inherited=_inherited_details(
+                    decedent_was_taking_rmds=False,  # pre-RBD
+                    beneficiary_classification="eligible_designated_beneficiary_other",  # EDB
+                ),
+            )
+        ],
+    )
+    flags = validate(scenario)
+    fields = {flag.field for flag in flags}
+    assert fields == {"accounts[0].inherited", "accounts[0].owner"}
+    # Three distinct "inherited" problems (pre-RBD + EDB + wrong
+    # account_type) all fire independently, not just the first one found --
+    # plus the separate missing-owner flag makes four flags total.
+    inherited_flags = [flag for flag in flags if flag.field == "accounts[0].inherited"]
+    assert len(inherited_flags) == 3
+    assert len(flags) == 4

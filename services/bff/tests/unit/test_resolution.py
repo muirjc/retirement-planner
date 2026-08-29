@@ -9,6 +9,7 @@ from retirement_planner.scenario import (
     Account,
     Household,
     HouseholdMember,
+    InheritedIraDetails,
     MarketAssumptions,
     RothConversionPlan,
     Scenario,
@@ -102,6 +103,87 @@ def test_accounts_are_summed_by_type(tmp_path):
     assert context.accounts.traditional == 1_500_000  # two traditional entries summed
     assert context.accounts.roth == 400_000
     assert context.accounts.taxable == 200_000
+
+
+def test_inherited_account_excluded_from_pooled_accounts_and_ownership_shares(tmp_path):
+    """012-inherited-ira-rmd (data-model.md § Exclusion from pooling): an
+    inherited account contributes to neither the pooled AccountBalances
+    total nor any member's traditional_ownership_shares numerator/
+    denominator."""
+    scenario = _scenario()
+    scenario.accounts.append(
+        Account(
+            account_type="traditional",
+            balance=250_000,
+            owner="you",
+            account_id="inherited-1",
+            inherited=InheritedIraDetails(
+                death_year=2023,
+                decedent_age_at_death=80,
+                decedent_was_taking_rmds=True,
+                beneficiary_relationship="other_individual",
+                beneficiary_classification="non_eligible_designated_beneficiary",
+            ),
+        )
+    )
+    save_scenario(scenario, scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
+        scenarios_dir=tmp_path,
+    )
+
+    # Unchanged from the non-inherited-only fixture above -- the $250k
+    # inherited account is not part of this pooled total.
+    assert context.accounts.traditional == 1_500_000
+    assert context.traditional_ownership_shares["you"] + context.traditional_ownership_shares["spouse"] == pytest.approx(1.0)
+
+
+def test_inherited_accounts_derived_with_stable_ids_and_deadline(tmp_path):
+    scenario = _scenario()
+    scenario.accounts.append(
+        Account(
+            account_type="traditional",
+            balance=250_000,
+            owner="you",
+            account_id="inherited-1",
+            inherited=InheritedIraDetails(
+                death_year=2023,
+                decedent_age_at_death=80,
+                decedent_was_taking_rmds=True,
+                beneficiary_relationship="other_individual",
+                beneficiary_classification="non_eligible_designated_beneficiary",
+            ),
+        )
+    )
+    save_scenario(scenario, scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
+        scenarios_dir=tmp_path,
+    )
+
+    assert len(context.inherited_accounts) == 1
+    inherited = context.inherited_accounts[0]
+    assert inherited.account_id == "inherited-1"
+    assert inherited.balance == 250_000
+    assert inherited.death_year == 2023
+    assert inherited.decedent_age_at_death == 80
+    assert inherited.depletion_deadline_year == 2033
+
+
+def test_no_inherited_accounts_yields_empty_list(tmp_path):
+    save_scenario(_scenario(), scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
+        scenarios_dir=tmp_path,
+    )
+
+    assert context.inherited_accounts == []
 
 
 def test_omitted_optional_fields_default_from_scenario_simulation_settings(tmp_path):

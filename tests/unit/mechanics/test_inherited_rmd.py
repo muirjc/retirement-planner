@@ -1,16 +1,19 @@
 """Unit tests for compute_inherited_rmd() (012-inherited-ira-rmd, US1).
 
-Expected divisors/amounts are hand-calculated against this feature's own
-placeholder table (inherited_rmd.py) -- see that module's docstring for why
-the figures are illustrative pending citation verification; what's under
-test here is the "look up once at death_year + 1, then subtract 1.0 per
-subsequent year" divisor logic (research.md §7), not that these specific
-numbers are IRS-official.
+Expected divisors/amounts are hand-calculated against
+inherited_rmd.py's SINGLE_LIFE_EXPECTANCY_TABLE, verified against IRS Pub.
+590-B (2025), Appendix B, Table I (rp-6c5) -- age 80's divisor (11.2) is
+this table's real, IRS-published value. What's under test here is the
+"look up once at death_year + 1, then subtract 1.0 per subsequent year"
+divisor logic (research.md §7).
 """
 
 import pytest
 
-from retirement_planner.mechanics.inherited_rmd import compute_inherited_rmd
+from retirement_planner.mechanics.inherited_rmd import (
+    SINGLE_LIFE_EXPECTANCY_TABLE,
+    compute_inherited_rmd,
+)
 from retirement_planner.tax import UnsupportedTaxYearError
 
 _COMMON_KWARGS = dict(
@@ -61,6 +64,22 @@ def test_figures_used_includes_the_single_life_expectancy_table():
     result = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2024, **_COMMON_KWARGS)
     figure_names = {f.name for f in result.figures_used}
     assert figure_names == {"single_life_expectancy_table"}
+
+
+def test_single_life_expectancy_table_is_verified_and_covers_every_published_age():
+    """Regression for rp-6c5: the table previously covered only ages
+    50-95 (a subset) and shipped verified=False; it now covers every age
+    IRS Pub. 590-B (2025), Appendix B, Table I publishes (0-120+) and has
+    been cross-checked against that primary source."""
+    assert SINGLE_LIFE_EXPECTANCY_TABLE.verified is True
+    divisors = SINGLE_LIFE_EXPECTANCY_TABLE.value_for_year(2024)
+    assert set(divisors) == set(range(0, 121))
+    # Spot-checked against IRS Pub. 590-B (2025) pp. 50-51.
+    assert divisors[0] == 84.6
+    assert divisors[50] == 36.2
+    assert divisors[72] == 17.2
+    assert divisors[80] == 11.2
+    assert divisors[120] == 1.0
 
 
 def test_unsupported_divisor_year_raises():

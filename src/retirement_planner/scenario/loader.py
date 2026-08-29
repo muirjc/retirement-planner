@@ -108,10 +108,20 @@ def _build_household(data: object, source: str) -> Household:
     return Household(filing_status=filing_status, members=members)
 
 
-def _build_account(data: object, source: str, context: str) -> Account:
+def _build_account(data: object, source: str, context: str, household: Household) -> Account:
+    """011-per-owner-accounts: `owner` is read permissively (never
+    _require()'d) -- a missing key never raises ScenarioParseError, for any
+    household size; only validate() surfaces a problem for the ambiguous
+    (multi-member) case. A single-member household is unambiguous, so an
+    omitted owner is auto-filled from the sole member's person_name here
+    (FR-003) -- no existing single-filer scenario file needs an edit."""
+    owner = data.get("owner") if isinstance(data, dict) else None
+    if owner is None and len(household.members) == 1:
+        owner = household.members[0].person_name
     return Account(
         account_type=_require(data, "account_type", source, context),
         balance=_require(data, "balance", source, context),
+        owner=owner,
     )
 
 
@@ -178,11 +188,17 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
     if not accounts_data:
         raise ScenarioParseError(source, "accounts must contain at least one entry")
 
+    # 011-per-owner-accounts: household is built before accounts (an
+    # ordering change from this function's prior implementation) so
+    # _build_account() can consult household.members for the single-member
+    # owner auto-fill.
+    household = _build_household(data["household"], source)
+
     return Scenario(
         name=scenario_name,
-        household=_build_household(data["household"], source),
+        household=household,
         accounts=[
-            _build_account(account, source, f"accounts[{i}]")
+            _build_account(account, source, f"accounts[{i}]", household)
             for i, account in enumerate(accounts_data)
         ],
         spending=_build_spending(data["spending"], source),

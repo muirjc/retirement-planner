@@ -20,6 +20,7 @@ from rp_ui.api_client import (
     list_withdrawal_strategies,
 )
 from rp_ui.charts import comparison_bar_chart, comparison_overlay_chart
+from rp_ui.formatting import format_currency
 from rp_ui.verification import render_verification_indicator
 from rp_ui.errors import (
     BackendUnreachableError,
@@ -79,7 +80,7 @@ for i in range(count):
         cc1, cc2, cc3, cc4 = st.columns(4)
         cc1.text_input("Label", key=f"compare_candidate_{i}_label")
         cc2.selectbox("Conversion strategy", options=[""] + conversion_strategies, key=f"compare_candidate_{i}_strategy")
-        cc3.number_input("Bracket ceiling/amount", key=f"compare_candidate_{i}_bracket")
+        cc3.number_input("Bracket ceiling/amount ($)", key=f"compare_candidate_{i}_bracket")
         w1, w2 = cc4.columns(2)
         w1.number_input("Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start")
         w2.number_input("Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end")
@@ -192,8 +193,8 @@ if "compare_last_result" in st.session_state:
             {
                 "candidate_label": s.get("candidate_label"),
                 "success_rate": f"{s['success_rate'] * 100:.1f}%" if s.get("success_rate") is not None else "n/a",
-                "ending_balance": s.get("ending_balance"),
-                "median_lifetime_tax_paid": s.get("median_lifetime_tax_paid"),
+                "ending_balance": format_currency(s.get("ending_balance")),
+                "median_lifetime_tax_paid": format_currency(s.get("median_lifetime_tax_paid")),
                 "median_depletion_age": s.get("median_depletion_age") if s.get("median_depletion_age") is not None else "n/a",
             }
             for s in summaries

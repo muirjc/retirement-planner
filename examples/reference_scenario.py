@@ -42,7 +42,14 @@ def main() -> None:
     plan_to_age = 95
     horizon_years = plan_to_age - 60 + 1
     common = dict(
-        household=household, accounts=accounts, annual_spending_need=110_000,
+        # you own $900k of the $1.5M traditional total, spouse the
+        # remaining $600k -- an illustrative per-owner split
+        # (011-per-owner-accounts); this reference scenario's own
+        # documented $1.5M/$400k/$600k totals (accounts, above) are
+        # unchanged.
+        household=household, accounts=accounts,
+        traditional_ownership_shares={"you": 900_000 / 1_500_000, "spouse": 600_000 / 1_500_000},
+        annual_spending_need=110_000,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=plan_to_age,
     )
 

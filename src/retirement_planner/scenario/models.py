@@ -49,6 +49,12 @@ class Account:
 
     account_type: Literal["traditional", "roth", "taxable"]
     balance: float
+    owner: str | None = None
+    """011-per-owner-accounts: references a household.members[*].person_name.
+    None only ever appears transiently -- before validate() runs, or for a
+    Scenario built directly rather than via parse_scenario() -- a Scenario
+    that has passed validation with is_usable=True never has an owner=None
+    account in a household with more than one member (see validation.py)."""
 
 
 @dataclass

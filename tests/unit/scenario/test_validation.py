@@ -114,6 +114,73 @@ def test_validate_flags_spending_vs_assets_plausibility_as_warning_and_stays_usa
     assert scenario.is_usable is True
 
 
+def test_validate_flags_missing_owner_as_blocking_for_multi_member_household():
+    """011-per-owner-accounts: an account with no owner in a 2-member
+    household is ambiguous -- validate() flags it itself (FR-006),
+    regardless of whether the Scenario came through parse_scenario()."""
+    scenario = _clean_scenario(
+        household=Household(filing_status="married_filing_jointly", members=[_member("you"), _member("spouse")]),
+        accounts=[Account(account_type="traditional", balance=1_000_000.0)],
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].owner"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_never_flags_missing_owner_for_single_member_household():
+    """011-per-owner-accounts: a single-member household is unambiguous --
+    validate() never flags a bare owner=None here, independent of whether
+    parse_scenario()'s own auto-fill ran (FR-003)."""
+    scenario = _clean_scenario(
+        accounts=[Account(account_type="traditional", balance=1_000_000.0)]
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_flags_owner_not_matching_any_household_member_as_blocking():
+    """011-per-owner-accounts: a stale or misspelled owner is flagged for
+    any household size, including single-member (Edge Cases)."""
+    scenario = _clean_scenario(
+        accounts=[Account(account_type="traditional", balance=1_000_000.0, owner="nobody")]
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[0].owner"
+    assert flags[0].severity == "blocking"
+    assert "nobody" in flags[0].message
+
+
+def test_validate_accepts_account_owner_matching_a_household_member():
+    scenario = _clean_scenario(
+        accounts=[Account(account_type="traditional", balance=1_000_000.0, owner="you")]
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_flags_owner_left_stale_after_a_member_rename():
+    """011-per-owner-accounts Edge Cases: renaming a household member
+    doesn't retroactively update accounts that already reference the old
+    name -- the mismatch is flagged, never silently reattributed or
+    dropped, for a 2-member household too (not just the single-member
+    case test_validate_flags_owner_not_matching_any_household_member_as_blocking
+    already covers)."""
+    scenario = _clean_scenario(
+        household=Household(filing_status="married_filing_jointly", members=[_member("you"), _member("spouse_v2")]),
+        accounts=[
+            Account(account_type="traditional", balance=900_000.0, owner="you"),
+            # "spouse" was renamed to "spouse_v2" after this account was
+            # saved -- its owner reference is now stale.
+            Account(account_type="traditional", balance=300_000.0, owner="spouse"),
+        ],
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "accounts[1].owner"
+    assert flags[0].severity == "blocking"
+    assert "spouse" in flags[0].message and "spouse_v2" in flags[0].message
+
+
 def test_validate_returns_empty_list_for_clean_scenario():
     scenario = _clean_scenario()
     assert validate(scenario) == []

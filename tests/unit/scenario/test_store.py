@@ -69,6 +69,51 @@ def test_hdhp_coverage_and_hsa_contribution_survive_a_save_load_round_trip(scena
     assert reloaded.hsa_contribution == HsaContributionPlan(annual_amount=3_000.0)
 
 
+def test_account_owner_survives_a_save_load_round_trip(scenario_store_dir):
+    """011-per-owner-accounts regression: the same class of bug as the HSA
+    one above -- _scenario_to_dict() initially omitted Account.owner,
+    silently dropping ownership data on every save/load cycle, which would
+    have made this feature non-functional in practice."""
+    scenario = Scenario(
+        name="couple",
+        household=Household(
+            filing_status="married_filing_jointly",
+            members=[
+                HouseholdMember(person_name="you", current_age=74, ss_claim_age=67, ss_annual_benefit=32_000.0),
+                HouseholdMember(person_name="spouse", current_age=60, ss_claim_age=67, ss_annual_benefit=24_000.0),
+            ],
+        ),
+        accounts=[
+            Account(account_type="traditional", balance=900_000.0, owner="you"),
+            Account(account_type="traditional", balance=300_000.0, owner="spouse"),
+        ],
+        spending=SpendingProfile(annual_need_real=90_000.0),
+        state="GA",
+        market_assumptions=_market_assumptions(),
+        simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=95),
+    )
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("couple", scenarios_dir=scenario_store_dir)
+
+    assert [a.owner for a in reloaded.accounts] == ["you", "spouse"]
+    assert reloaded.is_usable
+
+
+def test_single_member_account_owner_auto_fills_after_a_save_load_round_trip(scenario_store_dir):
+    """A single-filer scenario saved with owner=None (the dataclass default,
+    matching every scenario created before this feature) reloads with owner
+    auto-filled -- no existing single-filer scenario file needs an edit."""
+    scenario = _scenario("solo")
+    assert scenario.accounts[0].owner is None
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("solo", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.accounts[0].owner == "you"
+    assert reloaded.is_usable
+
+
 def test_hdhp_coverage_defaults_false_and_hsa_contribution_defaults_none(scenario_store_dir):
     """Every existing scenario (created before this feature) round-trips
     unchanged."""

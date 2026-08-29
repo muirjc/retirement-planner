@@ -36,12 +36,15 @@ _DEFAULT_PERCENTILES: tuple[float, ...] = (0.10, 0.25, 0.50, 0.75, 0.90)
 # §7's parallel-dispatch mitigation only pays off once the *shared*
 # arguments -- household, accounts, strategy -- are sent once per worker,
 # not once per path).
-_worker_shared_args: tuple[Household, AccountBalances, float, str, int, int, int, int, StrategyConfiguration] | None = None
+_worker_shared_args: (
+    tuple[Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration] | None
+) = None
 
 
 def _init_worker(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -53,11 +56,14 @@ def _init_worker(
     """ProcessPoolExecutor initializer: stores this call's arguments once
     per worker process into the module-level _worker_shared_args, so
     _run_one_path_shared() doesn't need them repickled per task
-    (research.md §7)."""
+    (research.md §7). traditional_ownership_shares (011-per-owner-accounts)
+    travels through this same shared-per-worker tuple, sent once per
+    worker rather than once per path, exactly like household/accounts/
+    strategy already are."""
     global _worker_shared_args
     _worker_shared_args = (
-        household, accounts, annual_spending_need, state, reference_tax_year, start_plan_year, start_tax_year,
-        plan_to_age, strategy,
+        household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
+        start_plan_year, start_tax_year, plan_to_age, strategy,
     )
 
 
@@ -66,11 +72,12 @@ def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
     the shared, per-worker-process arguments _init_worker() set once, and
     runs run_plan_projection() for just this one path (research.md §7)."""
     assert _worker_shared_args is not None
-    (household, accounts, annual_spending_need, state, reference_tax_year, start_plan_year, start_tax_year,
-     plan_to_age, strategy) = _worker_shared_args
+    (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
+     start_plan_year, start_tax_year, plan_to_age, strategy) = _worker_shared_args
     return run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares=traditional_ownership_shares,
         annual_spending_need=annual_spending_need,
         state=state,
         reference_tax_year=reference_tax_year,
@@ -83,15 +90,19 @@ def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
 
 
 def _run_one_path(
-    args: tuple[Household, AccountBalances, float, str, int, int, int, int, StrategyConfiguration, ReturnPath],
+    args: tuple[
+        Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
+        ReturnPath,
+    ],
 ) -> PlanProjection:
     """Module-level (picklable) worker used under serial dispatch: unpacks
     one path's call arguments and runs run_plan_projection() for it."""
-    (household, accounts, annual_spending_need, state, reference_tax_year, start_plan_year, start_tax_year,
-     plan_to_age, strategy, return_path) = args
+    (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
+     start_plan_year, start_tax_year, plan_to_age, strategy, return_path) = args
     return run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares=traditional_ownership_shares,
         annual_spending_need=annual_spending_need,
         state=state,
         reference_tax_year=reference_tax_year,
@@ -154,6 +165,7 @@ def _percentile_bands(
 def run_simulation(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -172,7 +184,9 @@ def run_simulation(
     survival_adjusted_success_rate (FR-003, FR-004, FR-017). Raises
     ValueError if return_paths is empty (FR-006). Raises KeyError if
     survival_curves is given but omits a household member's person_name
-    (FR-018) -- validated eagerly, before any path is scored. See
+    (FR-018), or if traditional_ownership_shares (011-per-owner-accounts)
+    omits one (comparison-api.md's precedent, applied here too) -- both
+    validated eagerly, before any path is scored. See
     contracts/simulation-api.md."""
     if len(return_paths) == 0:
         raise ValueError("return_paths must contain at least one path")
@@ -181,6 +195,9 @@ def run_simulation(
         for member in household.members:
             if member.person_name not in survival_curves:
                 raise KeyError(member.person_name)
+
+    for member in household.members:
+        traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
 
     if len(return_paths) >= _PARALLEL_DISPATCH_THRESHOLD:
         worker_count = os.cpu_count() or 4
@@ -191,14 +208,14 @@ def run_simulation(
         chunk_size = max(1, len(return_paths) // (worker_count * 4))
         with ProcessPoolExecutor(
             initializer=_init_worker,
-            initargs=(household, accounts, annual_spending_need, state, reference_tax_year, start_plan_year,
-                      start_tax_year, plan_to_age, strategy),
+            initargs=(household, accounts, traditional_ownership_shares, annual_spending_need, state,
+                      reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy),
         ) as executor:
             path_results = list(executor.map(_run_one_path_shared, return_paths, chunksize=chunk_size))
     else:
         call_args = [
-            (household, accounts, annual_spending_need, state, reference_tax_year, start_plan_year, start_tax_year,
-             plan_to_age, strategy, path)
+            (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
+             start_plan_year, start_tax_year, plan_to_age, strategy, path)
             for path in return_paths
         ]
         path_results = [_run_one_path(args) for args in call_args]

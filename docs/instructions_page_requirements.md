@@ -12,7 +12,7 @@ A new page in `apps/streamlit_ui` that a user reads before (or alongside) fillin
 
 ## 3. Scope
 
-- **Guidance only.** This page explains the existing Scenarios form's fields — it does not change the Scenario data model, the form itself, or introduce per-person account attribution. Today's household-level pooling of `traditional`/`roth`/`taxable` balances (one total per account type, not split by person) stays exactly as it is; this page's job is to make that pooling explicit so a user doesn't wonder whether to enter balances twice.
+- **Guidance only.** This page explains the existing Scenarios form's fields — it does not itself change the Scenario data model or the form. *(Superseded by `011-per-owner-accounts`: the household-level pooling described below, in force when this requirements doc was written, was later replaced by per-person account attribution — each account is now entered under its owning household member, not pooled into one household-wide total. This page's Accounts guidance reflects that current behavior, not the pooling this bullet originally described.)*
 - **Static content, no backend.** The page renders hardcoded text. It calls none of `rp_ui.api_client`'s functions and needs no scenario, simulation, or reference data to render — the first page in this project with zero HTTP dependency on `services/bff`.
 - **Out of scope**: any change to `src/retirement_planner`, `services/bff`, or `apps/streamlit_ui/pages/1_Scenarios.py`'s fields themselves.
 
@@ -25,7 +25,7 @@ A new page file, `apps/streamlit_ui/pages/0_Instructions.py`. The `0` prefix sor
 Grounded directly in `apps/streamlit_ui/pages/1_Scenarios.py`'s actual fields, so this page can't drift out of sync with what the form asks for:
 
 - **Household** — filing status; per party (member): name/label, current age, Social Security claiming age, and Social Security annual benefit *at that claiming age*. Direction: get the benefit estimate for the specific claiming age entered, not automatically the full-retirement-age figure, from the SSA's own benefit estimator — a mismatched claiming age vs. benefit amount is the single most likely data-entry mistake here.
-- **Accounts** — traditional, Roth, and taxable balances. Direction, explicit: these are **household-level totals per account type**, not per person — if both parties have a traditional IRA, add the two together into one number.
+- **Accounts** — traditional, Roth, and taxable balances, entered **per person**: each party's own balance goes under their own row for each account type — never combined with a spouse's balance, since Required Minimum Distributions are computed per person, from that person's own age and own balance (`011-per-owner-accounts`).
 - **Spending** — annual spending need, in **today's dollars** (real, not inflated forward), and gross of taxes (the engine computes taxes; don't net them out beforehand).
 - **State** — state of residence for tax purposes. Point to the form's own dropdown for the current supported list rather than hardcoding state codes here, so this page never goes stale when a new state is added.
 - **Market assumptions** — equity/bond allocation and return assumptions are the user's own forward-looking planning inputs, not historical fact or something the tool derives. Give a defensible starting point (e.g., a 60/40 allocation with conservative real-return assumptions) framed as an example, not as *the* right answer.

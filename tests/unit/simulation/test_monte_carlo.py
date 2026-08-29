@@ -27,6 +27,7 @@ _STRATEGY = StrategyConfiguration(
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
     accounts=_ACCOUNTS,
+    traditional_ownership_shares={"you": 1.0},
     annual_spending_need=50,
     state="FL",
     reference_tax_year=2026,

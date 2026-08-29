@@ -81,6 +81,7 @@ def _household_gross_social_security_benefit(
 def run_plan_projection(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -94,9 +95,22 @@ def run_plan_projection(
     start_plan_year through the plan year in which the deemed RMD owner
     (the older household member) reaches plan_to_age (inclusive) (FR-001,
     FR-002). See contracts/comparison-api.md for the full per-year sequence.
+
+    traditional_ownership_shares (011-per-owner-accounts, comparison-api.md):
+    each household member's fixed share (0-1) of the household's traditional
+    balance, used to compute that member's own RMD from their own age and
+    own share-derived balance every plan year (data-model.md § Consumption)
+    -- replaces the prior single deemed-owner-attributed compute_rmd() call.
+    deemed_rmd_owner() itself is unchanged and still drives this function's
+    own loop-termination condition below (an unrelated use, research.md §4).
+    Raises KeyError immediately, before processing any plan year, if this
+    dict omits any of household.members[*].person_name (mirrors 005's
+    survival_curves precedent).
     """
+    for member in household.members:
+        traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
+
     deemed_owner = deemed_rmd_owner(household)
-    spouse = next((m for m in household.members if m is not deemed_owner), None)
 
     years: list[PlanYearProjection] = []
     current_balances = accounts
@@ -109,7 +123,6 @@ def run_plan_projection(
             for member in household.members
         }
         deemed_owner_age = ages_this_year[deemed_owner.person_name]
-        spouse_age = ages_this_year[spouse.person_name] if spouse is not None else None
 
         if deemed_owner_age > plan_to_age:
             break
@@ -118,13 +131,28 @@ def run_plan_projection(
             household, ages_this_year, strategy.claiming_ages
         )
 
-        rmd_result = compute_rmd(
-            traditional_balance=current_balances.traditional,
-            member_age=deemed_owner_age,
-            tax_year=tax_year,
-            spouse_age=spouse_age,
-            spouse_is_sole_beneficiary=False,  # research.md §3
-        )
+        # 011-per-owner-accounts: one compute_rmd() call per member with a
+        # positive traditional share, replacing the single deemed-owner-
+        # attributed call (research.md §1). spouse_is_sole_beneficiary is
+        # still always False (004 research.md §3, unaffected by this
+        # feature); spouse_age is still each member's actual co-member's
+        # age, for a household of at most 2 (001's own household-size cap).
+        rmd_results = [
+            compute_rmd(
+                traditional_balance=traditional_ownership_shares[member.person_name] * current_balances.traditional,
+                member_age=ages_this_year[member.person_name],
+                tax_year=tax_year,
+                spouse_age=next(
+                    (ages_this_year[other.person_name] for other in household.members if other is not member),
+                    None,
+                ),
+                spouse_is_sole_beneficiary=False,  # research.md §3 (004)
+            )
+            for member in household.members
+            if traditional_ownership_shares[member.person_name] > 0
+        ]
+        rmd_amount = sum(result.required_amount for result in rmd_results)
+        rmd_figures_used = [figure for result in rmd_results for figure in result.figures_used]
 
         # HSA (010-advanced-tax-benefits FR-008-FR-012): eligibility is
         # always computed (informative even when no contribution is
@@ -159,14 +187,14 @@ def run_plan_projection(
             tax_year=tax_year,
             spending_need=annual_spending_need,
             starting_balances=current_balances,
-            rmd_amount=rmd_result.required_amount,
+            rmd_amount=rmd_amount,
             social_security_gross_benefit=household_ss_benefit,
             filing_status=household.filing_status,
             conversion_window=strategy.conversion_window,
             conversion_strategy=strategy.conversion_strategy,
             conversion_bracket_ceiling_or_amount=strategy.conversion_bracket_ceiling_or_amount,
             withdrawal_strategy=strategy.withdrawal_strategy,
-            rmd_figures_used=rmd_result.figures_used,
+            rmd_figures_used=rmd_figures_used,
             hsa_contribution=hsa_contribution,
         )
 

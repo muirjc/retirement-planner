@@ -51,6 +51,7 @@ _HORIZON_YEARS = 95 - 60 + 1  # 36 plan years, matching quickstart.md's referenc
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
     accounts=_ACCOUNTS,
+    traditional_ownership_shares={"you": 0.75, "spouse": 0.25},
     annual_spending_need=110_000,
     reference_tax_year=2026,
     start_plan_year=1,

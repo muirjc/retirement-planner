@@ -33,6 +33,11 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
+# 011-per-owner-accounts: arbitrary but fixed split -- this household's plan
+# horizon (60-70) never reaches the RMD-required starting age, so no test
+# below actually exercises RMD sizing; test_step0 (below) is the one that
+# does, using quickstart.md §1's own literal figures.
+_SHARES = {"you": 0.6, "spouse": 0.4}
 _MARKET = MarketAssumptions(
     equity_allocation=0.60,
     equity_return_mean_real=0.065,
@@ -53,6 +58,42 @@ _COMMON_KWARGS = dict(
 )
 
 
+def test_step0_per_member_rmd_reflects_actual_ownership_not_deemed_owner():
+    """011-per-owner-accounts quickstart.md §1: "you" (74, past the RMD-
+    required starting age) owns $900k of the household's $1.2M traditional
+    total; "spouse" (60, well below it) owns the remaining $300k. The
+    first plan year's RMD-driven traditional draw must reflect only "you"'s
+    own $900k share -- never the deemed-owner attribution of the full
+    $1.2M this feature replaces (specs/004 research.md §4)."""
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="you", current_age=74, ss_claim_age=67, ss_annual_benefit=32_000),
+            HouseholdMember(person_name="spouse", current_age=60, ss_claim_age=67, ss_annual_benefit=24_000),
+        ],
+    )
+    accounts = AccountBalances(traditional=1_200_000, roth=400_000, taxable=300_000)
+    shares = {"you": 900_000 / 1_200_000, "spouse": 300_000 / 1_200_000}
+    strategy = StrategyConfiguration(
+        label="base_case", withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None, conversion_bracket_ceiling_or_amount=None, conversion_window=None,
+        claiming_ages={"you": 67, "spouse": 67},
+    )
+    return_assumption = derive_deterministic_return(_MARKET)
+
+    projection = run_plan_projection(
+        household=household, accounts=accounts, traditional_ownership_shares=shares,
+        annual_spending_need=90_000, state=_STATE, reference_tax_year=2026, start_plan_year=1,
+        start_tax_year=2026, plan_to_age=95, strategy=strategy, return_assumption=return_assumption,
+    )
+
+    first_year = projection.years[0]
+    assert first_year.mechanics.withdrawal_plan.rmd_drawn == pytest.approx(900_000 / 25.5)
+    # Sanity check against the pre-fix behavior this replaces: the deemed-
+    # owner figure would have been $1.2M / 25.5, strictly larger.
+    assert first_year.mechanics.withdrawal_plan.rmd_drawn < 1_200_000 / 25.5
+
+
 def test_step1_run_one_full_horizon_projection():
     return_assumption = derive_deterministic_return(_MARKET)
     assert return_assumption.annual_real_return == pytest.approx(0.045)
@@ -67,7 +108,8 @@ def test_step1_run_one_full_horizon_projection():
     )
 
     projection = run_plan_projection(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, strategy=strategy, return_assumption=return_assumption,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
+        strategy=strategy, return_assumption=return_assumption,
         **_COMMON_KWARGS,
     )
 
@@ -76,7 +118,8 @@ def test_step1_run_one_full_horizon_projection():
     assert projection.years[1].starting_balances == projection.years[0].ending_balances
 
     repeat = run_plan_projection(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, strategy=strategy, return_assumption=return_assumption,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
+        strategy=strategy, return_assumption=return_assumption,
         **_COMMON_KWARGS,
     )
     assert repeat == projection
@@ -104,7 +147,7 @@ def test_step2_compare_roth_conversion_strategies():
     ]
 
     comparison = compare_roth_conversion_strategies(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
         withdrawal_strategy="rmd_taxable_traditional_roth", claiming_ages={"you": 67, "spouse": 67},
         return_assumption=return_assumption, candidates=candidates,
         **_COMMON_KWARGS,
@@ -133,7 +176,7 @@ def test_step3_compare_withdrawal_sequencing_orders():
     ]
 
     comparison = compare_withdrawal_sequencing_strategies(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
         conversion_strategy=None, conversion_bracket_ceiling_or_amount=None, conversion_window=None,
         claiming_ages={"you": 67, "spouse": 67}, return_assumption=return_assumption, candidates=order_candidates,
         **_COMMON_KWARGS,
@@ -151,7 +194,7 @@ def test_step4_compare_social_security_claiming_ages():
     ]
 
     comparison = compare_claiming_age_grid(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
         withdrawal_strategy="rmd_taxable_traditional_roth", conversion_strategy=None,
         conversion_bracket_ceiling_or_amount=None, conversion_window=None,
         return_assumption=return_assumption, claiming_age_grid=grid,
@@ -170,7 +213,8 @@ def test_step4_compare_social_security_claiming_ages():
         conversion_bracket_ceiling_or_amount=None, conversion_window=None, claiming_ages={"you": 67, "spouse": 67},
     )
     standalone = run_plan_projection(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, strategy=strategy, return_assumption=return_assumption,
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES,
+        strategy=strategy, return_assumption=return_assumption,
         **_COMMON_KWARGS,
     )
     assert matching_original.outcome == standalone.outcome

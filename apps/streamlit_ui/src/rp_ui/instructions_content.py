@@ -41,11 +41,13 @@ SECTIONS: list[Section] = [
     Section(
         title="Accounts",
         body=(
-            "Gather your **combined household total** for each account type: traditional "
-            "(pre-tax IRA/401(k) balances), Roth, and taxable. These are entered once per "
-            "account type for the whole household, not once per party -- if both partners "
-            "have a traditional IRA, add the two balances together before entering a "
-            "single number."
+            "Gather each party's **own balance** for each account type they hold: traditional "
+            "(pre-tax IRA/401(k) balances), Roth, and taxable. These are entered per person, "
+            "not combined -- if both partners have a traditional IRA, enter each one under "
+            "that partner's own row rather than adding them together. This matters beyond "
+            "bookkeeping: Required Minimum Distributions are calculated per person, from that "
+            "person's own age and own balance, so a combined number would misstate them for "
+            "any household where the two ages or balances differ."
         ),
     ),
     Section(
@@ -94,6 +96,21 @@ SECTIONS: list[Section] = [
             "Roth. If you do, the **window** is the range of plan years during which the "
             "conversion strategy is active -- outside that window, no conversions happen "
             "under this strategy."
+        ),
+    ),
+    Section(
+        title="Run Simulation",
+        body=(
+            "Pick a saved scenario from **Scenario**, choose a **Withdrawal strategy**, and set "
+            "**Reference tax year**, **Start plan year**, and **Start tax year** for this run. "
+            "Always replace the reference tax year with a real calendar year before running -- an "
+            "unedited placeholder value is the most common mistake on this page, and it won't fail "
+            "as obviously as a blank field would. To use different **Paths**, **Seed**, or **Plan to "
+            "age** than the scenario's own saved Simulation Settings, open **Advanced overrides** and "
+            "check **Override scenario defaults** first; the fields inside are otherwise ignored even "
+            "if you've changed them. Clicking **Run** shows a success-rate metric and a fan chart -- "
+            "the spread of possible ending balances by plan year, one line per percentile -- and any "
+            "error points back to what needs fixing, often on the Scenarios page itself."
         ),
     ),
 ]

@@ -37,6 +37,8 @@ class AccountRequest(BaseModel):
 
     account_type: Literal["traditional", "roth", "taxable"]
     balance: float
+    owner: str | None = None
+    """011-per-owner-accounts."""
 
 
 class SpendingProfileRequest(BaseModel):

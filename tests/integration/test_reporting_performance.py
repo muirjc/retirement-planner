@@ -51,7 +51,8 @@ def test_summarize_and_export_add_no_perceptible_delay_at_reference_scale():
         market_assumptions=_MARKET, path_count=_REFERENCE_PATH_COUNT, horizon_years=36, start_plan_year=1, seed=42,
     )
     run = run_simulation(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, state="FL",
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares={"you": 0.75, "spouse": 0.25},
+        annual_spending_need=110_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=return_paths, candidate_label="base_case",
     )

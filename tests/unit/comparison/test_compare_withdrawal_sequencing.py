@@ -16,6 +16,7 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
+_SHARES = {"you": 0.6, "spouse": 0.4}
 _RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.045)
 
 
@@ -34,6 +35,7 @@ def _run(candidates):
     return compare_withdrawal_sequencing_strategies(
         household=_HOUSEHOLD,
         accounts=_ACCOUNTS,
+        traditional_ownership_shares=_SHARES,
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,
@@ -89,6 +91,7 @@ def test_orders_converge_once_both_have_exhausted_the_same_account_types():
     result = compare_withdrawal_sequencing_strategies(
         household=_HOUSEHOLD,
         accounts=small_accounts,
+        traditional_ownership_shares=_SHARES,
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,

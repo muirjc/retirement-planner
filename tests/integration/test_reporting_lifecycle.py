@@ -45,6 +45,7 @@ _STRATEGY = StrategyConfiguration(
     claiming_ages={"you": 67, "spouse": 67},
 )
 _REFERENCE_TAX_YEAR = 2026
+_SHARES = {"you": 0.75, "spouse": 0.25}
 
 
 def _base_run():
@@ -52,7 +53,7 @@ def _base_run():
         market_assumptions=_MARKET, path_count=1_000, horizon_years=36, start_plan_year=1, seed=42,
     )
     return run_simulation(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, state="FL",
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, state="FL",
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=return_paths, candidate_label="base_case",
     )
@@ -81,7 +82,7 @@ def test_step2_compare_candidates_both_kinds():
         market_assumptions=_MARKET, path_count=1_000, horizon_years=1, start_plan_year=1, seed=42,
     )
     comparison = compare_states(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, states=["SC", "DE", "FL"],
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, states=["SC", "DE", "FL"],
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026,
         plan_to_age=60,  # single-plan-year horizon -- keeps every state within its documented tax years
         strategy=_STRATEGY, return_paths=return_paths,
@@ -94,7 +95,7 @@ def test_step2_compare_candidates_both_kinds():
         assert summary.candidate_label == run.candidate_label
 
     deterministic = compare_roth_conversion_strategies(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, state="FL",
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, state="FL",
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=70,
         withdrawal_strategy="rmd_taxable_traditional_roth", claiming_ages={"you": 67, "spouse": 67},
         return_assumption=derive_deterministic_return(_MARKET),
@@ -116,7 +117,7 @@ def test_step3_export_to_csv():
         market_assumptions=_MARKET, path_count=1_000, horizon_years=1, start_plan_year=1, seed=42,
     )
     comparison = compare_states(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, states=["SC", "DE", "FL"],
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, states=["SC", "DE", "FL"],
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=60,
         strategy=_STRATEGY, return_paths=return_paths,
     )
@@ -135,7 +136,7 @@ def test_step4_unverified_figures_stay_visible():
         market_assumptions=_MARKET, path_count=500, horizon_years=36, start_plan_year=1, seed=42, block_length=10,
     )
     bootstrap_run = run_simulation(
-        household=_HOUSEHOLD, accounts=_ACCOUNTS, annual_spending_need=110_000, state="FL",
+        household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, state="FL",
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=bootstrap_paths, candidate_label="historical_bootstrap",
     )

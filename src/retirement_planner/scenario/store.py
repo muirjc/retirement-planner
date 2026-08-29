@@ -56,7 +56,11 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             ],
         },
         "accounts": [
-            {"account_type": account.account_type, "balance": account.balance}
+            # 011-per-owner-accounts: owner must round-trip through save/load
+            # like every other Account field -- found missing here via the
+            # same class of save/load round-trip gap 010's hdhp_coverage/
+            # hsa_contribution fields hit (see hsa_contribution note below).
+            {"account_type": account.account_type, "balance": account.balance, "owner": account.owner}
             for account in scenario.accounts
         ],
         "spending": {"annual_need_real": scenario.spending.annual_need_real},

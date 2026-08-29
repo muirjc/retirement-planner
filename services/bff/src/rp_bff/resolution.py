@@ -82,6 +82,7 @@ class ResolvedRunContext:
     scenario: Scenario
     household: Household
     accounts: AccountBalances
+    traditional_ownership_shares: dict[str, float]
     strategy: StrategyConfiguration
     state: str
     plan_to_age: int
@@ -97,6 +98,31 @@ def _sum_accounts(scenario: Scenario) -> AccountBalances:
     for account in scenario.accounts:
         totals[account.account_type] += account.balance
     return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"])
+
+
+def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
+    """011-per-owner-accounts: each household member's fixed share (0-1) of
+    the scenario's initial pooled traditional balance (data-model.md §
+    Derived) -- computed once per resolved run, from the same accounts list
+    _sum_accounts() sums, alongside it. Callable only once the scenario has
+    already been confirmed is_usable (checked immediately before this is
+    called, below), so every account.owner here is guaranteed non-None and
+    a real household member's person_name -- validate()'s own guarantee."""
+    per_member_traditional = {member.person_name: 0.0 for member in scenario.household.members}
+    household_traditional_total = 0.0
+    for account in scenario.accounts:
+        if account.account_type == "traditional":
+            per_member_traditional[account.owner] += account.balance
+            household_traditional_total += account.balance
+    if household_traditional_total <= 0:
+        # Never zero-divide; the shares don't matter once the pooled total
+        # is zero -- it can only ever stay zero (research.md §2), so every
+        # member's RMD is $0 regardless of the value assigned here.
+        return {person_name: 0.0 for person_name in per_member_traditional}
+    return {
+        person_name: balance / household_traditional_total
+        for person_name, balance in per_member_traditional.items()
+    }
 
 
 def resolve_run_context(
@@ -160,6 +186,7 @@ def resolve_run_context(
         scenario=scenario,
         household=scenario.household,
         accounts=_sum_accounts(scenario),
+        traditional_ownership_shares=_traditional_ownership_shares(scenario),
         strategy=strategy,
         state=resolved_state,
         plan_to_age=plan_to_age if plan_to_age is not None else scenario.simulation_settings.plan_to_age,

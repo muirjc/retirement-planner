@@ -113,6 +113,65 @@ def test_parse_scenario_raises_on_member_count_mismatch_single():
     assert "member" in exc_info.value.reason.lower()
 
 
+def test_parse_scenario_auto_fills_owner_for_single_member_household():
+    """011-per-owner-accounts: a single-member household is unambiguous --
+    every account's owner is auto-filled from the sole member, with no
+    `owner:` key required in the YAML (FR-003, research.md §3)."""
+    yaml_text = """
+name: solo
+household:
+  filing_status: single
+  members:
+    - person_name: you
+      current_age: 74
+      ss_claim_age: 67
+      ss_annual_benefit: 32000
+accounts:
+  - account_type: traditional
+    balance: 900000
+  - account_type: roth
+    balance: 100000
+spending:
+  annual_need_real: 60000
+state: FL
+market_assumptions:
+  equity_allocation: 0.6
+  equity_return_mean_real: 0.05
+  equity_return_std_real: 0.15
+  bond_allocation: 0.4
+  bond_return_mean_real: 0.02
+  bond_return_std_real: 0.05
+  correlation: 0.0
+simulation_settings:
+  n_paths: 1
+  seed: 1
+  plan_to_age: 95
+"""
+    scenario = parse_scenario(yaml_text, name="solo")
+    assert [a.owner for a in scenario.accounts] == ["you", "you"]
+
+
+def test_parse_scenario_leaves_owner_none_for_multi_member_household_when_omitted():
+    """011-per-owner-accounts: a 2-member household is ambiguous -- an
+    omitted `owner:` key parses as None rather than being guessed
+    (FR-006); parse_scenario() never raises for this, only validate()
+    flags it (research.md §3)."""
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert [a.owner for a in scenario.accounts] == [None, None, None]
+
+
+def test_parse_scenario_passes_through_explicit_owner():
+    """011-per-owner-accounts: an explicitly-provided owner is passed
+    through unchanged, for any household size."""
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "  - account_type: traditional\n    balance: 1500000\n",
+        "  - account_type: traditional\n    balance: 1500000\n    owner: spouse\n",
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.accounts[0].owner == "spouse"
+    assert scenario.accounts[1].owner is None
+
+
 def test_parse_scenario_raises_on_member_count_mismatch_mfj():
     single_member_yaml = """
 name: single_person

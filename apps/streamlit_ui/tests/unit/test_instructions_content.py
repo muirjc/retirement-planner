@@ -17,13 +17,15 @@ REQUIRED_TITLES = {
     "Market Assumptions",
     "Simulation Settings",
     "Roth Conversion (Optional)",
+    "Run Simulation",
 }
 
 
-def test_all_seven_sections_are_present():
-    """FR-002, SC-002: 7 of 7 field-groups covered."""
+def test_all_eight_sections_are_present():
+    """FR-002, SC-002: 8 of 8 field-groups covered (7 Scenarios-form
+    groups, plus the Run Simulation page)."""
     assert {section.title for section in SECTIONS} == REQUIRED_TITLES
-    assert len(SECTIONS) == 7
+    assert len(SECTIONS) == 8
 
 
 def test_sections_are_the_documented_dataclass_shape():
@@ -37,11 +39,14 @@ def _body_for(title: str) -> str:
     return next(section.body for section in SECTIONS if section.title == title)
 
 
-def test_accounts_section_states_balances_are_pooled_not_per_party():
-    """FR-003."""
+def test_accounts_section_states_balances_are_entered_per_party():
+    """011-per-owner-accounts: supersedes the pre-011 pooled-balance
+    guidance this section used to give (now actively wrong -- accounts
+    are captured per owner, not combined, so RMDs can be computed
+    accurately per person)."""
     body = _body_for("Accounts")
-    assert "combined household total" in body
-    assert "not once per party" in body
+    assert "own balance" in body
+    assert "per person" in body
 
 
 def test_household_section_states_benefit_must_match_claiming_age():
@@ -86,3 +91,18 @@ def test_roth_conversion_section_explains_window():
     body = _body_for("Roth Conversion (Optional)")
     assert "window" in body.lower()
     assert "plan years" in body
+
+
+def test_run_simulation_section_warns_about_reference_tax_year_placeholder():
+    """Reflects a real prior bug: an unedited reference_tax_year placeholder
+    (e.g. left at 1900) surfaced as a bare HTTP 500 before being fixed --
+    see rp_ui/errors.py's UnsupportedTaxYearError handling."""
+    body = _body_for("Run Simulation")
+    assert "reference tax year" in body.lower()
+    assert "placeholder" in body.lower()
+
+
+def test_run_simulation_section_explains_override_checkbox_gates_advanced_fields():
+    body = _body_for("Run Simulation")
+    assert "Override scenario defaults" in body
+    assert "otherwise ignored" in body.lower()

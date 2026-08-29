@@ -204,7 +204,9 @@ c1, c2, c3, c4 = st.columns(4)
 c1.text_input("Name", key="member1_person_name")
 c2.number_input("Current age", min_value=0, step=1, key="member1_current_age")
 c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age")
-c4.number_input("SS annual benefit", min_value=0.0, step=100.0, key="member1_ss_annual_benefit")
+c4.number_input(
+    "SS annual benefit ($)", min_value=0.0, step=100.0, key="member1_ss_annual_benefit"
+)
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
@@ -212,29 +214,40 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     c1.text_input("Name", key="member2_person_name")
     c2.number_input("Current age", min_value=0, step=1, key="member2_current_age")
     c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age")
-    c4.number_input("SS annual benefit", min_value=0.0, step=100.0, key="member2_ss_annual_benefit")
+    c4.number_input(
+        "SS annual benefit ($)", min_value=0.0, step=100.0, key="member2_ss_annual_benefit"
+    )
 
 st.subheader("Accounts")
 # 011-per-owner-accounts: one row of account-type fields per household
 # member -- owner is structural (module docstring), so member 2's row only
 # renders when there is a member 2 to own it.
+#
+# Currency formatting note: st.number_input's `format` parameter can't
+# carry a "$" (or any non-numeric character) in this Streamlit version --
+# confirmed via StreamlitInvalidNumberFormatError, see rp_ui/formatting.py's
+# module docstring -- so every dollar-amount field below signals its unit
+# via a "($)" label suffix instead, the only mechanism that actually works
+# for an editable field.
 member1_label = st.session_state["member1_person_name"] or "Member 1"
 st.markdown(f"**{member1_label}**")
 a1, a2, a3 = st.columns(3)
-a1.number_input("Traditional balance", step=1000.0, key="member1_traditional_balance")
-a2.number_input("Roth balance", step=1000.0, key="member1_roth_balance")
-a3.number_input("Taxable balance", step=1000.0, key="member1_taxable_balance")
+a1.number_input("Traditional balance ($)", step=1000.0, key="member1_traditional_balance")
+a2.number_input("Roth balance ($)", step=1000.0, key="member1_roth_balance")
+a3.number_input("Taxable balance ($)", step=1000.0, key="member1_taxable_balance")
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     member2_label = st.session_state["member2_person_name"] or "Member 2"
     st.markdown(f"**{member2_label}**")
     a1, a2, a3 = st.columns(3)
-    a1.number_input("Traditional balance", step=1000.0, key="member2_traditional_balance")
-    a2.number_input("Roth balance", step=1000.0, key="member2_roth_balance")
-    a3.number_input("Taxable balance", step=1000.0, key="member2_taxable_balance")
+    a1.number_input("Traditional balance ($)", step=1000.0, key="member2_traditional_balance")
+    a2.number_input("Roth balance ($)", step=1000.0, key="member2_roth_balance")
+    a3.number_input("Taxable balance ($)", step=1000.0, key="member2_taxable_balance")
 
 st.subheader("Spending")
-st.number_input("Annual spending need (today's dollars)", step=1000.0, key="annual_need_real")
+st.number_input(
+    "Annual spending need ($, today's dollars)", step=1000.0, key="annual_need_real"
+)
 
 st.subheader("State")
 state_options = [""] + states
@@ -267,7 +280,7 @@ if st.session_state["include_roth_conversion"]:
     current_strategy = st.session_state.get("conversion_strategy") or ""
     strategy_index = strategy_options.index(current_strategy) if current_strategy in strategy_options else 0
     st.selectbox("Conversion strategy", options=strategy_options, index=strategy_index, key="conversion_strategy")
-    st.number_input("Bracket ceiling or amount", key="conversion_bracket_ceiling_or_amount")
+    st.number_input("Bracket ceiling or amount ($)", key="conversion_bracket_ceiling_or_amount")
     w1, w2 = st.columns(2)
     w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start")
     w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end")

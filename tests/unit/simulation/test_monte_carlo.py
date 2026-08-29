@@ -1,12 +1,18 @@
 """Unit tests for retirement_planner.simulation.monte_carlo.run_simulation()
 (US1): success rate, percentile bands, per-path depletion tracking,
 reproducibility, and figures_used deduplication (Polish, FR-019).
+
+inherited_accounts tests (012-inherited-ira-rmd rp-mt7) cover the "fresh
+copy per path" property monte_carlo.py's own module docstring requires --
+including under forced parallel dispatch, where one worker process runs
+many paths in sequence and must not let one path's mutated balance leak
+into the next.
 """
 
 import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
 from retirement_planner.simulation.models import ReturnPath
 from retirement_planner.simulation.returns import generate_return_paths
@@ -116,6 +122,101 @@ def test_run_simulation_reproducible_including_under_forced_parallel_dispatch(mo
     assert first.success_rate == second.success_rate
     assert first.percentile_bands == second.percentile_bands
     assert [p.outcome for p in first.path_results] == [p.outcome for p in second.path_results]
+
+
+def test_callers_own_inherited_account_balance_is_never_mutated():
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    inherited_accounts = [
+        InheritedAccountBalance(
+            account_id="traditional-1",
+            balance=250_000.0,
+            death_year=2023,
+            decedent_age_at_death=80,
+            depletion_deadline_year=2033,
+        )
+    ]
+
+    run_simulation(
+        **_COMMON_KWARGS,
+        return_paths=[_PATH_OK, _PATH_FAIL, _PATH_OK],
+        candidate_label="test",
+        inherited_accounts=inherited_accounts,
+    )
+
+    # run_plan_projection() ran once per path and mutates balance in
+    # place -- the caller's own original instance must still read its
+    # untouched starting balance.
+    assert inherited_accounts[0].balance == 250_000.0
+
+
+def test_no_cross_path_leakage_in_inherited_distributions_serial():
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    inherited_accounts = [
+        InheritedAccountBalance(
+            account_id="traditional-1",
+            balance=250_000.0,
+            death_year=2023,
+            decedent_age_at_death=80,
+            depletion_deadline_year=2033,
+        )
+    ]
+
+    run = run_simulation(
+        **_COMMON_KWARGS,
+        return_paths=[_PATH_OK, _PATH_FAIL, _PATH_OK],
+        candidate_label="test",
+        inherited_accounts=inherited_accounts,
+    )
+
+    # Every path started from the identical, unmutated inherited balance
+    # -- their first-year inherited distributions must therefore be
+    # identical to each other (no path saw another path's already-
+    # decremented balance).
+    first_year_distributions = {
+        projection.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
+        for projection in run.path_results
+    }
+    assert len(first_year_distributions) == 1
+    assert first_year_distributions.pop() > 0
+
+
+def test_no_cross_path_leakage_in_inherited_distributions_forced_parallel(monkeypatch):
+    import retirement_planner.simulation.monte_carlo as monte_carlo_module
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    # Force the parallel branch (module docstring / test above) with more
+    # paths than workers, so at least one worker process runs multiple
+    # paths in sequence -- exactly the scenario _run_one_path_shared()
+    # must take a fresh inherited_accounts copy for on every call.
+    monkeypatch.setattr(monte_carlo_module, "_PARALLEL_DISPATCH_THRESHOLD", 10)
+
+    inherited_accounts = [
+        InheritedAccountBalance(
+            account_id="traditional-1",
+            balance=250_000.0,
+            death_year=2023,
+            decedent_age_at_death=80,
+            depletion_deadline_year=2033,
+        )
+    ]
+    return_paths = [_PATH_OK] * 20
+
+    run = run_simulation(
+        **_COMMON_KWARGS,
+        return_paths=return_paths,
+        candidate_label="test",
+        inherited_accounts=inherited_accounts,
+    )
+
+    first_year_distributions = {
+        projection.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
+        for projection in run.path_results
+    }
+    assert len(first_year_distributions) == 1
+    assert first_year_distributions.pop() > 0
+    assert inherited_accounts[0].balance == 250_000.0
 
 
 def test_figures_used_deduplicates_across_paths_and_years():

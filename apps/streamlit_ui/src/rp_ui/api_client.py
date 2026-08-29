@@ -19,7 +19,6 @@ from .errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
-    InheritedAccountsUnsupportedForSimulationError,
     InvalidScenarioError,
     ScenarioNotFoundError,
     UnexpectedBackendError,
@@ -52,7 +51,7 @@ def _request(method: str, path: str, *, json: object = None, params: dict | None
 
 
 def _raise_for_error_response(resp: httpx.Response) -> None:
-    """Maps one of 007's 7 documented error shapes (contracts/bff-api.md)
+    """Maps one of 007's 6 documented error shapes (contracts/bff-api.md)
     to its typed exception, by branching on the response's own stable
     `error` field (contracts/bff-api.md's "Consumption expectations" note)
     -- never by string-matching a free-text message. Anything else
@@ -83,8 +82,6 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
             requested_year=body.get("requested_year", 0),
             documented_years=body.get("documented_years", []),
         )
-    if error == "inherited_accounts_unsupported_for_simulation":
-        raise InheritedAccountsUnsupportedForSimulationError(account_ids=body.get("account_ids", []))
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 
 

@@ -683,31 +683,6 @@ def test_us2_unsupported_tax_year_shows_specific_message_not_a_bare_500():
     assert any("1900" in e.value and "2020" in e.value and "2026" in e.value for e in at.error)
 
 
-def test_run_simulation_inherited_accounts_unsupported_shows_specific_message():
-    """Regression: running a scenario built with the Scenarios page's own
-    Inherited IRA section against Monte Carlo simulation previously fell
-    through to "Unexpected response from backend: HTTP 422" with no
-    actionable message -- 012-inherited-ira-rmd's own documented 422
-    shape (bff-api.md) must render a specific message here instead."""
-
-    def sim_response(request):
-        return httpx.Response(
-            422,
-            json={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": ["traditional-6"]},
-        )
-
-    routes = _run_reference_routes()
-    routes[("POST", "/api/v1/simulations")] = sim_response
-    _install(_route(routes))
-
-    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
-    at.button(key="run_button").click().run()
-
-    assert not at.exception
-    assert any("inherited" in e.value.lower() and "traditional-6" in e.value for e in at.error)
-    assert any("deterministic" in e.value.lower() for e in at.error)
-
-
 def test_us2_run_button_wrapped_in_spinner():
     """Acceptance Scenario US2.4 -- a progress indicator is visible for the
     duration of a run request. Verified structurally: run_simulation() is
@@ -806,35 +781,6 @@ def test_us3_simulated_state_comparison_shows_overlay_and_table():
     assert table["ending_balance"].iloc[0] == "$1,500,000.00"
     assert table["median_lifetime_tax_paid"].iloc[0] == "$250,000.00"
     assert any(type(child).__name__ == "UnknownElement" for child in at.main.children.values())
-
-
-def test_compare_simulated_inherited_accounts_unsupported_shows_specific_message():
-    """Regression: comparing a scenario built with the Scenarios page's
-    own Inherited IRA section on the Monte Carlo engine previously fell
-    through to "Unexpected response from backend: HTTP 422" -- the
-    documented 422 shape (bff-api.md) must render a specific message,
-    pointing at the Deterministic engine as the supported alternative."""
-
-    def compare_response(request):
-        return httpx.Response(
-            422,
-            json={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": ["traditional-6"]},
-        )
-
-    routes = _compare_reference_routes()
-    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
-    _install(_route(routes))
-
-    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
-    at.selectbox(key="compare_axis").set_value("state")
-    at.run()
-    at.selectbox(key="compare_candidate_0_state").set_value("FL")
-    at.run()
-    at.button(key="compare_button").click().run()
-
-    assert not at.exception
-    assert any("inherited" in e.value.lower() and "traditional-6" in e.value for e in at.error)
-    assert any("deterministic" in e.value.lower() for e in at.error)
 
 
 def test_us3_deterministic_engine_hides_state_axis():

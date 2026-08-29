@@ -4,19 +4,41 @@ rate, percentile ending-balance bands, and (optionally) a survival-adjusted
 success rate. Path-level work is dispatched across worker processes once
 path_count exceeds a threshold (research.md §7). See
 specs/005-simulation-engine/contracts/simulation-api.md.
+
+inherited_accounts (012-inherited-ira-rmd rp-mt7, research.md §10 addendum):
+run_plan_projection() mutates each InheritedAccountBalance's balance in
+place, year by year, exactly like 004's compare.py already has to guard
+against across candidates -- here every *path* needs that same fresh,
+independently-copied list, not just every candidate. Under serial dispatch
+that's a plain per-call copy (_run_one_path()); under parallel dispatch the
+base list is pickled once into a worker's shared state via
+_init_worker()/initargs (the same "sent once per worker, not once per
+task" mechanism household/accounts/strategy already use), and
+_run_one_path_shared() takes its own fresh copy from that shared base
+before every single path it's asked to run -- so mutations from one path
+never leak into the next path the same worker process happens to run next.
 """
 
 from __future__ import annotations
 
 import os
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
 
 from retirement_planner.comparison import PlanProjection, StrategyConfiguration, run_plan_projection
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household
 from retirement_planner.tax import FigureUsage
 
 from .models import PercentileBand, ReturnPath, SimulationRun, SurvivalCurve
+
+
+def _fresh_inherited_accounts(inherited_accounts: list[InheritedAccountBalance]) -> list[InheritedAccountBalance]:
+    """Mirrors comparison/compare.py's own helper of the same name exactly
+    (research.md §10 addendum): a fresh, independently-copied list (and
+    instances) must be built per run_plan_projection() call, since that
+    function mutates each InheritedAccountBalance's balance in place."""
+    return [replace(account) for account in inherited_accounts]
 
 # Below this path count, per-path work runs serially -- ProcessPoolExecutor
 # start-up/IPC overhead outweighs the benefit for small runs, and (per the
@@ -37,7 +59,11 @@ _DEFAULT_PERCENTILES: tuple[float, ...] = (0.10, 0.25, 0.50, 0.75, 0.90)
 # arguments -- household, accounts, strategy -- are sent once per worker,
 # not once per path).
 _worker_shared_args: (
-    tuple[Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration] | None
+    tuple[
+        Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
+        list[InheritedAccountBalance],
+    ]
+    | None
 ) = None
 
 
@@ -52,28 +78,34 @@ def _init_worker(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
+    inherited_accounts: list[InheritedAccountBalance],
 ) -> None:
     """ProcessPoolExecutor initializer: stores this call's arguments once
     per worker process into the module-level _worker_shared_args, so
     _run_one_path_shared() doesn't need them repickled per task
     (research.md §7). traditional_ownership_shares (011-per-owner-accounts)
-    travels through this same shared-per-worker tuple, sent once per
-    worker rather than once per path, exactly like household/accounts/
-    strategy already are."""
+    and inherited_accounts (012-inherited-ira-rmd rp-mt7) travel through
+    this same shared-per-worker tuple, sent once per worker rather than
+    once per path, exactly like household/accounts/strategy already are --
+    inherited_accounts is this worker's own unmutated *base* list;
+    _run_one_path_shared() takes a fresh copy of it before every path."""
     global _worker_shared_args
     _worker_shared_args = (
         household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-        start_plan_year, start_tax_year, plan_to_age, strategy,
+        start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts,
     )
 
 
 def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
     """Module-level (picklable) worker used under parallel dispatch: reads
     the shared, per-worker-process arguments _init_worker() set once, and
-    runs run_plan_projection() for just this one path (research.md §7)."""
+    runs run_plan_projection() for just this one path (research.md §7) --
+    with its own fresh copy of inherited_accounts (module docstring),
+    since this same worker process runs many paths in sequence and
+    run_plan_projection() mutates each InheritedAccountBalance in place."""
     assert _worker_shared_args is not None
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy) = _worker_shared_args
+     start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts) = _worker_shared_args
     return run_plan_projection(
         household=household,
         accounts=accounts,
@@ -86,19 +118,21 @@ def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=return_path,
+        inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
     )
 
 
 def _run_one_path(
     args: tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
-        ReturnPath,
+        ReturnPath, list[InheritedAccountBalance],
     ],
 ) -> PlanProjection:
     """Module-level (picklable) worker used under serial dispatch: unpacks
-    one path's call arguments and runs run_plan_projection() for it."""
+    one path's call arguments and runs run_plan_projection() for it, with
+    its own fresh copy of inherited_accounts (module docstring)."""
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy, return_path) = args
+     start_plan_year, start_tax_year, plan_to_age, strategy, return_path, inherited_accounts) = args
     return run_plan_projection(
         household=household,
         accounts=accounts,
@@ -111,6 +145,7 @@ def _run_one_path(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=return_path,
+        inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
     )
 
 
@@ -176,6 +211,7 @@ def run_simulation(
     return_paths: list[ReturnPath],
     candidate_label: str,
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
 ) -> SimulationRun:
     """Calls run_plan_projection() once per entry in return_paths, each
     with that path substituted as the strategy's return_assumption
@@ -187,7 +223,16 @@ def run_simulation(
     (FR-018), or if traditional_ownership_shares (011-per-owner-accounts)
     omits one (comparison-api.md's precedent, applied here too) -- both
     validated eagerly, before any path is scored. See
-    contracts/simulation-api.md."""
+    contracts/simulation-api.md.
+
+    inherited_accounts (012-inherited-ira-rmd rp-mt7, module docstring):
+    this call's own unmutated base list -- every individual path gets its
+    own fresh, independently-copied list (_run_one_path()/
+    _run_one_path_shared()), so this parameter itself is never mutated and
+    may safely be reused across multiple run_simulation() calls (e.g. one
+    per candidate in simulation/compare.py). Defaults to [], reproducing
+    every existing caller's exact prior behavior.
+    """
     if len(return_paths) == 0:
         raise ValueError("return_paths must contain at least one path")
 
@@ -209,13 +254,14 @@ def run_simulation(
         with ProcessPoolExecutor(
             initializer=_init_worker,
             initargs=(household, accounts, traditional_ownership_shares, annual_spending_need, state,
-                      reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy),
+                      reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy,
+                      inherited_accounts),
         ) as executor:
             path_results = list(executor.map(_run_one_path_shared, return_paths, chunksize=chunk_size))
     else:
         call_args = [
             (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-             start_plan_year, start_tax_year, plan_to_age, strategy, path)
+             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts)
             for path in return_paths
         ]
         path_results = [_run_one_path(args) for args in call_args]

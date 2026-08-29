@@ -8,7 +8,7 @@ stress-scenario uniform-application guarantee (US4).
 import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HouseholdMember
 from retirement_planner.simulation.models import ReturnPath
 
@@ -99,6 +99,48 @@ def test_compare_roth_conversion_strategies_reuses_the_identical_return_paths_ob
 
     assert comparison.axis == "roth_conversion_strategy"
     assert comparison.runs[0].path_results[0].return_assumption is _RETURN_PATHS[0]
+
+
+def test_compare_roth_conversion_strategies_no_cross_candidate_leakage_in_inherited_distributions():
+    """012-inherited-ira-rmd rp-mt7: mirrors comparison/compare.py's own
+    test_no_cross_candidate_leakage_in_inherited_distributions -- each
+    candidate's run_simulation() call must see the identical, unmutated
+    starting inherited balance, not another candidate's already-decremented
+    one (monte_carlo.py's own module docstring)."""
+    from retirement_planner.simulation.compare import compare_roth_conversion_strategies
+
+    candidates = [
+        StrategyConfiguration(
+            label="fill_to_bracket", withdrawal_strategy="ignored",
+            conversion_strategy="fill_to_bracket", conversion_bracket_ceiling_or_amount=206_000,
+            conversion_window=(2026, 2030), claiming_ages={"ignored": 0},
+        ),
+        StrategyConfiguration(
+            label="no_conversion", withdrawal_strategy="ignored",
+            conversion_strategy=None, conversion_bracket_ceiling_or_amount=None,
+            conversion_window=None, claiming_ages={"ignored": 0},
+        ),
+    ]
+    inherited_accounts = [
+        InheritedAccountBalance(
+            account_id="traditional-1", balance=250_000.0, death_year=2023,
+            decedent_age_at_death=80, depletion_deadline_year=2033,
+        )
+    ]
+
+    comparison = compare_roth_conversion_strategies(
+        **_COMMON_KWARGS, state="FL", withdrawal_strategy="rmd_taxable_traditional_roth",
+        claiming_ages={"you": 99}, return_paths=_RETURN_PATHS, candidates=candidates,
+        inherited_accounts=inherited_accounts,
+    )
+
+    first_path_first_year_distributions = {
+        run.path_results[0].years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
+        for run in comparison.runs
+    }
+    assert len(first_path_first_year_distributions) == 1
+    assert first_path_first_year_distributions.pop() > 0
+    assert inherited_accounts[0].balance == 250_000.0
 
 
 def test_compare_withdrawal_sequencing_strategies_reuses_the_identical_return_paths_object():

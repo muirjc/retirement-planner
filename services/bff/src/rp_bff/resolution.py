@@ -57,26 +57,6 @@ class UnknownReferenceValueError(Exception):
         super().__init__(f"unknown {field}: {value!r}")
 
 
-class InheritedAccountsUnsupportedForSimulationError(Exception):
-    """012-inherited-ira-rmd (FR-013, research.md §10 addendum): raised
-    when a Monte Carlo simulation or simulated-comparison request is made
-    against a scenario with any inherited account -- that path isn't
-    threaded through retirement_planner.simulation (005) in this feature
-    (explicit follow-on work), so it must be rejected loudly rather than
-    silently run with the inherited account's distributions dropped.
-    Carries the affected account_ids so a route handler can report them
-    in the inherited_accounts_unsupported_for_simulation response
-    (contracts/bff-api.md) without re-deriving anything. Never raised for
-    the deterministic comparison/single-projection path, which fully
-    supports inherited accounts (US1/US2)."""
-
-    def __init__(self, account_ids: list[str]) -> None:
-        self.account_ids = account_ids
-        super().__init__(
-            f"{len(account_ids)} inherited account(s) present -- Monte Carlo simulation is not yet supported"
-        )
-
-
 def unsupported_tax_year_error(exc: UnsupportedTaxYearError) -> HTTPException:
     """Translates a raised UnsupportedTaxYearError (tax/models.py's own
     figure-lookup guard -- never falls back to the nearest documented
@@ -267,16 +247,3 @@ def check_run_cost(context: ResolvedRunContext, candidate_count: int = 1) -> Non
     check_cost_within_budget(
         path_count=context.n_paths, candidate_count=candidate_count, horizon_years=horizon_years
     )
-
-
-def check_simulation_supports_inherited_accounts(context: ResolvedRunContext) -> None:
-    """012-inherited-ira-rmd (FR-013): raises
-    InheritedAccountsUnsupportedForSimulationError before any 005 call if
-    the resolved scenario has any inherited account -- called by both
-    routes/simulations.py's resolve_and_run_simulation() and
-    routes/comparisons.py's simulated-comparison resolve path (never the
-    deterministic path, which fully supports inherited accounts)."""
-    if context.inherited_accounts:
-        raise InheritedAccountsUnsupportedForSimulationError(
-            [account.account_id for account in context.inherited_accounts]
-        )

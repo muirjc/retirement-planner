@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from retirement_planner.comparison import StrategyConfiguration
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HsaContributionPlan
 
 from .models import ReturnPath, SimulationComparisonResult, SurvivalCurve
@@ -44,12 +44,19 @@ def compare_states(
     strategy: StrategyConfiguration,
     return_paths: list[ReturnPath],
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see run_simulation()'s own docstring
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in states, holding strategy,
     return_paths, and every other argument fixed -- only state differs
     (FR-007, FR-009, research.md §2). This is 005's own comparison axis;
     004 never built it, since state is a run_plan_projection() argument,
     not a StrategyConfiguration field.
+
+    inherited_accounts (012-inherited-ira-rmd rp-mt7): the same base list
+    is passed unchanged to every state's run_simulation() call --
+    run_simulation() itself never mutates this parameter, only its own
+    per-path copies (monte_carlo.py's module docstring), so no candidate-
+    level copy is needed here the way 004's compare.py needs one.
     """
     _validate_consistent_generation_mode(return_paths)
     runs = [
@@ -67,6 +74,7 @@ def compare_states(
             return_paths=return_paths,
             candidate_label=state,
             survival_curves=survival_curves,
+            inherited_accounts=inherited_accounts,
         )
         for state in states
     ]
@@ -89,6 +97,7 @@ def compare_roth_conversion_strategies(
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared withdrawal_strategy/claiming_ages/hsa_contribution onto
@@ -96,7 +105,8 @@ def compare_roth_conversion_strategies(
     parity with 004, FR-009; hsa_contribution per
     010-advanced-tax-benefits contracts/comparison-api.md).
     Mirrors 004's compare_roth_conversion_strategies() exactly, substituting
-    return_paths for return_assumption."""
+    return_paths for return_assumption. inherited_accounts (012-inherited-
+    ira-rmd rp-mt7): see compare_states()'s own docstring."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -118,6 +128,7 @@ def compare_roth_conversion_strategies(
             return_paths=return_paths,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
+            inherited_accounts=inherited_accounts,
         )
         for candidate in candidates
     ]
@@ -142,6 +153,7 @@ def compare_withdrawal_sequencing_strategies(
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -150,7 +162,8 @@ def compare_withdrawal_sequencing_strategies(
     with 004, FR-009; hsa_contribution per
     010-advanced-tax-benefits contracts/comparison-api.md).
     Mirrors 004's compare_withdrawal_sequencing_strategies() exactly,
-    substituting return_paths for return_assumption."""
+    substituting return_paths for return_assumption. inherited_accounts
+    (012-inherited-ira-rmd rp-mt7): see compare_states()'s own docstring."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -174,6 +187,7 @@ def compare_withdrawal_sequencing_strategies(
             return_paths=return_paths,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
+            inherited_accounts=inherited_accounts,
         )
         for candidate in candidates
     ]
@@ -198,6 +212,7 @@ def compare_claiming_age_grid(
     claiming_age_grid: list[dict[str, int]],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
+    inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -209,7 +224,8 @@ def compare_claiming_age_grid(
     version, so needs an explicit parameter here). Raises ValueError if
     any grid entry names a claiming age outside 62-70 (FR-010). Mirrors
     004's compare_claiming_age_grid() exactly, substituting return_paths
-    for return_assumption."""
+    for return_assumption. inherited_accounts (012-inherited-ira-rmd
+    rp-mt7): see compare_states()'s own docstring."""
     for entry in claiming_age_grid:
         for person_name, age in entry.items():
             if not (_MIN_CLAIMING_AGE <= age <= _MAX_CLAIMING_AGE):
@@ -242,6 +258,7 @@ def compare_claiming_age_grid(
             return_paths=return_paths,
             candidate_label=f"claiming_ages_{index}",
             survival_curves=survival_curves,
+            inherited_accounts=inherited_accounts,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

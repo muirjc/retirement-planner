@@ -33,4 +33,12 @@ class SummaryStatistics:
     percentile_bands: list[PercentileBand] | None
     median_depletion_age: float | None
     median_lifetime_tax_paid: float
+    median_lifetime_irmaa_paid: float
+    """010-advanced-tax-benefits: same derivation as median_lifetime_tax_paid
+    (median across Monte Carlo paths' PlanOutcome.cumulative_irmaa_paid;
+    the single value for a deterministic candidate) -- a separate figure,
+    never folded into median_lifetime_tax_paid, matching how PlanOutcome
+    itself keeps cumulative_irmaa_paid distinct from cumulative_tax_paid."""
+    median_lifetime_niit_paid: float
+    """010-advanced-tax-benefits: same derivation, for cumulative_niit_paid."""
     unverified_figure_names: list[str] = field(default_factory=list)

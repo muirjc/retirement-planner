@@ -60,6 +60,8 @@ _SUMMARY_FIELDNAMES = [
     "ending_balance",
     "median_depletion_age",
     "median_lifetime_tax_paid",
+    "median_lifetime_irmaa_paid",  # 010-advanced-tax-benefits
+    "median_lifetime_niit_paid",  # 010-advanced-tax-benefits
     "has_unverified_figure",
 ]
 
@@ -75,6 +77,8 @@ def _summary_to_row(summary: SummaryStatistics) -> dict:
         "ending_balance": summary.ending_balance,
         "median_depletion_age": "" if summary.median_depletion_age is None else summary.median_depletion_age,
         "median_lifetime_tax_paid": summary.median_lifetime_tax_paid,
+        "median_lifetime_irmaa_paid": summary.median_lifetime_irmaa_paid,
+        "median_lifetime_niit_paid": summary.median_lifetime_niit_paid,
         "has_unverified_figure": bool(summary.unverified_figure_names),
     }
 

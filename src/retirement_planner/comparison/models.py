@@ -13,8 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from retirement_planner.mechanics import AccountBalances, PlanYearMechanicsResult, WithdrawalPlan
-from retirement_planner.tax import FederalTaxResult, FigureUsage, StateTaxResult
+from retirement_planner.mechanics import AccountBalances, HsaContributionResult, PlanYearMechanicsResult, WithdrawalPlan
+from retirement_planner.scenario import HsaContributionPlan
+from retirement_planner.tax import FederalTaxResult, FigureUsage, IrmaaResult, NiitResult, StateTaxResult
 
 
 class ReturnSchedule(Protocol):
@@ -50,6 +51,12 @@ class StrategyConfiguration:
     conversion_bracket_ceiling_or_amount: float | None
     conversion_window: tuple[int, int] | None
     claiming_ages: dict[str, int]
+    hsa_contribution: HsaContributionPlan | None = None
+    """010-advanced-tax-benefits contracts/comparison-api.md's correction:
+    the held-fixed value every compare_*() function forces onto every
+    candidate, the same way withdrawal_strategy/claiming_ages already
+    are. Defaults to None, reproducing every existing StrategyConfiguration
+    construction's exact current behavior unmodified."""
 
 
 @dataclass
@@ -65,6 +72,9 @@ class PlanYearProjection:
     starting_balances: AccountBalances
     ending_balances: AccountBalances
     shortfall: float
+    irmaa: IrmaaResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
+    niit: NiitResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
+    hsa_contribution: HsaContributionResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
     figures_used: list[FigureUsage] = field(default_factory=list)
 
 
@@ -75,6 +85,8 @@ class PlanOutcome:
     ending_balance: float
     first_shortfall_plan_year: int | None
     cumulative_tax_paid: float
+    cumulative_irmaa_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
+    cumulative_niit_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
 
 
 @dataclass

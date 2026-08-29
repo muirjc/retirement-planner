@@ -137,3 +137,42 @@ class StateTaxResult:
     state: str
     state_tax_owed: float
     figures_used: list[FigureUsage]
+
+
+@dataclass
+class IrmaaTierRow:
+    """One IRMAA premium-surcharge tier. 010-advanced-tax-benefits
+    data-model.md § Tax result extensions. `magi_threshold` is the
+    inclusive lower bound of this tier (Edge Cases: at-or-above
+    triggers it, never strictly-above)."""
+
+    magi_threshold: float
+    annual_surcharge_per_person: float
+
+
+IrmaaTierTable = tuple[IrmaaTierRow, ...]
+"""Ascending by magi_threshold. A MAGI below every row's threshold means
+$0 -- there is no explicit "no surcharge" row."""
+
+
+@dataclass
+class IrmaaResult:
+    """010-advanced-tax-benefits data-model.md § Tax result extensions."""
+
+    magi: float
+    income_basis: Literal["two_year_lookback", "current_year_proxy"]
+    tier_crossed: float | None
+    enrolled_member_count: int
+    surcharge_owed: float
+    figures_used: list[FigureUsage]
+
+
+@dataclass
+class NiitResult:
+    """010-advanced-tax-benefits data-model.md § Tax result extensions."""
+
+    magi: float
+    investment_income: float
+    threshold_exceeded: bool
+    surtax_owed: float
+    figures_used: list[FigureUsage]

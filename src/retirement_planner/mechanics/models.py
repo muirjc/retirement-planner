@@ -68,6 +68,36 @@ class ConversionResult:
 
 
 @dataclass
+class HsaEligibility:
+    """010-advanced-tax-benefits data-model.md § Mechanics result
+    extensions.
+
+    Correction found during implementation (T022): `age` was added so
+    compute_hsa_contribution() can determine 55+ catch-up eligibility per
+    member without a second parameter carrying ages separately -- the
+    original contracts/mechanics-api.md draft omitted it. See
+    contracts/mechanics-api.md's own correction note.
+    """
+
+    person_name: str
+    age: int
+    eligible: bool
+    reason: str | None
+
+
+@dataclass
+class HsaContributionResult:
+    """010-advanced-tax-benefits data-model.md § Mechanics result
+    extensions."""
+
+    eligible_members: list[HsaEligibility]
+    applicable_limit: float
+    amount_contributed: float
+    rejected_reason: str | None
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
 class PlanYearMechanicsResult:
     """data-model.md § PlanYearMechanicsResult."""
 

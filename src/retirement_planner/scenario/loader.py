@@ -21,6 +21,7 @@ from .models import (
     Account,
     Household,
     HouseholdMember,
+    HsaContributionPlan,
     MarketAssumptions,
     RothConversionPlan,
     Scenario,
@@ -78,6 +79,10 @@ def _build_household_member(data: object, source: str, context: str) -> Househol
         current_age=_require(data, "current_age", source, context),
         ss_claim_age=_require(data, "ss_claim_age", source, context),
         ss_annual_benefit=_require(data, "ss_annual_benefit", source, context),
+        # hdhp_coverage (010-advanced-tax-benefits): optional, defaults to
+        # False when omitted -- every existing scenario YAML round-trips
+        # unchanged.
+        hdhp_coverage=data.get("hdhp_coverage", False) if isinstance(data, dict) else False,
     )
 
 
@@ -122,6 +127,16 @@ def _build_roth_conversion(data: object, source: str) -> RothConversionPlan | No
         strategy=_require(data, "strategy", source, "roth_conversion"),
         bracket_ceiling_or_amount=_require(data, "bracket_ceiling_or_amount", source, "roth_conversion"),
         window=tuple(window),
+    )
+
+
+def _build_hsa_contribution(data: object, source: str) -> HsaContributionPlan | None:
+    """010-advanced-tax-benefits: mirrors _build_roth_conversion()'s own
+    optional-block pattern exactly."""
+    if data is None:
+        return None
+    return HsaContributionPlan(
+        annual_amount=_require(data, "annual_amount", source, "hsa_contribution"),
     )
 
 
@@ -175,4 +190,5 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
         market_assumptions=_build_market_assumptions(data["market_assumptions"], source),
         simulation_settings=_build_simulation_settings(data["simulation_settings"], source),
         roth_conversion=_build_roth_conversion(data.get("roth_conversion"), source),
+        hsa_contribution=_build_hsa_contribution(data.get("hsa_contribution"), source),
     )

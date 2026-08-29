@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from retirement_planner.tax import FigureUsage, FilingStatus
 
-from .models import AccountBalances, PlanYearMechanicsResult
+from .models import AccountBalances, HsaContributionResult, PlanYearMechanicsResult
 from .roth_conversion import compute_roth_conversion
 from .withdrawal_sequencing import compute_withdrawal_plan
 
@@ -42,6 +42,7 @@ def compute_plan_year_mechanics(
     conversion_bracket_ceiling_or_amount: float | None,
     withdrawal_strategy: str = "rmd_taxable_traditional_roth",
     rmd_figures_used: list[FigureUsage] | None = None,
+    hsa_contribution: HsaContributionResult | None = None,
 ) -> PlanYearMechanicsResult:
     """Orchestrates one plan year: calls compute_withdrawal_plan() first
     (rmd_amount is caller-supplied — typically the sum of one or more
@@ -53,6 +54,12 @@ def compute_plan_year_mechanics(
     pre-withdrawal balances — so RMD dollars are structurally excluded from
     conversion (FR-013). Returns a zeroed conversion field when no
     conversion plan is configured.
+
+    hsa_contribution (010-advanced-tax-benefits FR-011): when provided,
+    its amount_contributed reduces the returned ordinary_income by that
+    same amount, and its figures_used are folded into the returned
+    figures_used union. Optional, defaults to None (no HSA modeled —
+    reproduces this function's exact prior behavior when omitted).
     """
     withdrawal_plan = compute_withdrawal_plan(
         spending_need=spending_need,
@@ -86,8 +93,14 @@ def compute_plan_year_mechanics(
     )
 
     ordinary_income = ordinary_income_established + conversion.ordinary_income_added
+    if hsa_contribution is not None:
+        ordinary_income -= hsa_contribution.amount_contributed
 
-    figures_used = [*(rmd_figures_used or []), *conversion.figures_used]
+    figures_used = [
+        *(rmd_figures_used or []),
+        *conversion.figures_used,
+        *(hsa_contribution.figures_used if hsa_contribution is not None else []),
+    ]
 
     return PlanYearMechanicsResult(
         plan_year=plan_year,

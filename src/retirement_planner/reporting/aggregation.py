@@ -54,6 +54,12 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
     median_lifetime_tax_paid = statistics.median(
         path.outcome.cumulative_tax_paid for path in run.path_results
     )
+    median_lifetime_irmaa_paid = statistics.median(
+        path.outcome.cumulative_irmaa_paid for path in run.path_results
+    )
+    median_lifetime_niit_paid = statistics.median(
+        path.outcome.cumulative_niit_paid for path in run.path_results
+    )
 
     ending_balance = run.percentile_bands[-1].percentiles[0.50]
 
@@ -64,6 +70,8 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
         percentile_bands=run.percentile_bands,
         median_depletion_age=median_depletion_age,
         median_lifetime_tax_paid=median_lifetime_tax_paid,
+        median_lifetime_irmaa_paid=median_lifetime_irmaa_paid,
+        median_lifetime_niit_paid=median_lifetime_niit_paid,
         unverified_figure_names=_unverified_figure_names(run.figures_used),
     )
 
@@ -96,6 +104,8 @@ def _summarize_plan_projection(
         percentile_bands=None,
         median_depletion_age=_depletion_age(projection, household, reference_tax_year),
         median_lifetime_tax_paid=projection.outcome.cumulative_tax_paid,
+        median_lifetime_irmaa_paid=projection.outcome.cumulative_irmaa_paid,
+        median_lifetime_niit_paid=projection.outcome.cumulative_niit_paid,
         unverified_figure_names=_unverified_figure_names(figures),
     )
 

@@ -150,6 +150,10 @@ def resolve_run_context(
         conversion_bracket_ceiling_or_amount=conversion_bracket_ceiling_or_amount,
         conversion_window=conversion_window,
         claiming_ages={member.person_name: member.ss_claim_age for member in scenario.household.members},
+        # 010-advanced-tax-benefits: resolved the same way roth_conversion
+        # is, immediately above -- an opaque scenario-level block passed
+        # through unvalidated beyond shape (001's own precedent).
+        hsa_contribution=scenario.hsa_contribution,
     )
 
     return ResolvedRunContext(

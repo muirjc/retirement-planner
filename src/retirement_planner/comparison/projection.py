@@ -13,14 +13,27 @@ from __future__ import annotations
 from retirement_planner.mechanics import (
     AccountBalances,
     WithdrawalPlan,
+    compute_hsa_contribution,
+    compute_hsa_eligibility,
     compute_plan_year_mechanics,
     compute_rmd,
     compute_withdrawal_plan,
 )
 from retirement_planner.scenario import Household, HouseholdMember
-from retirement_planner.tax import IncomeComponents, compute_federal_tax, compute_state_tax
+from retirement_planner.tax import (
+    FederalTaxResult,
+    IncomeComponents,
+    compute_federal_tax,
+    compute_irmaa_surcharge,
+    compute_niit,
+    compute_state_tax,
+)
 
 from .models import PlanOutcome, PlanProjection, PlanYearProjection, ReturnSchedule, StrategyConfiguration
+
+_MEDICARE_ENROLLMENT_AGE = 65
+"""Standard Medicare enrollment age -- 010-advanced-tax-benefits spec.md
+Assumptions: early enrollment due to disability is out of scope for v1."""
 
 
 def member_age_in_tax_year(member: HouseholdMember, tax_year: int, reference_tax_year: int) -> int:
@@ -38,6 +51,18 @@ def deemed_rmd_owner(household: Household) -> HouseholdMember:
     purposes (research.md §4). Renamed from private to public in
     006-reporting-aggregation (research.md §1) -- behavior unchanged."""
     return max(household.members, key=lambda member: member.current_age)
+
+
+def _approximate_magi(income: IncomeComponents, federal_tax: FederalTaxResult) -> float:
+    """MAGI approximation shared by IRMAA and NIIT determinations
+    (010-advanced-tax-benefits research.md §2): ordinary_income plus the
+    *taxable* portion of Social Security (federal_tax.taxable_social_security,
+    already computed by compute_federal_tax()'s own provisional-income
+    rule) -- never the gross benefit. This engine tracks no tax-exempt
+    interest or above-the-line deductions, so this is this engine's own
+    AGI proxy, not real MAGI -- a documented simplification (Principle I),
+    not silently presented as the IRS's own figure."""
+    return income.ordinary_income + federal_tax.taxable_social_security
 
 
 def _household_gross_social_security_benefit(
@@ -101,6 +126,29 @@ def run_plan_projection(
             spouse_is_sole_beneficiary=False,  # research.md §3
         )
 
+        # HSA (010-advanced-tax-benefits FR-008-FR-012): eligibility is
+        # always computed (informative even when no contribution is
+        # configured -- the same "always present" auditability discipline
+        # irmaa/niit follow), using this year's own ages/coverage/Medicare-
+        # enrollment status -- never the prior or a future year's.
+        hsa_eligibility = compute_hsa_eligibility(
+            members=[
+                (member.person_name, ages_this_year[member.person_name], member.hdhp_coverage)
+                for member in household.members
+            ],
+            medicare_enrolled={
+                member.person_name: ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE
+                for member in household.members
+            },
+        )
+        hsa_contribution = compute_hsa_contribution(
+            hsa_eligibility,
+            configured_annual_amount=(
+                strategy.hsa_contribution.annual_amount if strategy.hsa_contribution is not None else 0.0
+            ),
+            tax_year=tax_year,
+        )
+
         mechanics_result = compute_plan_year_mechanics(
             # conversion_window is calendar-year-based (001's Scenario.roth_conversion.window,
             # e.g. (2028, 2034)) and compute_roth_conversion() checks it against this
@@ -119,6 +167,7 @@ def run_plan_projection(
             conversion_bracket_ceiling_or_amount=strategy.conversion_bracket_ceiling_or_amount,
             withdrawal_strategy=strategy.withdrawal_strategy,
             rmd_figures_used=rmd_result.figures_used,
+            hsa_contribution=hsa_contribution,
         )
 
         income = IncomeComponents(
@@ -128,6 +177,47 @@ def run_plan_projection(
         federal_tax = compute_federal_tax(income, household.filing_status, tax_year)
         filer_ages = [ages_this_year[member.person_name] for member in household.members]
         state_tax = compute_state_tax(state, income, filer_ages, household.filing_status, tax_year)
+
+        # IRMAA (010-advanced-tax-benefits FR-001-FR-004, research.md §§2-3):
+        # a true two-year look-back when this projection has already computed
+        # that far back, else this year's own MAGI as an explicitly flagged
+        # proxy -- never fabricated pre-scenario history.
+        if len(years) >= 2:
+            lookback_year = years[-2]
+            irmaa_magi = lookback_year.mechanics.ordinary_income + lookback_year.federal_tax.taxable_social_security
+            income_basis = "two_year_lookback"
+        else:
+            irmaa_magi = _approximate_magi(income, federal_tax)
+            income_basis = "current_year_proxy"
+        enrolled_member_count = sum(
+            1 for member in household.members if ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE
+        )
+        irmaa = compute_irmaa_surcharge(
+            magi=irmaa_magi,
+            income_basis=income_basis,
+            filing_status=household.filing_status,
+            tax_year=tax_year,
+            enrolled_member_count=enrolled_member_count,
+        )
+
+        # NIIT (010-advanced-tax-benefits FR-005-FR-007, research.md §1):
+        # investment_income is approximated as this year's taxable-account
+        # withdrawal amount in full -- the same income-establishing
+        # withdrawal that already fed into `income` above, never the
+        # tax-funding withdrawal computed below (which happens only after
+        # tax is already determined and isn't itself part of this year's
+        # taxable income).
+        investment_income = sum(
+            item.amount
+            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
+            if item.account_type == "taxable"
+        )
+        niit = compute_niit(
+            magi=_approximate_magi(income, federal_tax),
+            investment_income=investment_income,
+            filing_status=household.filing_status,
+            tax_year=tax_year,
+        )
 
         tax_owed = federal_tax.federal_tax_owed + state_tax.state_tax_owed
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
@@ -150,7 +240,16 @@ def run_plan_projection(
             taxable=post_tax_balances.taxable * growth_factor,
         )
 
-        figures_used = [*mechanics_result.figures_used, *federal_tax.figures_used, *state_tax.figures_used]
+        # mechanics_result.figures_used already includes hsa_contribution's
+        # own figures_used (compute_plan_year_mechanics() folds it in), so
+        # it is not repeated here.
+        figures_used = [
+            *mechanics_result.figures_used,
+            *federal_tax.figures_used,
+            *state_tax.figures_used,
+            *irmaa.figures_used,
+            *niit.figures_used,
+        ]
 
         years.append(
             PlanYearProjection(
@@ -163,6 +262,9 @@ def run_plan_projection(
                 starting_balances=current_balances,
                 ending_balances=ending_balances,
                 shortfall=shortfall,
+                irmaa=irmaa,
+                niit=niit,
+                hsa_contribution=hsa_contribution,
                 figures_used=figures_used,
             )
         )
@@ -195,9 +297,13 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
     cumulative_tax_paid = sum(
         year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in years
     )
+    cumulative_irmaa_paid = sum(year.irmaa.surcharge_owed for year in years)
+    cumulative_niit_paid = sum(year.niit.surtax_owed for year in years)
 
     return PlanOutcome(
         ending_balance=ending_balance,
         first_shortfall_plan_year=first_shortfall_plan_year,
         cumulative_tax_paid=cumulative_tax_paid,
+        cumulative_irmaa_paid=cumulative_irmaa_paid,
+        cumulative_niit_paid=cumulative_niit_paid,
     )

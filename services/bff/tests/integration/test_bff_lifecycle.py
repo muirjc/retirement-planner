@@ -275,6 +275,83 @@ def test_comparison_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(
     assert response.json()["error"] == "unsupported_tax_year"
 
 
+# --- 010-advanced-tax-benefits: HSA contribution actually reaches every route ---
+
+
+def test_hsa_contribution_reduces_ordinary_income_in_a_run(client):
+    """Regression for a gap found during implementation (contracts/
+    comparison-api.md's own note): resolving Scenario.hsa_contribution
+    onto context.strategy is necessary but not sufficient on its own --
+    this proves the single-run route (routes/simulations.py) actually
+    applies it, not just that resolve_run_context() carries it."""
+    hsa_body = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {**_SCENARIO_BODY["household"]["members"][0], "hdhp_coverage": True},
+                _SCENARIO_BODY["household"]["members"][1],
+            ],
+        },
+        "hsa_contribution": {"annual_amount": 3_000},
+    }
+    client.put("/api/v1/scenarios/hsa_case", json=hsa_body)
+    client.put("/api/v1/scenarios/no_hsa_case", json=_SCENARIO_BODY)
+
+    with_hsa = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "hsa_case"}).json()
+    without_hsa = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "no_hsa_case"}).json()
+
+    with_year = with_hsa["run"]["path_results"][0]["years"][0]
+    without_year = without_hsa["run"]["path_results"][0]["years"][0]
+    assert with_year["hsa_contribution"]["amount_contributed"] == 3_000.0
+    assert with_year["mechanics"]["ordinary_income"] == pytest.approx(
+        without_year["mechanics"]["ordinary_income"] - 3_000.0
+    )
+
+
+def test_hsa_contribution_reaches_the_withdrawal_sequencing_comparison_axis(client):
+    """The gap this regression actually caught: routes/comparisons.py
+    builds each roth_conversion_strategy/withdrawal_sequencing candidate
+    independently via build_candidates_for_axis() rather than starting
+    from context.strategy, so hsa_contribution never reached them without
+    being passed explicitly into those compare_*() calls (contracts/
+    comparison-api.md). A status-code-only check would have passed even
+    with the bug (the endpoint never errored, it silently ignored the
+    configured amount) -- this compares the actual resulting figure
+    against an identical scenario with no HSA contribution configured."""
+    def household_with_hdhp(hsa_contribution):
+        body = {
+            **_SCENARIO_BODY,
+            "household": {
+                **_SCENARIO_BODY["household"],
+                "members": [
+                    {**_SCENARIO_BODY["household"]["members"][0], "hdhp_coverage": True},
+                    _SCENARIO_BODY["household"]["members"][1],
+                ],
+            },
+        }
+        if hsa_contribution is not None:
+            body["hsa_contribution"] = {"annual_amount": hsa_contribution}
+        return body
+
+    client.put("/api/v1/scenarios/hsa_case", json=household_with_hdhp(3_000))
+    client.put("/api/v1/scenarios/no_hsa_case", json=household_with_hdhp(None))
+
+    def compare(scenario_name):
+        body = {
+            **_RUN_BODY, "scenario_name": scenario_name, "axis": "withdrawal_sequencing",
+            "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+        }
+        response = client.post("/api/v1/comparisons/deterministic", json=body)
+        assert response.status_code == 200
+        return response.json()["summaries"][0]
+
+    with_hsa_summary = compare("hsa_case")
+    without_hsa_summary = compare("no_hsa_case")
+
+    assert with_hsa_summary["median_lifetime_tax_paid"] < without_hsa_summary["median_lifetime_tax_paid"]
+
+
 # --- User Story 5: export a run or comparison as a downloadable report ---
 
 

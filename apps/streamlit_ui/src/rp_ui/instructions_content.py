@@ -98,4 +98,19 @@ SECTIONS: list[Section] = [
             "under this strategy."
         ),
     ),
+    Section(
+        title="Run Simulation",
+        body=(
+            "Pick a saved scenario from **Scenario**, choose a **Withdrawal strategy**, and set "
+            "**Reference tax year**, **Start plan year**, and **Start tax year** for this run. "
+            "Always replace the reference tax year with a real calendar year before running -- an "
+            "unedited placeholder value is the most common mistake on this page, and it won't fail "
+            "as obviously as a blank field would. To use different **Paths**, **Seed**, or **Plan to "
+            "age** than the scenario's own saved Simulation Settings, open **Advanced overrides** and "
+            "check **Override scenario defaults** first; the fields inside are otherwise ignored even "
+            "if you've changed them. Clicking **Run** shows a success-rate metric and a fan chart -- "
+            "the spread of possible ending balances by plan year, one line per percentile -- and any "
+            "error points back to what needs fixing, often on the Scenarios page itself."
+        ),
+    ),
 ]

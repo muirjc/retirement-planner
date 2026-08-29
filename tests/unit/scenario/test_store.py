@@ -8,6 +8,7 @@ from retirement_planner.scenario import (
     Account,
     Household,
     HouseholdMember,
+    HsaContributionPlan,
     MarketAssumptions,
     Scenario,
     ScenarioParseError,
@@ -49,6 +50,33 @@ def _scenario(name, spending=110_000.0):
         market_assumptions=_market_assumptions(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=90),
     )
+
+
+def test_hdhp_coverage_and_hsa_contribution_survive_a_save_load_round_trip(scenario_store_dir):
+    """010-advanced-tax-benefits regression: _scenario_to_dict() builds its
+    YAML dict field-by-field (not generically) and initially omitted both
+    HouseholdMember.hdhp_coverage and Scenario.hsa_contribution -- silently
+    dropping them on save, caught by a real BFF round-trip test before this
+    core-level test was added to cover the actual source of the bug."""
+    scenario = _scenario("hsa_case")
+    scenario.household.members[0].hdhp_coverage = True
+    scenario.hsa_contribution = HsaContributionPlan(annual_amount=3_000.0)
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("hsa_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].hdhp_coverage is True
+    assert reloaded.hsa_contribution == HsaContributionPlan(annual_amount=3_000.0)
+
+
+def test_hdhp_coverage_defaults_false_and_hsa_contribution_defaults_none(scenario_store_dir):
+    """Every existing scenario (created before this feature) round-trips
+    unchanged."""
+    save_scenario(_scenario("no_hsa_case"), scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("no_hsa_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].hdhp_coverage is False
+    assert reloaded.hsa_contribution is None
 
 
 def test_save_list_load_round_trip_for_ten_scenarios_stays_isolated(scenario_store_dir):

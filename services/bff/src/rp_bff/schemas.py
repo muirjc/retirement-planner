@@ -21,6 +21,8 @@ class HouseholdMemberRequest(BaseModel):
     current_age: int
     ss_claim_age: int
     ss_annual_benefit: float
+    hdhp_coverage: bool = False
+    """010-advanced-tax-benefits."""
 
 
 class HouseholdRequest(BaseModel):
@@ -71,6 +73,12 @@ class RothConversionPlanRequest(BaseModel):
     window: tuple[int, int]
 
 
+class HsaContributionPlanRequest(BaseModel):
+    """Mirrors 001's HsaContributionPlan fields exactly (010-advanced-tax-benefits)."""
+
+    annual_amount: float
+
+
 class ScenarioRequest(BaseModel):
     """The PUT /scenarios/{name} and POST /scenarios/{name}/validate
     request body -- see data-model.md § Scenario Resource and
@@ -83,3 +91,5 @@ class ScenarioRequest(BaseModel):
     market_assumptions: MarketAssumptionsRequest
     simulation_settings: SimulationSettingsRequest
     roth_conversion: RothConversionPlanRequest | None = None
+    hsa_contribution: HsaContributionPlanRequest | None = None
+    """010-advanced-tax-benefits."""

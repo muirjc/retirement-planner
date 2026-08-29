@@ -21,6 +21,13 @@ class HouseholdMember:
     current_age: int
     ss_claim_age: int
     ss_annual_benefit: float
+    hdhp_coverage: bool = False
+    """Whether this member is covered by a qualifying high-deductible
+    health plan -- the HSA-eligibility precondition
+    (010-advanced-tax-benefits contracts/scenario-api.md). Per-member,
+    since coverage is inherently individual, independent of any other
+    member's coverage or Medicare status. Defaults to False, reproducing
+    every existing scenario's exact current behavior."""
 
 
 @dataclass
@@ -63,6 +70,18 @@ class RothConversionPlan:
     strategy: str
     bracket_ceiling_or_amount: float
     window: tuple[int, int]
+
+
+@dataclass
+class HsaContributionPlan:
+    """The household's intended annual HSA contribution, in years any
+    member is eligible -- mirrors RothConversionPlan's own optional-block
+    shape exactly: an opaque value this feature owns the interpretation
+    of, not validated here beyond shape
+    (010-advanced-tax-benefits contracts/scenario-api.md, data-model.md).
+    """
+
+    annual_amount: float
 
 
 @dataclass
@@ -123,6 +142,10 @@ class Scenario:
     market_assumptions: MarketAssumptions
     simulation_settings: SimulationSettings
     roth_conversion: RothConversionPlan | None = None
+    hsa_contribution: HsaContributionPlan | None = None
+    """010-advanced-tax-benefits contracts/scenario-api.md. Defaults to
+    None ("not modeled"), reproducing every existing scenario's exact
+    current behavior."""
     validation_flags: list[ValidationFlag] = field(default_factory=list)
 
     @property

@@ -15,9 +15,10 @@ from retirement_planner.comparison import (
     member_age_in_tax_year,
     run_plan_projection,
 )
-from retirement_planner.comparison.projection import _household_gross_social_security_benefit
+from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.tax import FederalTaxResult, IncomeComponents
 
 
 def _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000):
@@ -249,3 +250,23 @@ def test_repeated_calls_with_identical_inputs_produce_identical_results():
     second_run = run_plan_projection(**kwargs)
 
     assert first_run == second_run
+
+
+# -- 010-advanced-tax-benefits: shared MAGI-approximation helper (research.md §2) --
+
+
+def test_approximate_magi_sums_ordinary_income_and_taxable_social_security():
+    income = IncomeComponents(ordinary_income=150_000.0, social_security_gross_benefit=32_000.0)
+    federal_tax = FederalTaxResult(federal_tax_owed=18_000.0, taxable_social_security=27_200.0, figures_used=[])
+
+    assert _approximate_magi(income, federal_tax) == 150_000.0 + 27_200.0
+
+
+def test_approximate_magi_ignores_gross_social_security_benefit_directly():
+    """MAGI uses the taxable portion of Social Security (already computed
+    by federal.py's own provisional-income rule), never the gross benefit
+    -- research.md §2's own stated approximation."""
+    income = IncomeComponents(ordinary_income=0.0, social_security_gross_benefit=50_000.0)
+    federal_tax = FederalTaxResult(federal_tax_owed=0.0, taxable_social_security=0.0, figures_used=[])
+
+    assert _approximate_magi(income, federal_tax) == 0.0

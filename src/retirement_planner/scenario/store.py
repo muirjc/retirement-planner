@@ -50,6 +50,7 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
                     "current_age": member.current_age,
                     "ss_claim_age": member.ss_claim_age,
                     "ss_annual_benefit": member.ss_annual_benefit,
+                    "hdhp_coverage": member.hdhp_coverage,  # 010-advanced-tax-benefits
                 }
                 for member in scenario.household.members
             ],
@@ -81,6 +82,14 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             "bracket_ceiling_or_amount": scenario.roth_conversion.bracket_ceiling_or_amount,
             "window": list(scenario.roth_conversion.window),
         }
+    if scenario.hsa_contribution is not None:
+        # 010-advanced-tax-benefits: found missing here (and on
+        # HouseholdMember.hdhp_coverage above) via a real BFF round-trip
+        # regression test -- this function builds its dict field-by-field
+        # rather than generically, the same class of gap loader.py's own
+        # _build_household_member()/parse_scenario() already had to be
+        # extended for on the read side.
+        data["hsa_contribution"] = {"annual_amount": scenario.hsa_contribution.annual_amount}
     return data
 
 

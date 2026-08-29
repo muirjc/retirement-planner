@@ -176,3 +176,29 @@ def test_comparison_exports_include_has_unverified_figure_column():
 
     assert "has_unverified_figure" in sim_text.splitlines()[0]
     assert "has_unverified_figure" in det_text.splitlines()[0]
+
+
+def test_comparison_exports_include_irmaa_and_niit_columns():
+    """010-advanced-tax-benefits T031: mirrors the has_unverified_figure
+    column check above for the two new cumulative-figure columns."""
+    from retirement_planner.reporting.export import deterministic_comparison_to_csv_text, simulation_comparison_to_csv_text
+
+    sim_comparison = SimulationComparisonResult(
+        axis="state", return_paths=[], runs=[_run(path_results=[_PROJECTION_A])]
+    )
+    det_comparison = ComparisonResult(
+        dimension="withdrawal_sequencing",
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        projections=[_PROJECTION_A],
+    )
+
+    sim_text = simulation_comparison_to_csv_text(sim_comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+    det_text = deterministic_comparison_to_csv_text(det_comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+
+    for header in sim_text.splitlines()[0], det_text.splitlines()[0]:
+        assert "median_lifetime_irmaa_paid" in header
+        assert "median_lifetime_niit_paid" in header
+
+    det_rows = _rows(det_text)
+    assert det_rows[0]["median_lifetime_irmaa_paid"] == str(_PROJECTION_A.outcome.cumulative_irmaa_paid)
+    assert det_rows[0]["median_lifetime_niit_paid"] == str(_PROJECTION_A.outcome.cumulative_niit_paid)

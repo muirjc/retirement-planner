@@ -134,6 +134,11 @@ def resolve_and_compare_deterministic(
         start_tax_year=body.start_tax_year,
         plan_to_age=context.plan_to_age,
         return_assumption=return_assumption,
+        # 010-advanced-tax-benefits: safe to force into every branch below --
+        # unlike resolve_and_compare_simulated()'s own `common`, every
+        # deterministic compare_*() function now accepts this parameter
+        # (contracts/comparison-api.md), including compare_claiming_age_grid_deterministic.
+        hsa_contribution=context.strategy.hsa_contribution,
     )
 
     try:
@@ -232,6 +237,7 @@ def resolve_and_compare_simulated(
                 result = compare_roth_conversion_strategies_simulated(
                     **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
                     claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                    hsa_contribution=context.strategy.hsa_contribution,
                 )
             elif body.axis == "withdrawal_sequencing":
                 for candidate in candidates:
@@ -242,6 +248,7 @@ def resolve_and_compare_simulated(
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
                     claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                    hsa_contribution=context.strategy.hsa_contribution,
                 )
             else:  # claiming_age_grid
                 try:
@@ -251,6 +258,7 @@ def resolve_and_compare_simulated(
                         conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                         conversion_window=context.strategy.conversion_window,
                         claiming_age_grid=body.candidates,
+                        hsa_contribution=context.strategy.hsa_contribution,
                     )
                 except ValueError as exc:
                     raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})

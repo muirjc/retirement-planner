@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household
+from retirement_planner.scenario import Household, HsaContributionPlan
 
 from .models import ComparisonResult, DeterministicReturnAssumption, StrategyConfiguration
 from .projection import run_plan_projection
@@ -33,10 +33,13 @@ def compare_roth_conversion_strategies(
     claiming_ages: dict[str, int],
     return_assumption: DeterministicReturnAssumption,
     candidates: list[StrategyConfiguration],
+    hsa_contribution: HsaContributionPlan | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
-    shared withdrawal_strategy/claiming_ages onto every candidate so only
-    the conversion dimension varies (FR-005, FR-009).
+    shared withdrawal_strategy/claiming_ages/hsa_contribution onto every
+    candidate so only the conversion dimension varies (FR-005, FR-009;
+    hsa_contribution forced the same way per
+    010-advanced-tax-benefits contracts/comparison-api.md).
     """
     projections = [
         run_plan_projection(
@@ -48,7 +51,12 @@ def compare_roth_conversion_strategies(
             start_plan_year=start_plan_year,
             start_tax_year=start_tax_year,
             plan_to_age=plan_to_age,
-            strategy=replace(candidate, withdrawal_strategy=withdrawal_strategy, claiming_ages=claiming_ages),
+            strategy=replace(
+                candidate,
+                withdrawal_strategy=withdrawal_strategy,
+                claiming_ages=claiming_ages,
+                hsa_contribution=hsa_contribution,
+            ),
             return_assumption=return_assumption,
         )
         for candidate in candidates
@@ -75,11 +83,14 @@ def compare_withdrawal_sequencing_strategies(
     claiming_ages: dict[str, int],
     return_assumption: DeterministicReturnAssumption,
     candidates: list[StrategyConfiguration],
+    hsa_contribution: HsaContributionPlan | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared conversion_strategy/conversion_bracket_ceiling_or_amount/
-    conversion_window/claiming_ages onto every candidate so only the
-    withdrawal-sequencing dimension varies (FR-006, FR-009).
+    conversion_window/claiming_ages/hsa_contribution onto every candidate
+    so only the withdrawal-sequencing dimension varies (FR-006, FR-009;
+    hsa_contribution forced the same way per
+    010-advanced-tax-benefits contracts/comparison-api.md).
     """
     projections = [
         run_plan_projection(
@@ -97,6 +108,7 @@ def compare_withdrawal_sequencing_strategies(
                 conversion_bracket_ceiling_or_amount=conversion_bracket_ceiling_or_amount,
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages,
+                hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
         )
@@ -124,11 +136,18 @@ def compare_claiming_age_grid(
     conversion_window: tuple[int, int] | None,
     return_assumption: DeterministicReturnAssumption,
     claiming_age_grid: list[dict[str, int]],
+    hsa_contribution: HsaContributionPlan | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
-    conversion_bracket_ceiling_or_amount/conversion_window onto every
-    entry so only the claiming-age dimension varies (FR-008, FR-009).
+    conversion_bracket_ceiling_or_amount/conversion_window/
+    hsa_contribution onto every entry so only the claiming-age dimension
+    varies (FR-008, FR-009; hsa_contribution forced the same way per
+    010-advanced-tax-benefits contracts/comparison-api.md -- this
+    function builds each StrategyConfiguration directly rather than
+    starting from a caller-supplied candidate, so hsa_contribution needs
+    an explicit parameter here, unlike the two compare_*() functions
+    above that already take candidates: list[StrategyConfiguration]).
     Raises ValueError if any grid entry names a claiming age outside
     62-70 inclusive (FR-010).
     """
@@ -157,6 +176,7 @@ def compare_claiming_age_grid(
                 conversion_bracket_ceiling_or_amount=conversion_bracket_ceiling_or_amount,
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages_entry,
+                hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
         )

@@ -11,6 +11,16 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 
+_CURRENCY_TICKFORMAT = "$,.2f"
+"""D3-format spec for a Plotly axis tick -- the `$` token is d3-format's own
+currency-symbol type, so this natively renders comma-grouped dollars (e.g.
+$1,234,567.89), unlike rp_ui.formatting.CURRENCY_INPUT_FORMAT's printf-style
+constraint (see that module's docstring for why editable st.number_input
+widgets can't get comma grouping)."""
+
+_LINE_HOVERTEMPLATE = "Plan year %{x}<br>%{y:$,.2f}<extra>%{fullData.name}</extra>"
+_BAR_HOVERTEMPLATE = "%{x}<br>%{y:$,.2f}<extra>%{fullData.name}</extra>"
+
 
 def _percentile_label(percentile: float) -> str:
     return f"p{round(percentile * 100)}"
@@ -31,12 +41,18 @@ def fan_chart(percentile_bands: list[dict]) -> go.Figure:
             next((entry["value"] for entry in band["percentiles"] if entry["percentile"] == percentile), None)
             for band in percentile_bands
         ]
-        fig.add_trace(go.Scatter(x=plan_years, y=y, mode="lines", name=_percentile_label(percentile)))
+        fig.add_trace(
+            go.Scatter(
+                x=plan_years, y=y, mode="lines", name=_percentile_label(percentile),
+                hovertemplate=_LINE_HOVERTEMPLATE,
+            )
+        )
 
     fig.update_layout(
         title="Projected ending balance by percentile",
         xaxis_title="Plan year",
         yaxis_title="Ending balance",
+        yaxis=dict(tickformat=_CURRENCY_TICKFORMAT),
     )
     return fig
 
@@ -56,13 +72,17 @@ def comparison_overlay_chart(summaries: list[dict]) -> go.Figure:
             for band in bands
         ]
         fig.add_trace(
-            go.Scatter(x=plan_years, y=medians, mode="lines", name=summary.get("candidate_label") or "candidate")
+            go.Scatter(
+                x=plan_years, y=medians, mode="lines", name=summary.get("candidate_label") or "candidate",
+                hovertemplate=_LINE_HOVERTEMPLATE,
+            )
         )
 
     fig.update_layout(
         title="Median ending balance by candidate",
         xaxis_title="Plan year",
         yaxis_title="Median ending balance (50th percentile)",
+        yaxis=dict(tickformat=_CURRENCY_TICKFORMAT),
     )
     return fig
 
@@ -75,14 +95,20 @@ def comparison_bar_chart(summaries: list[dict]) -> go.Figure:
     labels = [summary.get("candidate_label") or "candidate" for summary in summaries]
     fig = go.Figure()
     fig.add_trace(
-        go.Bar(name="ending_balance", x=labels, y=[summary["ending_balance"] for summary in summaries])
+        go.Bar(
+            name="ending_balance", x=labels, y=[summary["ending_balance"] for summary in summaries],
+            hovertemplate=_BAR_HOVERTEMPLATE,
+        )
     )
     fig.add_trace(
         go.Bar(
             name="median_lifetime_tax_paid",
             x=labels,
             y=[summary["median_lifetime_tax_paid"] for summary in summaries],
+            hovertemplate=_BAR_HOVERTEMPLATE,
         )
     )
-    fig.update_layout(title="Candidate comparison", barmode="group")
+    fig.update_layout(
+        title="Candidate comparison", barmode="group", yaxis=dict(tickformat=_CURRENCY_TICKFORMAT)
+    )
     return fig

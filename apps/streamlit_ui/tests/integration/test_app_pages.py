@@ -604,6 +604,10 @@ def test_us3_simulated_state_comparison_shows_overlay_and_table():
     assert not at.exception
     table = at.dataframe[0].value
     assert list(table["candidate_label"]) == ["SC", "DE", "FL"]
+    # Dollar columns render as full "$X,XXX.XX" currency strings (never
+    # achievable in an editable number_input -- see rp_ui/formatting.py).
+    assert table["ending_balance"].iloc[0] == "$1,500,000.00"
+    assert table["median_lifetime_tax_paid"].iloc[0] == "$250,000.00"
     assert any(type(child).__name__ == "UnknownElement" for child in at.main.children.values())
 
 

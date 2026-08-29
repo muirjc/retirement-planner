@@ -123,7 +123,16 @@ def resolve_and_compare_deterministic(
         _reject_unknown("axis", body.axis)
 
     context = _resolve(body, scenarios_dir)
-    candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
+    # claiming_age_grid candidates pass through unchanged (comparison_candidates.py)
+    # and are never handed to build_candidates_for_axis, which raises
+    # ValueError for any axis other than roth_conversion_strategy/
+    # withdrawal_sequencing -- calling it unconditionally here 500'd every
+    # claiming_age_grid comparison.
+    candidates = (
+        build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
+        if body.axis != "claiming_age_grid"
+        else None
+    )
     return_assumption = derive_deterministic_return(context.scenario.market_assumptions)
 
     common = dict(
@@ -246,7 +255,16 @@ def resolve_and_compare_simulated(
         if body.axis == "state":
             result = compare_states(**common, states=body.candidates, strategy=context.strategy)
         else:
-            candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
+            # claiming_age_grid candidates pass through unchanged (comparison_candidates.py)
+            # and are never handed to build_candidates_for_axis, which raises
+            # ValueError for any axis other than roth_conversion_strategy/
+            # withdrawal_sequencing -- calling it unconditionally here 500'd
+            # every claiming_age_grid comparison.
+            candidates = (
+                build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
+                if body.axis != "claiming_age_grid"
+                else None
+            )
             if body.axis == "roth_conversion_strategy":
                 for candidate in candidates:
                     if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:

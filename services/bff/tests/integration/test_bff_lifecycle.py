@@ -294,6 +294,29 @@ def test_both_comparison_endpoints_accept_a_single_candidate(client):
     assert len(det_response.json()["summaries"]) == 1
 
 
+def test_claiming_age_grid_comparison_works_on_both_engines(client):
+    """Regression: both comparison endpoints unconditionally ran
+    build_candidates_for_axis() (comparison_candidates.py) before
+    dispatching on axis, but that helper raises ValueError for
+    "claiming_age_grid" -- whose candidates are meant to pass through
+    unchanged (its own docstring says so) -- so every claiming_age_grid
+    comparison 500'd, on both the deterministic and simulated engines,
+    for every scenario, not just ones with inherited accounts."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    candidates = [{"you": 62, "spouse": 62}, {"you": 70, "spouse": 70}]
+
+    det_body = {**_RUN_BODY, "axis": "claiming_age_grid", "candidates": candidates}
+    det_response = client.post("/api/v1/comparisons/deterministic", json=det_body)
+    assert det_response.status_code == 200
+    assert len(det_response.json()["summaries"]) == 2
+
+    sim_body = {**_RUN_BODY, "plan_to_age": 61, "axis": "claiming_age_grid", "candidates": candidates}
+    sim_response = client.post("/api/v1/comparisons/simulated", json=sim_body)
+    assert sim_response.status_code == 200
+    assert len(sim_response.json()["summaries"]) == 2
+
+
 def test_unrecognized_axis_or_candidate_value_is_rejected(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 

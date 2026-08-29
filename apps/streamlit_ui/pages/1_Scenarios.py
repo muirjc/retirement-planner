@@ -7,10 +7,14 @@ Household member count is fixed to 1 (single) or 2 (married_filing_jointly)
 by 001's own Scenario.household rule (FR-013 of 001), so this form shows a
 second member's fields only when filing_status is married -- there is no
 free-form add/remove list to build here. Accounts are fixed to exactly one
-balance per account type (traditional/roth/taxable), matching how every
-scenario in this project (the reference scenario, quickstart.md's
-base_case) is shaped -- a scenario with two "traditional" accounts is not
-a case this form needs to support.
+balance per account type per household member (traditional/roth/taxable),
+mirroring that same fixed-shape convention -- a scenario with two
+"traditional" accounts *for the same person* is not a case this form needs
+to support (011-per-owner-accounts). Each account's owner is therefore
+structural, not a free-text or dropdown field: a balance entered in
+member 1's row is always submitted with member 1's person_name as its
+owner, and likewise for member 2 -- an invalid owner is impossible to
+enter, not merely disallowed by a validator (contracts/ui-pages.md).
 """
 
 import streamlit as st
@@ -40,9 +44,12 @@ DEFAULTS = {
     "member2_current_age": 60,
     "member2_ss_claim_age": 67,
     "member2_ss_annual_benefit": 0.0,
-    "traditional_balance": 0.0,
-    "roth_balance": 0.0,
-    "taxable_balance": 0.0,
+    "member1_traditional_balance": 0.0,
+    "member1_roth_balance": 0.0,
+    "member1_taxable_balance": 0.0,
+    "member2_traditional_balance": 0.0,
+    "member2_roth_balance": 0.0,
+    "member2_taxable_balance": 0.0,
     "annual_need_real": 0.0,
     "state": None,
     "equity_allocation": 0.6,
@@ -82,10 +89,26 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_current_age"] = m2["current_age"]
         st.session_state["member2_ss_claim_age"] = m2["ss_claim_age"]
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
-    balances = {a["account_type"]: a["balance"] for a in scenario["accounts"]}
-    st.session_state["traditional_balance"] = balances.get("traditional", 0.0)
-    st.session_state["roth_balance"] = balances.get("roth", 0.0)
-    st.session_state["taxable_balance"] = balances.get("taxable", 0.0)
+    # 011-per-owner-accounts: match each account to a member row by
+    # (account_type, owner) against the members just loaded above. An
+    # account whose owner is None or doesn't match either member (a
+    # multi-member scenario saved before this feature, or a stale
+    # reference after a rename) is deliberately left out of every row --
+    # its balance is not guessed into a row it may not belong to
+    # (contracts/ui-pages.md's "Modified Load existing behavior"); the
+    # scenario's own blocking flag (unaffected by this) still surfaces
+    # normally on the next Save/Validate.
+    member_names = [m["person_name"] for m in members]
+    balances_by_owner: dict[tuple[str, str], float] = {}
+    for account in scenario["accounts"]:
+        owner = account.get("owner")
+        if owner in member_names:
+            balances_by_owner[(account["account_type"], owner)] = account["balance"]
+    for index, person_name in enumerate(member_names, start=1):
+        for account_type in ("traditional", "roth", "taxable"):
+            st.session_state[f"member{index}_{account_type}_balance"] = balances_by_owner.get(
+                (account_type, person_name), 0.0
+            )
     st.session_state["annual_need_real"] = scenario["spending"]["annual_need_real"]
     st.session_state["state"] = scenario["state"]
     ma = scenario["market_assumptions"]
@@ -192,10 +215,23 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     c4.number_input("SS annual benefit", min_value=0.0, step=100.0, key="member2_ss_annual_benefit")
 
 st.subheader("Accounts")
+# 011-per-owner-accounts: one row of account-type fields per household
+# member -- owner is structural (module docstring), so member 2's row only
+# renders when there is a member 2 to own it.
+member1_label = st.session_state["member1_person_name"] or "Member 1"
+st.markdown(f"**{member1_label}**")
 a1, a2, a3 = st.columns(3)
-a1.number_input("Traditional balance", step=1000.0, key="traditional_balance")
-a2.number_input("Roth balance", step=1000.0, key="roth_balance")
-a3.number_input("Taxable balance", step=1000.0, key="taxable_balance")
+a1.number_input("Traditional balance", step=1000.0, key="member1_traditional_balance")
+a2.number_input("Roth balance", step=1000.0, key="member1_roth_balance")
+a3.number_input("Taxable balance", step=1000.0, key="member1_taxable_balance")
+
+if st.session_state["filing_status"] == "married_filing_jointly":
+    member2_label = st.session_state["member2_person_name"] or "Member 2"
+    st.markdown(f"**{member2_label}**")
+    a1, a2, a3 = st.columns(3)
+    a1.number_input("Traditional balance", step=1000.0, key="member2_traditional_balance")
+    a2.number_input("Roth balance", step=1000.0, key="member2_roth_balance")
+    a3.number_input("Taxable balance", step=1000.0, key="member2_taxable_balance")
 
 st.subheader("Spending")
 st.number_input("Annual spending need (today's dollars)", step=1000.0, key="annual_need_real")
@@ -251,9 +287,21 @@ def _build_body() -> dict:
             ],
         },
         "accounts": [
-            {"account_type": "traditional", "balance": st.session_state["traditional_balance"]},
-            {"account_type": "roth", "balance": st.session_state["roth_balance"]},
-            {"account_type": "taxable", "balance": st.session_state["taxable_balance"]},
+            {
+                "account_type": "traditional",
+                "balance": st.session_state["member1_traditional_balance"],
+                "owner": st.session_state["member1_person_name"],
+            },
+            {
+                "account_type": "roth",
+                "balance": st.session_state["member1_roth_balance"],
+                "owner": st.session_state["member1_person_name"],
+            },
+            {
+                "account_type": "taxable",
+                "balance": st.session_state["member1_taxable_balance"],
+                "owner": st.session_state["member1_person_name"],
+            },
         ],
         "spending": {"annual_need_real": st.session_state["annual_need_real"]},
         "state": st.session_state["state"],
@@ -281,6 +329,25 @@ def _build_body() -> dict:
                 "ss_claim_age": st.session_state["member2_ss_claim_age"],
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
             }
+        )
+        body["accounts"].extend(
+            [
+                {
+                    "account_type": "traditional",
+                    "balance": st.session_state["member2_traditional_balance"],
+                    "owner": st.session_state["member2_person_name"],
+                },
+                {
+                    "account_type": "roth",
+                    "balance": st.session_state["member2_roth_balance"],
+                    "owner": st.session_state["member2_person_name"],
+                },
+                {
+                    "account_type": "taxable",
+                    "balance": st.session_state["member2_taxable_balance"],
+                    "owner": st.session_state["member2_person_name"],
+                },
+            ]
         )
     if st.session_state["include_roth_conversion"]:
         body["roth_conversion"] = {

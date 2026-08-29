@@ -8,6 +8,8 @@ from dataclasses import replace
 
 import pytest
 
+from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.mechanics import compute_rmd
 from retirement_planner.scenario.loader import ScenarioParseError, parse_scenario
 from retirement_planner.scenario.store import list_scenarios, load_scenario, save_scenario
 
@@ -27,10 +29,13 @@ household:
 accounts:
   - account_type: traditional
     balance: 1500000
+    owner: you
   - account_type: roth
     balance: 400000
+    owner: you
   - account_type: taxable
     balance: 200000
+    owner: spouse
 spending:
   annual_need_real: 110000
 state: GA
@@ -223,6 +228,77 @@ def test_malformed_file_raises_parse_error_not_a_validation_flag(scenario_store_
 
     with pytest.raises(ScenarioParseError):
         load_scenario("unparseable", scenarios_dir=scenario_store_dir)
+
+
+def test_single_member_household_rmd_is_a_no_op_relative_to_compute_rmd(scenario_store_dir):
+    """011-per-owner-accounts FR-009/SC-004 regression parity: a single-
+    filer scenario's owner is auto-filled (share=1.0) with zero action
+    from the user (research.md §3), and that share must be a pure no-op --
+    the RMD run_plan_projection() computes must be byte-identical to
+    calling compute_rmd() directly against the member's full, unscaled
+    balance and age. This is the guarantee that lets every single-filer
+    scenario that predates this feature keep producing identical output."""
+    solo_yaml = """
+name: solo_rmd_case
+household:
+  filing_status: single
+  members:
+    - person_name: you
+      current_age: 75
+      ss_claim_age: 67
+      ss_annual_benefit: 32000
+accounts:
+  - account_type: traditional
+    balance: 1000000
+spending:
+  annual_need_real: 60000
+state: FL
+market_assumptions:
+  equity_allocation: 0.6
+  equity_return_mean_real: 0.065
+  equity_return_std_real: 0.17
+  bond_allocation: 0.4
+  bond_return_mean_real: 0.015
+  bond_return_std_real: 0.06
+  correlation: -0.10
+simulation_settings:
+  n_paths: 1
+  seed: 1
+  plan_to_age: 75
+"""
+    scenario = parse_scenario(solo_yaml, name="solo_rmd_case")
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("solo_rmd_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.accounts[0].owner == "you"  # auto-filled, no user action (FR-003)
+    assert reloaded.is_usable
+
+    from retirement_planner.mechanics import AccountBalances
+
+    accounts = AccountBalances(
+        traditional=sum(a.balance for a in reloaded.accounts if a.account_type == "traditional"),
+        roth=0.0,
+        taxable=0.0,
+    )
+    strategy = StrategyConfiguration(
+        label="solo", withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None, conversion_bracket_ceiling_or_amount=None, conversion_window=None,
+        claiming_ages={"you": reloaded.household.members[0].ss_claim_age},
+    )
+    projection = run_plan_projection(
+        household=reloaded.household, accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},  # the sole member's auto-filled share
+        annual_spending_need=reloaded.spending.annual_need_real, state=reloaded.state,
+        reference_tax_year=2026, start_plan_year=1, start_tax_year=2026,
+        plan_to_age=reloaded.simulation_settings.plan_to_age, strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    expected_rmd = compute_rmd(
+        traditional_balance=accounts.traditional, member_age=75, tax_year=2026,
+        spouse_age=None, spouse_is_sole_beneficiary=False,
+    )
+    assert projection.years[0].mechanics.withdrawal_plan.rmd_drawn == pytest.approx(expected_rmd.required_amount)
 
 
 def test_quickstart_walkthrough_end_to_end(scenario_store_dir):

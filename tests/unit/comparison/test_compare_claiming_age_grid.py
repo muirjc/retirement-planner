@@ -21,6 +21,7 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
+_SHARES = {"you": 0.6, "spouse": 0.4}
 _RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.045)
 
 
@@ -28,6 +29,7 @@ def _run(grid):
     return compare_claiming_age_grid(
         household=_HOUSEHOLD,
         accounts=_ACCOUNTS,
+        traditional_ownership_shares=_SHARES,
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,
@@ -79,6 +81,7 @@ def test_grid_entry_matching_original_claiming_ages_reproduces_standalone_projec
     standalone = run_plan_projection(
         household=_HOUSEHOLD,
         accounts=_ACCOUNTS,
+        traditional_ownership_shares=_SHARES,
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,

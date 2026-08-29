@@ -28,7 +28,8 @@ def validate(scenario: Scenario) -> list[ValidationFlag]:
 
 def _validate_accounts(scenario: Scenario) -> list[ValidationFlag]:
     flags = []
-    for account in scenario.accounts:
+    member_names = [member.person_name for member in scenario.household.members]
+    for index, account in enumerate(scenario.accounts):
         if account.balance < 0:
             flags.append(
                 ValidationFlag(
@@ -36,6 +37,35 @@ def _validate_accounts(scenario: Scenario) -> list[ValidationFlag]:
                     message=(
                         f"Account balance is negative (${account.balance:,.2f}); "
                         "balances cannot be negative."
+                    ),
+                    severity="blocking",
+                )
+            )
+        # 011-per-owner-accounts: checked here, not just relied on from
+        # parse_scenario()'s own auto-fill, so a Scenario built directly
+        # (bypassing the loader, as most of this codebase's own test
+        # fixtures do) is validated identically (data-model.md § Account).
+        if account.owner is None:
+            if len(member_names) > 1:
+                flags.append(
+                    ValidationFlag(
+                        field=f"accounts[{index}].owner",
+                        message=(
+                            "Account is missing an owner — choose one of: "
+                            f"{', '.join(member_names)}"
+                        ),
+                        severity="blocking",
+                    )
+                )
+            # A single-member household is unambiguous (FR-003) -- never
+            # flagged, regardless of how the Scenario was constructed.
+        elif account.owner not in member_names:
+            flags.append(
+                ValidationFlag(
+                    field=f"accounts[{index}].owner",
+                    message=(
+                        f"Account owner '{account.owner}' does not match any household "
+                        f"member — known members: {', '.join(member_names)}"
                     ),
                     severity="blocking",
                 )

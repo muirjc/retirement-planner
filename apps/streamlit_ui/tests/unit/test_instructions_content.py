@@ -37,11 +37,14 @@ def _body_for(title: str) -> str:
     return next(section.body for section in SECTIONS if section.title == title)
 
 
-def test_accounts_section_states_balances_are_pooled_not_per_party():
-    """FR-003."""
+def test_accounts_section_states_balances_are_entered_per_party():
+    """011-per-owner-accounts: supersedes the pre-011 pooled-balance
+    guidance this section used to give (now actively wrong -- accounts
+    are captured per owner, not combined, so RMDs can be computed
+    accurately per person)."""
     body = _body_for("Accounts")
-    assert "combined household total" in body
-    assert "not once per party" in body
+    assert "own balance" in body
+    assert "per person" in body
 
 
 def test_household_section_states_benefit_must_match_claiming_age():

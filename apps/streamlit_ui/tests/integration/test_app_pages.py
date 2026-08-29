@@ -167,13 +167,132 @@ def _fill_minimal_valid_scenario(at: AppTest, *, name: str, state: str = "FL") -
     at.number_input(key="member1_current_age").set_value(60)
     at.number_input(key="member1_ss_claim_age").set_value(67)
     at.number_input(key="member1_ss_annual_benefit").set_value(28000.0)
-    at.number_input(key="traditional_balance").set_value(1_500_000.0)
-    at.number_input(key="roth_balance").set_value(400_000.0)
-    at.number_input(key="taxable_balance").set_value(200_000.0)
+    at.number_input(key="member1_traditional_balance").set_value(1_500_000.0)
+    at.number_input(key="member1_roth_balance").set_value(400_000.0)
+    at.number_input(key="member1_taxable_balance").set_value(200_000.0)
     at.number_input(key="annual_need_real").set_value(110_000.0)
     at.selectbox(key="state").set_value(state)
     at.run()
     return at
+
+
+# -- 011-per-owner-accounts: per-member account fields (US2) -----------------
+
+
+def test_us2_married_household_renders_per_member_account_fields_with_structural_owner():
+    """011-per-owner-accounts User Story 2: a married household gets its
+    own row of account fields per member (traditional/roth/taxable), and
+    the owner submitted for each is exactly whichever member's row it was
+    entered in -- never a free-text or omittable field."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="filing_status").set_value("married_filing_jointly")
+    at.run()
+
+    # Both members' account rows must be present once married is selected.
+    assert at.number_input(key="member2_traditional_balance") is not None
+    assert at.number_input(key="member2_roth_balance") is not None
+    assert at.number_input(key="member2_taxable_balance") is not None
+
+    at.text_input(key="scenario_name").set_value("couple")
+    at.text_input(key="member1_person_name").set_value("you")
+    at.number_input(key="member1_current_age").set_value(74)
+    at.number_input(key="member1_ss_claim_age").set_value(67)
+    at.number_input(key="member1_ss_annual_benefit").set_value(32_000.0)
+    at.number_input(key="member1_traditional_balance").set_value(900_000.0)
+    at.number_input(key="member1_roth_balance").set_value(200_000.0)
+    at.number_input(key="member1_taxable_balance").set_value(100_000.0)
+    at.text_input(key="member2_person_name").set_value("spouse")
+    at.number_input(key="member2_current_age").set_value(60)
+    at.number_input(key="member2_ss_claim_age").set_value(67)
+    at.number_input(key="member2_ss_annual_benefit").set_value(24_000.0)
+    at.number_input(key="member2_traditional_balance").set_value(300_000.0)
+    at.number_input(key="member2_roth_balance").set_value(200_000.0)
+    at.number_input(key="member2_taxable_balance").set_value(100_000.0)
+    at.number_input(key="annual_need_real").set_value(90_000.0)
+    at.selectbox(key="state").set_value("FL")
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved_accounts = store["couple"]["accounts"]
+    assert len(saved_accounts) == 6
+    you_traditional = next(a for a in saved_accounts if a["owner"] == "you" and a["account_type"] == "traditional")
+    spouse_traditional = next(
+        a for a in saved_accounts if a["owner"] == "spouse" and a["account_type"] == "traditional"
+    )
+    assert you_traditional["balance"] == 900_000.0
+    assert spouse_traditional["balance"] == 300_000.0
+
+
+def test_us2_single_member_household_never_renders_member2_account_fields():
+    """A single-filer household has only one possible owner -- no second
+    row is ever offered (FR-003)."""
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.session_state["filing_status"] == "single"
+
+    with pytest.raises(KeyError):
+        at.number_input(key="member2_traditional_balance")
+
+
+def test_us3_loading_a_stale_owner_account_leaves_its_balance_absent_not_guessed():
+    """011-per-owner-accounts User Story 3: a scenario saved before this
+    feature (or with a since-renamed member) has an account whose owner
+    doesn't match either currently-loaded member. Loading it must not
+    guess which row that balance belongs to -- it stays at $0 in every
+    row, a visible cue that something needs re-entering, rather than a
+    validation flag (ui-pages.md's corrected "Modified Load existing
+    behavior" -- this form always supplies a valid owner on resubmit, so
+    an unmatched balance, not a flag, is the real signal)."""
+    handler, store = make_fake_bff()
+    _install(handler)
+    # Pre-seed the fake store as if saved before this feature: "spouse_old"
+    # no longer matches either current member's name.
+    store["couple"] = {
+        "name": "couple",
+        "household": {
+            "filing_status": "married_filing_jointly",
+            "members": [
+                {"person_name": "you", "current_age": 74, "ss_claim_age": 67, "ss_annual_benefit": 32_000},
+                {"person_name": "spouse", "current_age": 60, "ss_claim_age": 67, "ss_annual_benefit": 24_000},
+            ],
+        },
+        "accounts": [
+            {"account_type": "traditional", "balance": 900_000.0, "owner": "you"},
+            {"account_type": "traditional", "balance": 300_000.0, "owner": "spouse_old"},
+        ],
+        "spending": {"annual_need_real": 90_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
+            "bond_allocation": 0.4, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
+            "correlation": -0.10,
+        },
+        "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": None,
+        "validation_flags": [
+            {"field": "accounts[1].owner", "message": "does not match any household member", "severity": "blocking"}
+        ],
+        "is_usable": False,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("couple")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    # you's account matched and loaded normally.
+    assert at.number_input(key="member1_traditional_balance").value == 900_000.0
+    # spouse_old's $300k didn't match "spouse" (the currently-loaded second
+    # member's name) -- it must NOT be silently placed into spouse's row.
+    assert at.number_input(key="member2_traditional_balance").value == 0.0
+    # No error/flag rendered automatically at load time (Load never calls Validate).
+    assert len(at.error) == 0
 
 
 # -- User Story 1: Scenario management (T009-T012) ---------------------------
@@ -199,7 +318,7 @@ def test_us1_save_read_and_list_round_trip():
     at2.selectbox(key="scenario_load_select").set_value("base_case")
     at2.button(key="load_button").click().run()
     assert at2.text_input(key="member1_person_name").value == "Alex"
-    assert at2.number_input(key="traditional_balance").value == 1_500_000.0
+    assert at2.number_input(key="member1_traditional_balance").value == 1_500_000.0
     assert at2.selectbox(key="state").value == "FL"
 
 
@@ -211,7 +330,7 @@ def test_us1_blocking_flag_shown_inline_distinct_from_warning():
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
     _fill_minimal_valid_scenario(at, name="broke_case")
-    at.number_input(key="traditional_balance").set_value(-100.0)
+    at.number_input(key="member1_traditional_balance").set_value(-100.0)
     at.run()
     at.button(key="validate_button").click().run()
 
@@ -736,12 +855,12 @@ def test_polish_full_quickstart_walkthrough():
     assert not at.exception
     assert any("saved 'base_case'" in s.value.lower() for s in at.success)
 
-    at.number_input(key="traditional_balance").set_value(-100.0)
+    at.number_input(key="member1_traditional_balance").set_value(-100.0)
     at.run()
     at.button(key="save_button").click().run()
     assert len(at.error) >= 1  # blocking flag shown inline (US1.2)
 
-    at.number_input(key="traditional_balance").set_value(1_500_000.0)
+    at.number_input(key="member1_traditional_balance").set_value(1_500_000.0)
     at.run()
     at.button(key="save_button").click().run()
     assert store["base_case"]["is_usable"] is True
@@ -901,7 +1020,7 @@ def test_polish_009_full_quickstart_walkthrough():
     assert not instructions.exception
     assert {h.value for h in instructions.header} == {section.title for section in SECTIONS}
     accounts_body = next(s.body for s in SECTIONS if s.title == "Accounts")
-    assert "combined household total" in accounts_body
+    assert "own balance" in accounts_body
     household_body = next(s.body for s in SECTIONS if s.title == "Household")
     assert "claiming age" in household_body
     state_body = next(s.body for s in SECTIONS if s.title == "State")

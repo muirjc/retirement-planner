@@ -34,6 +34,7 @@ def _validate_consistent_generation_mode(return_paths: list[ReturnPath]) -> None
 def compare_states(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     states: list[str],
     reference_tax_year: int,
@@ -55,6 +56,7 @@ def compare_states(
         run_simulation(
             household=household,
             accounts=accounts,
+            traditional_ownership_shares=traditional_ownership_shares,
             annual_spending_need=annual_spending_need,
             state=state,
             reference_tax_year=reference_tax_year,
@@ -74,6 +76,7 @@ def compare_states(
 def compare_roth_conversion_strategies(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -99,6 +102,7 @@ def compare_roth_conversion_strategies(
         run_simulation(
             household=household,
             accounts=accounts,
+            traditional_ownership_shares=traditional_ownership_shares,
             annual_spending_need=annual_spending_need,
             state=state,
             reference_tax_year=reference_tax_year,
@@ -123,6 +127,7 @@ def compare_roth_conversion_strategies(
 def compare_withdrawal_sequencing_strategies(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -151,6 +156,7 @@ def compare_withdrawal_sequencing_strategies(
         run_simulation(
             household=household,
             accounts=accounts,
+            traditional_ownership_shares=traditional_ownership_shares,
             annual_spending_need=annual_spending_need,
             state=state,
             reference_tax_year=reference_tax_year,
@@ -177,6 +183,7 @@ def compare_withdrawal_sequencing_strategies(
 def compare_claiming_age_grid(
     household: Household,
     accounts: AccountBalances,
+    traditional_ownership_shares: dict[str, float],
     annual_spending_need: float,
     state: str,
     reference_tax_year: int,
@@ -216,6 +223,7 @@ def compare_claiming_age_grid(
         run_simulation(
             household=household,
             accounts=accounts,
+            traditional_ownership_shares=traditional_ownership_shares,
             annual_spending_need=annual_spending_need,
             state=state,
             reference_tax_year=reference_tax_year,

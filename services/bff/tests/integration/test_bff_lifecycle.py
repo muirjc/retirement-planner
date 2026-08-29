@@ -16,9 +16,9 @@ _SCENARIO_BODY = {
         ],
     },
     "accounts": [
-        {"account_type": "traditional", "balance": 1_500_000},
-        {"account_type": "roth", "balance": 400_000},
-        {"account_type": "taxable", "balance": 200_000},
+        {"account_type": "traditional", "balance": 1_500_000, "owner": "you"},
+        {"account_type": "roth", "balance": 400_000, "owner": "you"},
+        {"account_type": "taxable", "balance": 200_000, "owner": "spouse"},
     ],
     "spending": {"annual_need_real": 110_000},
     "state": "FL",
@@ -46,6 +46,47 @@ def test_save_read_and_list_round_trip(client):
 
     list_response = client.get("/api/v1/scenarios")
     assert "base_case" in list_response.json()["scenarios"]                       # US1.2
+
+
+def test_account_owner_omitted_on_single_member_household_is_auto_filled(client):
+    """011-per-owner-accounts: a single-filer household needs no owner in
+    the request at all -- the response shows it auto-filled (FR-003)."""
+    single_member_body = {
+        **_SCENARIO_BODY,
+        "household": {
+            "filing_status": "single",
+            "members": [{"person_name": "you", "current_age": 60, "ss_claim_age": 67, "ss_annual_benefit": 32_000}],
+        },
+        "accounts": [
+            {"account_type": "traditional", "balance": 1_500_000},
+            {"account_type": "roth", "balance": 400_000},
+            {"account_type": "taxable", "balance": 200_000},
+        ],
+        "roth_conversion": None,
+    }
+    save_response = client.put("/api/v1/scenarios/solo", json=single_member_body)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is True
+    assert [a["owner"] for a in save_response.json()["accounts"]] == ["you", "you", "you"]
+
+
+def test_account_owner_omitted_on_married_household_surfaces_a_blocking_flag(client):
+    """011-per-owner-accounts: a 2-member household is ambiguous -- omitting
+    owner surfaces a blocking flag, never a silent guess (FR-006)."""
+    missing_owner_body = {
+        **_SCENARIO_BODY,
+        "accounts": [
+            {"account_type": "traditional", "balance": 1_500_000},
+            {"account_type": "roth", "balance": 400_000},
+            {"account_type": "taxable", "balance": 200_000},
+        ],
+    }
+    save_response = client.put("/api/v1/scenarios/base_case", json=missing_owner_body)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is False
+    owner_flags = [f for f in save_response.json()["validation_flags"] if f["field"].endswith(".owner")]
+    assert len(owner_flags) == 3
+    assert all(f["severity"] == "blocking" for f in owner_flags)
 
 
 def test_validate_only_reports_blocking_flags_without_saving(client):

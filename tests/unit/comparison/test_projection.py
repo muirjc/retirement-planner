@@ -84,6 +84,111 @@ def test_household_gross_social_security_benefit_counts_only_after_claiming_age(
     assert after_both_claim == 56_000.0
 
 
+# --- 011-per-owner-accounts: per-member RMD summation (replaces the
+# removed deemed-RMD-owner-selection assumption -- each member's RMD is now
+# computed from their own age against their own traditional_ownership_shares
+# -derived balance, summed into the year's total, research.md §1) ---
+
+
+def test_rmd_reflects_only_the_member_whos_reached_the_starting_age():
+    household = _mfj_household(you_age=74, spouse_age=60)
+    accounts = AccountBalances(traditional=1_000_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.75, "spouse": 0.25},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=74,
+        strategy=strategy,
+        return_assumption=return_assumption,
+    )
+
+    assert len(result.years) == 1
+    # you: $750k @ age 74 (divisor 25.5) = $29,411.76...; spouse: age 60, not
+    # yet RMD-required -> $0. NOT $1,000,000/25.5 (the old deemed-owner
+    # attribution of the full household balance to the older member).
+    assert result.years[0].mechanics.withdrawal_plan.rmd_drawn == pytest.approx(750_000 / 25.5)
+
+
+def test_rmd_sums_both_members_when_both_have_reached_the_starting_age():
+    household = _mfj_household(you_age=76, spouse_age=74)
+    accounts = AccountBalances(traditional=2_000_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.6, "spouse": 0.4},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=76,
+        strategy=strategy,
+        return_assumption=return_assumption,
+    )
+
+    # you: $1.2M @ 76 (divisor 23.7); spouse: $800k @ 74 (divisor 25.5) --
+    # each sized to their own share, summed, not a single household figure.
+    expected = 1_200_000 / 23.7 + 800_000 / 25.5
+    assert result.years[0].mechanics.withdrawal_plan.rmd_drawn == pytest.approx(expected)
+
+
+def test_rmd_ignores_a_member_with_zero_share_regardless_of_age():
+    household = _mfj_household(you_age=80, spouse_age=90)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=90,
+        strategy=strategy,
+        return_assumption=return_assumption,
+    )
+
+    # spouse (90, well past the starting age) owns none of the traditional
+    # balance -- their RMD is $0, not a share of you's balance.
+    assert result.years[0].mechanics.withdrawal_plan.rmd_drawn == pytest.approx(500_000 / 20.2)
+
+
+def test_missing_member_from_traditional_ownership_shares_raises_key_error_eagerly():
+    household = _mfj_household(you_age=74, spouse_age=60)
+    accounts = AccountBalances(traditional=1_000_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+
+    with pytest.raises(KeyError):
+        run_plan_projection(
+            household=household,
+            accounts=accounts,
+            traditional_ownership_shares={"you": 1.0},  # missing "spouse"
+            annual_spending_need=0,
+            state="FL",
+            reference_tax_year=2026,
+            start_plan_year=1,
+            start_tax_year=2026,
+            plan_to_age=74,
+            strategy=strategy,
+            return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        )
+
+
 # --- run_plan_projection() end-to-end behavior ---
 
 
@@ -99,6 +204,7 @@ def test_growth_applied_uniformly_between_years():
     result = run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
         annual_spending_need=0,
         state="FL",
         reference_tax_year=2026,
@@ -128,6 +234,7 @@ def test_tax_funding_withdrawal_draws_the_years_tax_owed_from_post_mechanics_bal
     result = run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
         annual_spending_need=0,
         state="FL",
         reference_tax_year=2026,
@@ -161,6 +268,7 @@ def test_shortfall_continues_across_years_without_raising_and_never_goes_negativ
     result = run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
         annual_spending_need=5_000,
         state="FL",
         reference_tax_year=2026,
@@ -205,6 +313,7 @@ def test_growth_factor_calls_return_for_plan_year_and_varies_by_year():
     result = run_plan_projection(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
         annual_spending_need=0,
         state="FL",
         reference_tax_year=2026,
@@ -236,6 +345,7 @@ def test_repeated_calls_with_identical_inputs_produce_identical_results():
     kwargs = dict(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 0.75, "spouse": 0.25},
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,

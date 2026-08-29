@@ -36,6 +36,7 @@ def test_full_claiming_age_grid_over_a_35_year_horizon_completes_within_budget()
     result = compare_claiming_age_grid(
         household=household,
         accounts=accounts,
+        traditional_ownership_shares={"you": 0.75, "spouse": 0.25},
         annual_spending_need=110_000,
         state="FL",
         reference_tax_year=2026,

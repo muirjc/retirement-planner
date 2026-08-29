@@ -56,7 +56,7 @@ def test_us1_modest_income_household_has_no_irmaa_surcharge():
     household = _household()
     accounts = AccountBalances(traditional=200_000, roth=50_000, taxable=50_000)
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=60_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=_strategy(), return_assumption=_RETURN_ASSUMPTION,
     )
@@ -75,7 +75,7 @@ def test_us1_large_conversion_crosses_an_irmaa_tier_distinct_from_ordinary_tax()
         conversion_window=(2026, 2030),
     )
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -100,7 +100,7 @@ def test_us1_surcharge_reflects_both_enrolled_members():
         conversion_window=(2026, 2030),
     )
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -117,7 +117,7 @@ def test_us1_no_medicare_eligible_member_has_no_surcharge_regardless_of_income()
         conversion_window=(2026, 2030),
     )
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=62,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -142,7 +142,7 @@ def _run_conversion_heavy_projection(conversion_bracket_ceiling_or_amount: float
         conversion_window=(2026, 2030),
     )
     return run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -153,7 +153,7 @@ def test_us2_modest_income_household_has_no_niit_surtax():
     household = _household(you_age=60, spouse_age=58)
     accounts = AccountBalances(traditional=200_000, roth=50_000, taxable=50_000)
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=60_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=62,
         strategy=_strategy(), return_assumption=_RETURN_ASSUMPTION,
     )
@@ -205,7 +205,7 @@ def _hsa_household_kwargs(hsa_contribution):
     accounts = AccountBalances(traditional=200_000, roth=50_000, taxable=50_000)
     strategy = _strategy(hsa_contribution=hsa_contribution)
     return dict(
-        household=household, accounts=accounts, annual_spending_need=60_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -289,7 +289,7 @@ def test_irmaa_niit_hsa_figures_are_all_unverified_and_propagate():
     strategy = _strategy(hsa_contribution=HsaContributionPlan(annual_amount=1_000.0))
 
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
     )
@@ -305,7 +305,7 @@ def test_irmaa_niit_hsa_figures_are_all_unverified_and_propagate():
     from retirement_planner.simulation import ReturnPath
 
     run = run_simulation(
-        household=household, accounts=accounts, annual_spending_need=110_000, state=_STATE,
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy,
         return_paths=[ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0, 0.0], generation_mode="parametric")],
@@ -343,7 +343,7 @@ def test_polish_010_full_quickstart_walkthrough():
         conversion_window=(2026, 2030), claiming_ages={"you": 67, "spouse": 67},
     )
     projection = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=110_000, state="FL",
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=strategy, return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
     )
@@ -360,7 +360,7 @@ def test_polish_010_full_quickstart_walkthrough():
         claiming_ages={"you": 67, "spouse": 67},
     )
     projection_niit = run_plan_projection(
-        household=household, accounts=accounts, annual_spending_need=180_000, state="FL",
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=180_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=strategy_niit, return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
     )

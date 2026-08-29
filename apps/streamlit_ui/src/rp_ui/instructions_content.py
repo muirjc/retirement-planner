@@ -41,11 +41,13 @@ SECTIONS: list[Section] = [
     Section(
         title="Accounts",
         body=(
-            "Gather your **combined household total** for each account type: traditional "
-            "(pre-tax IRA/401(k) balances), Roth, and taxable. These are entered once per "
-            "account type for the whole household, not once per party -- if both partners "
-            "have a traditional IRA, add the two balances together before entering a "
-            "single number."
+            "Gather each party's **own balance** for each account type they hold: traditional "
+            "(pre-tax IRA/401(k) balances), Roth, and taxable. These are entered per person, "
+            "not combined -- if both partners have a traditional IRA, enter each one under "
+            "that partner's own row rather than adding them together. This matters beyond "
+            "bookkeeping: Required Minimum Distributions are calculated per person, from that "
+            "person's own age and own balance, so a combined number would misstate them for "
+            "any household where the two ages or balances differ."
         ),
     ),
     Section(

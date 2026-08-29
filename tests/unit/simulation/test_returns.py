@@ -195,7 +195,8 @@ def test_apply_stress_scenario_at_different_start_years_changes_run_simulation_o
         ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
     ]
     common_kwargs = dict(
-        household=household, accounts=accounts, annual_spending_need=50, state="FL",
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=50, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=91, strategy=strategy,
     )
 

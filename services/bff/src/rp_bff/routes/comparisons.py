@@ -127,6 +127,7 @@ def resolve_and_compare_deterministic(
     common = dict(
         household=context.household,
         accounts=context.accounts,
+        traditional_ownership_shares=context.traditional_ownership_shares,
         annual_spending_need=context.scenario.spending.annual_need_real,
         state=context.state,
         reference_tax_year=body.reference_tax_year,
@@ -217,6 +218,7 @@ def resolve_and_compare_simulated(
     common = dict(
         household=context.household,
         accounts=context.accounts,
+        traditional_ownership_shares=context.traditional_ownership_shares,
         annual_spending_need=context.scenario.spending.annual_need_real,
         reference_tax_year=body.reference_tax_year,
         start_plan_year=body.start_plan_year,

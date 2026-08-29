@@ -49,6 +49,7 @@ def _projection(traditional, taxable, spending_need):
     return run_plan_projection(
         **_COMMON_KWARGS,
         accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
         annual_spending_need=spending_need,
         return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
     )

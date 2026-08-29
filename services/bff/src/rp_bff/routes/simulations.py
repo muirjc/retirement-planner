@@ -116,6 +116,7 @@ def resolve_and_run_simulation(
         run = run_simulation(
             household=context.household,
             accounts=context.accounts,
+            traditional_ownership_shares=context.traditional_ownership_shares,
             annual_spending_need=context.scenario.spending.annual_need_real,
             state=context.state,
             reference_tax_year=body.reference_tax_year,

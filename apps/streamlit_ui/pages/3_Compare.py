@@ -52,21 +52,69 @@ if not scenario_names:
     st.info("No saved scenarios yet -- create one on the Scenarios page first.")
     st.stop()
 
-st.selectbox("Scenario", options=scenario_names, key="compare_scenario_select")
-st.radio("Engine", options=["Monte Carlo", "Deterministic"], key="compare_engine")
+st.selectbox(
+    "Scenario", options=scenario_names, key="compare_scenario_select", help="Which saved scenario to compare candidates against."
+)
+st.radio(
+    "Engine",
+    options=["Monte Carlo", "Deterministic"],
+    key="compare_engine",
+    help=(
+        "Monte Carlo -- full randomized simulation per candidate; results include a success "
+        "rate and percentile fan chart. Deterministic -- one fixed-return projection per "
+        "candidate (no randomness); faster, shows a single ending balance and tax total "
+        "instead of a success rate."
+    ),
+)
 
 # FR-010, Acceptance Scenario US3.2: "state" is never offered for
 # Deterministic, enforced client-side before submission.
 allowed_axes = DETERMINISTIC_AXES if st.session_state.get("compare_engine") == "Deterministic" else SIMULATED_AXES
 axis_options = [axis for axis in all_axes if axis in allowed_axes]
-st.selectbox("Axis", options=axis_options, key="compare_axis")
+st.selectbox(
+    "Axis",
+    options=axis_options,
+    key="compare_axis",
+    help=(
+        "What varies between candidates. `state` -- different states of residence (Monte Carlo "
+        "only). `roth_conversion_strategy` -- different Roth conversion setups. "
+        "`withdrawal_sequencing` -- different withdrawal-order strategies. `claiming_age_grid` "
+        "-- different Social Security claiming ages. See the Instructions page's Compare "
+        "section for the full explanation."
+    ),
+)
 
 c1, c2, c3 = st.columns(3)
-c1.number_input("Reference tax year", min_value=1900, step=1, key="compare_reference_tax_year")
-c2.number_input("Start plan year", min_value=1, step=1, key="compare_start_plan_year")
-c3.number_input("Start tax year", min_value=1900, step=1, key="compare_start_tax_year")
+c1.number_input(
+    "Reference tax year",
+    min_value=1900,
+    step=1,
+    key="compare_reference_tax_year",
+    help="The real calendar year each member's Current age is measured as of -- e.g. if today is 2026, enter 2026. Always replace the placeholder before comparing.",
+)
+c2.number_input(
+    "Start plan year",
+    min_value=1,
+    step=1,
+    key="compare_start_plan_year",
+    help="Which plan year this comparison starts counting from -- 1 for a fresh run starting today.",
+)
+c3.number_input(
+    "Start tax year",
+    min_value=1900,
+    step=1,
+    key="compare_start_tax_year",
+    help="The calendar tax year the first plan year corresponds to -- normally the same as Reference tax year.",
+)
 
-st.number_input("Number of candidates", min_value=1, max_value=4, step=1, key="compare_candidate_count")
+st.number_input(
+    "Number of candidates",
+    min_value=1,
+    max_value=4,
+    step=1,
+    key="compare_candidate_count",
+    help="How many candidates to compare side by side, 1 to 4 -- each gets its own row of fields below.",
+)
 
 axis = st.session_state.get("compare_axis")
 count = st.session_state.get("compare_candidate_count", 1)
@@ -75,25 +123,70 @@ for i in range(count):
     st.markdown(f"**Candidate {i + 1}**")
     if axis == "state":
         options = [""] + states
-        st.selectbox("State", options=options, key=f"compare_candidate_{i}_state")
+        st.selectbox(
+            "State", options=options, key=f"compare_candidate_{i}_state",
+            help="See the Instructions page's State section for what differs between states.",
+        )
     elif axis == "roth_conversion_strategy":
         cc1, cc2, cc3, cc4 = st.columns(4)
-        cc1.text_input("Label", key=f"compare_candidate_{i}_label")
-        cc2.selectbox("Conversion strategy", options=[""] + conversion_strategies, key=f"compare_candidate_{i}_strategy")
-        cc3.number_input("Bracket ceiling/amount ($)", key=f"compare_candidate_{i}_bracket")
+        cc1.text_input(
+            "Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table."
+        )
+        cc2.selectbox(
+            "Conversion strategy", options=[""] + conversion_strategies, key=f"compare_candidate_{i}_strategy",
+            help=(
+                "`fill_to_bracket` -- fills up to the ceiling below. `fixed_amount` -- converts "
+                "that flat amount every year. See the Instructions page's Roth Conversion section."
+            ),
+        )
+        cc3.number_input(
+            "Bracket ceiling/amount ($)",
+            key=f"compare_candidate_{i}_bracket",
+            help="For `fill_to_bracket`: the income ceiling to fill up to. For `fixed_amount`: the flat dollar amount to convert each year.",
+        )
         w1, w2 = cc4.columns(2)
-        w1.number_input("Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start")
-        w2.number_input("Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end")
+        _CANDIDATE_WINDOW_HELP = "The plan years this candidate's conversion strategy is active -- outside this window, no conversions happen."
+        w1.number_input(
+            "Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start", help=_CANDIDATE_WINDOW_HELP
+        )
+        w2.number_input(
+            "Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end", help=_CANDIDATE_WINDOW_HELP
+        )
     elif axis == "withdrawal_sequencing":
         cc1, cc2 = st.columns(2)
-        cc1.text_input("Label", key=f"compare_candidate_{i}_label")
-        cc2.selectbox("Withdrawal strategy", options=withdrawal_strategies, key=f"compare_candidate_{i}_strategy")
+        cc1.text_input(
+            "Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table."
+        )
+        cc2.selectbox(
+            "Withdrawal strategy", options=withdrawal_strategies, key=f"compare_candidate_{i}_strategy",
+            help="See the Instructions page's Run Simulation section for what each option draws down first.",
+        )
     elif axis == "claiming_age_grid":
         cc1, cc2, cc3, cc4 = st.columns(4)
-        cc1.text_input("Person 1 name", key=f"compare_candidate_{i}_person1_name")
-        cc2.number_input("Person 1 claim age", min_value=0, step=1, key=f"compare_candidate_{i}_person1_age")
-        cc3.text_input("Person 2 name (optional)", key=f"compare_candidate_{i}_person2_name")
-        cc4.number_input("Person 2 claim age", min_value=0, step=1, key=f"compare_candidate_{i}_person2_age")
+        cc1.text_input(
+            "Person 1 name",
+            key=f"compare_candidate_{i}_person1_name",
+            help="Must exactly match a household member's Name from the Scenarios page.",
+        )
+        cc2.number_input(
+            "Person 1 claim age",
+            min_value=0,
+            step=1,
+            key=f"compare_candidate_{i}_person1_age",
+            help="The Social Security claiming age to test for this candidate, 62 to 70.",
+        )
+        cc3.text_input(
+            "Person 2 name (optional)",
+            key=f"compare_candidate_{i}_person2_name",
+            help="Leave blank for a single-filer scenario. Must exactly match the second household member's Name otherwise.",
+        )
+        cc4.number_input(
+            "Person 2 claim age",
+            min_value=0,
+            step=1,
+            key=f"compare_candidate_{i}_person2_age",
+            help="The Social Security claiming age to test for this candidate, 62 to 70.",
+        )
 
 
 def _build_candidates() -> list:
@@ -144,7 +237,9 @@ def _build_body() -> dict:
     }
 
 
-if st.button("Compare", key="compare_button"):
+if st.button(
+    "Compare", key="compare_button", help="Runs the selected engine once per candidate above and charts the results together."
+):
     with st.spinner("Comparing..."):
         engine = st.session_state.get("compare_engine")
         try:
@@ -213,7 +308,11 @@ if "compare_last_result" in st.session_state:
     # 2_Run_Simulation.py, since st.download_button needs its data ready
     # before render.
     engine_param = "deterministic" if st.session_state["compare_last_engine"] == "Deterministic" else "simulated"
-    if st.button("Prepare CSV download", key="compare_prepare_csv_button"):
+    if st.button(
+        "Prepare CSV download",
+        key="compare_prepare_csv_button",
+        help="Fetches this comparison's full results as CSV, ready to download below.",
+    ):
         try:
             st.session_state["compare_csv_text"] = export_comparison_csv(
                 st.session_state["compare_last_body"], engine=engine_param
@@ -227,4 +326,5 @@ if "compare_last_result" in st.session_state:
             file_name="comparison.csv",
             mime="text/csv",
             key="compare_download_csv_button",
+            help="Saves this comparison's full per-candidate results to a CSV file.",
         )

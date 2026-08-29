@@ -25,10 +25,19 @@ class Section:
 
 SECTIONS: list[Section] = [
     # Rendered by pages/0_Instructions.py in this order, one Section per
-    # required field-group (data-model.md's table -- FR-002 through FR-007):
+    # required field-group (data-model.md's table -- FR-002 through FR-007),
+    # plus Run Simulation and Compare -- every dropdown's option set gets an
+    # explicit, per-option explanation here, not just a widget label
+    # (each dropdown's live source of truth stays the widget itself; this
+    # content explains what each already-listed option does):
     Section(
         title="Household",
         body=(
+            "**Filing status** determines how many people you'll enter and drives which federal "
+            "tax brackets apply. It offers two options:\n\n"
+            "- **`single`** -- one person. Only Member 1's fields appear.\n"
+            "- **`married_filing_jointly`** -- two people. Member 2's fields (and Member 2's own "
+            "account balances, below) appear once you pick this.\n\n"
             "For each party (each adult in the household), gather: their name or a short "
             "label, their current age, the Social Security claiming age you're planning "
             "around, and their estimated annual Social Security benefit **at that specific "
@@ -65,7 +74,15 @@ SECTIONS: list[Section] = [
             "Enter the state you plan to reside in for tax purposes. The scenario form's "
             "own State dropdown always reflects the current list of supported states -- "
             "check it there rather than assuming a specific list, since new states are "
-            "added over time."
+            "added over time.\n\n"
+            "States differ from each other in three ways that matter for this tool's numbers: "
+            "whether they tax income at all (some have no state income tax, and always compute "
+            "$0 owed), whether they use a flat rate or graduated brackets, and whether they "
+            "offer an age-based exclusion that shields part of a retiree's income once they "
+            "reach a certain age. If two states in the dropdown produce very different results "
+            "for the same scenario, one of these three differences is almost always why -- and "
+            "every bracket, rate, and exclusion figure behind them is only as accurate as its "
+            "own verification status (see the unverified-figure indicator after you run)."
         ),
     ),
     Section(
@@ -95,14 +112,77 @@ SECTIONS: list[Section] = [
             "Leave this unchecked if you don't plan to convert traditional balances to "
             "Roth. If you do, the **window** is the range of plan years during which the "
             "conversion strategy is active -- outside that window, no conversions happen "
-            "under this strategy."
+            "under this strategy.\n\n"
+            "**Conversion strategy** offers two options, and each interprets the **Bracket "
+            "ceiling or amount** field differently:\n\n"
+            "- **`fill_to_bracket`** -- treats the field as an **income ceiling in dollars**. "
+            "Each year in the window, it converts just enough of the traditional balance to "
+            "bring that year's taxable income (ordinary income plus the taxable portion of "
+            "Social Security) up to the ceiling, without going over -- never more than the "
+            "traditional balance actually has. Use this to \"fill up\" a specific tax bracket "
+            "every year without spilling into the next one.\n"
+            "- **`fixed_amount`** -- treats the field as a **flat dollar amount to convert**. "
+            "Each year in the window it converts exactly that amount (or whatever's left in "
+            "the traditional balance, if less), regardless of income, Social Security, or "
+            "which tax bracket that lands in.\n\n"
+            "If you're unsure which to pick: `fill_to_bracket` targets a tax outcome and "
+            "adapts the dollar amount each year to hit it; `fixed_amount` targets a dollar "
+            "amount and lets the tax outcome fall where it falls."
+        ),
+    ),
+    Section(
+        title="Inherited IRA (Optional)",
+        body=(
+            "Leave this unchecked unless you (or one of the household members) inherited a "
+            "traditional IRA from someone who has died. If you do check it, this tool computes "
+            "**only one specific case** correctly today -- **the original owner died on or "
+            "after the date they were required to begin their own RMDs**, and **you're a "
+            "non-spouse, non-eligible-designated beneficiary** subject to the SECURE 2.0 "
+            "10-year rule (the account must be fully distributed by the 10th year after "
+            "death, with an annual required distribution due every year of that window).\n\n"
+            "- **Beneficiary** -- which household member inherited it; that's who it's taxed "
+            "to.\n"
+            "- **Balance** -- the inherited account's own balance. It's tracked completely "
+            "separately from that same person's own traditional balance above -- inherited "
+            "money is never legally combined with an account you own outright, and this tool "
+            "keeps them just as separate.\n"
+            "- **Decedent's death year** and **Decedent's age at death** -- together these "
+            "drive the required-distribution amount each year.\n"
+            "- **Original owner had already begun their own RMDs before death** -- must stay "
+            "checked. If the owner died *before* their own required beginning date, a "
+            "different set of rules applies (no annual distribution required in years 1-9, "
+            "only a year-10 deadline) that this tool doesn't compute yet -- unchecking this "
+            "will block the scenario with a specific message rather than silently using the "
+            "wrong rule.\n"
+            "- **Beneficiary relationship** -- descriptive (spouse, minor child, other "
+            "individual, or trust/entity); doesn't by itself change what's computed.\n"
+            "- **Beneficiary classification** -- must stay "
+            "`non_eligible_designated_beneficiary`. A spouse or other eligible designated "
+            "beneficiary (minor child, disabled/chronically ill, less than 10 years younger) "
+            "has different options -- a life-expectancy stretch, a spousal rollover -- that "
+            "aren't computed yet either, and picking one of those values will also block the "
+            "scenario.\n\n"
+            "This form supports one inherited account. A household member with more than one "
+            "inherited IRA (from different original owners) needs the scenario's saved file "
+            "edited directly for the second one."
         ),
     ),
     Section(
         title="Run Simulation",
         body=(
             "Pick a saved scenario from **Scenario**, choose a **Withdrawal strategy**, and set "
-            "**Reference tax year**, **Start plan year**, and **Start tax year** for this run. "
+            "**Reference tax year**, **Start plan year**, and **Start tax year** for this run.\n\n"
+            "**Withdrawal strategy** controls the order accounts are drawn from to cover spending "
+            "*after* any Required Minimum Distribution is taken -- the RMD itself always comes out "
+            "of the traditional balance first, unconditionally, under either option:\n\n"
+            "- **`rmd_taxable_traditional_roth`** (the default) -- after the RMD, spends from "
+            "**taxable**, then **traditional**, then **Roth** last. Keeps tax-advantaged balances, "
+            "especially Roth, growing untouched for as long as possible.\n"
+            "- **`rmd_traditional_taxable_roth`** -- after the RMD, spends from **traditional** "
+            "first, then **taxable**, then **Roth** last. Draws down pre-tax money sooner, which "
+            "can mean higher taxable income in earlier years.\n\n"
+            "Neither option ever draws more from an account than it holds -- an unmet need shows "
+            "up as a reported shortfall rather than a negative balance.\n\n"
             "Always replace the reference tax year with a real calendar year before running -- an "
             "unedited placeholder value is the most common mistake on this page, and it won't fail "
             "as obviously as a blank field would. To use different **Paths**, **Seed**, or **Plan to "
@@ -111,6 +191,36 @@ SECTIONS: list[Section] = [
             "if you've changed them. Clicking **Run** shows a success-rate metric and a fan chart -- "
             "the spread of possible ending balances by plan year, one line per percentile -- and any "
             "error points back to what needs fixing, often on the Scenarios page itself."
+        ),
+    ),
+    Section(
+        title="Compare",
+        body=(
+            "Pick a scenario, an **Engine**, and an **Axis** to see how one changing input affects "
+            "the outcome, holding everything else fixed across candidates.\n\n"
+            "**Engine** has two options:\n\n"
+            "- **Monte Carlo** -- runs the full randomized simulation (the same kind Run Simulation "
+            "does) for every candidate, so results include a success rate and a percentile fan "
+            "chart.\n"
+            "- **Deterministic** -- runs one fixed-return projection per candidate instead (no "
+            "randomness), so results show a single ending balance and tax total per candidate "
+            "rather than a success rate. Faster, but doesn't answer \"how often does this work.\"\n\n"
+            "**Axis** picks what varies between candidates -- the option list narrows to what the "
+            "chosen Engine actually supports (Deterministic never offers `state`, since there's no "
+            "single-run equivalent of a probabilistic location comparison):\n\n"
+            "- **`state`** -- same scenario, different states of residence (Monte Carlo only). Each "
+            "candidate is just a state picked from the same dropdown described under **State** "
+            "above.\n"
+            "- **`roth_conversion_strategy`** -- same scenario, different Roth conversion setups. "
+            "Each candidate gets its own **Conversion strategy** choice (see **Roth Conversion "
+            "(Optional)** above for what `fill_to_bracket` vs. `fixed_amount` do), bracket "
+            "ceiling/amount, and window.\n"
+            "- **`withdrawal_sequencing`** -- same scenario, different **Withdrawal strategy** "
+            "choices per candidate (see **Run Simulation** above for what the two options do).\n"
+            "- **`claiming_age_grid`** -- same scenario, different Social Security claiming ages "
+            "per candidate, one age per household member.\n\n"
+            "The chart and table update to whatever the chosen axis produced once you click "
+            "**Compare**."
         ),
     ),
 ]

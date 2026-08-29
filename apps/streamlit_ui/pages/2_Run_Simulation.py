@@ -34,20 +34,63 @@ if not scenario_names:
     st.info("No saved scenarios yet -- create one on the Scenarios page first.")
     st.stop()
 
-st.selectbox("Scenario", options=scenario_names, key="run_scenario_select")
-st.selectbox("Withdrawal strategy", options=withdrawal_strategies, key="run_withdrawal_strategy")
+st.selectbox("Scenario", options=scenario_names, key="run_scenario_select", help="Which saved scenario to run.")
+st.selectbox(
+    "Withdrawal strategy",
+    options=withdrawal_strategies,
+    key="run_withdrawal_strategy",
+    help=(
+        "Draw order for spending *after* the RMD (always drawn from traditional first). "
+        "`rmd_taxable_traditional_roth` -- taxable, then traditional, then Roth last (keeps "
+        "Roth growing longest). `rmd_traditional_taxable_roth` -- traditional, then taxable, "
+        "then Roth last (draws down pre-tax money sooner). See the Instructions page's Run "
+        "Simulation section for more."
+    ),
+)
 
 c1, c2, c3 = st.columns(3)
-c1.number_input("Reference tax year", min_value=1900, step=1, key="run_reference_tax_year")
-c2.number_input("Start plan year", min_value=1, step=1, key="run_start_plan_year")
-c3.number_input("Start tax year", min_value=1900, step=1, key="run_start_tax_year")
+c1.number_input(
+    "Reference tax year",
+    min_value=1900,
+    step=1,
+    key="run_reference_tax_year",
+    help="The real calendar year each member's Current age is measured as of -- e.g. if today is 2026, enter 2026. Always replace the placeholder before running.",
+)
+c2.number_input(
+    "Start plan year",
+    min_value=1,
+    step=1,
+    key="run_start_plan_year",
+    help="Which plan year this run starts counting from -- 1 for a fresh run starting today.",
+)
+c3.number_input(
+    "Start tax year",
+    min_value=1900,
+    step=1,
+    key="run_start_tax_year",
+    help="The calendar tax year the first plan year corresponds to -- normally the same as Reference tax year.",
+)
 
 with st.expander("Advanced overrides"):
-    st.checkbox("Override scenario defaults", key="run_override_advanced")
+    st.checkbox(
+        "Override scenario defaults",
+        key="run_override_advanced",
+        help="When checked, the Paths/Seed/Plan to age fields below replace this scenario's own saved Simulation Settings for this run only -- otherwise they're ignored even if changed.",
+    )
     a1, a2, a3 = st.columns(3)
-    a1.number_input("Paths", min_value=1, step=100, key="run_n_paths_override")
-    a2.number_input("Seed", min_value=0, step=1, key="run_seed_override")
-    a3.number_input("Plan to age", min_value=1, step=1, key="run_plan_to_age_override")
+    a1.number_input(
+        "Paths", min_value=1, step=100, key="run_n_paths_override", help="Overrides the scenario's saved Paths for this run only."
+    )
+    a2.number_input(
+        "Seed", min_value=0, step=1, key="run_seed_override", help="Overrides the scenario's saved Seed for this run only."
+    )
+    a3.number_input(
+        "Plan to age",
+        min_value=1,
+        step=1,
+        key="run_plan_to_age_override",
+        help="Overrides the scenario's saved Plan to age for this run only.",
+    )
 
 
 def _build_run_body() -> dict:
@@ -65,7 +108,7 @@ def _build_run_body() -> dict:
     return body
 
 
-if st.button("Run", key="run_button"):
+if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for the selected scenario with the settings above."):
     with st.spinner("Running simulation..."):
         try:
             result = run_simulation(_build_run_body())
@@ -107,7 +150,11 @@ if "run_last_result" in st.session_state:
     # run, sent again to the CSV export endpoint (data-model.md §
     # Relationships) -- st.download_button needs its data ready before
     # render, so a plain button first fetches it into session_state.
-    if st.button("Prepare CSV download", key="run_prepare_csv_button"):
+    if st.button(
+        "Prepare CSV download",
+        key="run_prepare_csv_button",
+        help="Fetches this run's full results as CSV, ready to download below.",
+    ):
         try:
             st.session_state["run_csv_text"] = export_simulation_csv(st.session_state["run_last_body"])
         except RpUiError as err:
@@ -119,4 +166,5 @@ if "run_last_result" in st.session_state:
             file_name="simulation_run.csv",
             mime="text/csv",
             key="run_download_csv_button",
+            help="Saves this run's full per-path results to a CSV file.",
         )

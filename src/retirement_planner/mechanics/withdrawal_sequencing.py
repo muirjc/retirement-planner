@@ -34,6 +34,7 @@ def compute_withdrawal_plan(
     rmd_amount: float,
     starting_balances: AccountBalances,
     strategy: str = "rmd_taxable_traditional_roth",
+    inherited_distribution_amount: float = 0.0,
 ) -> WithdrawalPlan:
     """Draws rmd_amount from starting_balances.traditional first (FR-004),
     unconditionally — this leg is not part of the configured ordering. If
@@ -46,6 +47,19 @@ def compute_withdrawal_plan(
     traditional draw) is less than spending_need, the unmet amount is
     reported as shortfall and no balance goes negative (FR-007). Raises
     KeyError if strategy has no registered ordering.
+
+    inherited_distribution_amount (012-inherited-ira-rmd, research.md §10):
+    an amount already distributed this same plan year from one or more
+    inherited accounts, tracked entirely outside starting_balances (never
+    part of the pooled traditional balance to begin with -- the source
+    inherited account's own balance is decremented separately, by the
+    caller, before this call). Reduces remaining_need exactly like
+    rmd_drawn already does, but is never subtracted from
+    starting_balances.traditional. The returned WithdrawalPlan's
+    inherited_distribution_drawn is set to exactly this amount, never
+    capped here -- the caller has already confirmed it doesn't exceed the
+    source inherited account's own balance. Defaults to 0.0, reproducing
+    every existing caller's exact prior behavior.
     """
     order = WITHDRAWAL_STRATEGIES[strategy]  # raises KeyError
 
@@ -53,7 +67,7 @@ def compute_withdrawal_plan(
     rmd_drawn = min(rmd_amount, ending_balances.traditional)
     ending_balances.traditional -= rmd_drawn
 
-    remaining_need = spending_need - rmd_drawn
+    remaining_need = spending_need - rmd_drawn - inherited_distribution_amount
     sequence_withdrawals: list[WithdrawalLineItem] = []
 
     for account_type in order:
@@ -73,4 +87,5 @@ def compute_withdrawal_plan(
         sequence_withdrawals=sequence_withdrawals,
         ending_balances=ending_balances,
         shortfall=shortfall,
+        inherited_distribution_drawn=inherited_distribution_amount,
     )

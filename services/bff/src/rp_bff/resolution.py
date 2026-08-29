@@ -16,7 +16,12 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from retirement_planner.comparison import StrategyConfiguration, deemed_rmd_owner
-from retirement_planner.mechanics import AccountBalances, CONVERSION_STRATEGIES, WITHDRAWAL_STRATEGIES
+from retirement_planner.mechanics import (
+    AccountBalances,
+    CONVERSION_STRATEGIES,
+    InheritedAccountBalance,
+    WITHDRAWAL_STRATEGIES,
+)
 from retirement_planner.scenario import Household, Scenario, load_scenario
 from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
@@ -52,6 +57,26 @@ class UnknownReferenceValueError(Exception):
         super().__init__(f"unknown {field}: {value!r}")
 
 
+class InheritedAccountsUnsupportedForSimulationError(Exception):
+    """012-inherited-ira-rmd (FR-013, research.md §10 addendum): raised
+    when a Monte Carlo simulation or simulated-comparison request is made
+    against a scenario with any inherited account -- that path isn't
+    threaded through retirement_planner.simulation (005) in this feature
+    (explicit follow-on work), so it must be rejected loudly rather than
+    silently run with the inherited account's distributions dropped.
+    Carries the affected account_ids so a route handler can report them
+    in the inherited_accounts_unsupported_for_simulation response
+    (contracts/bff-api.md) without re-deriving anything. Never raised for
+    the deterministic comparison/single-projection path, which fully
+    supports inherited accounts (US1/US2)."""
+
+    def __init__(self, account_ids: list[str]) -> None:
+        self.account_ids = account_ids
+        super().__init__(
+            f"{len(account_ids)} inherited account(s) present -- Monte Carlo simulation is not yet supported"
+        )
+
+
 def unsupported_tax_year_error(exc: UnsupportedTaxYearError) -> HTTPException:
     """Translates a raised UnsupportedTaxYearError (tax/models.py's own
     figure-lookup guard -- never falls back to the nearest documented
@@ -83,6 +108,7 @@ class ResolvedRunContext:
     household: Household
     accounts: AccountBalances
     traditional_ownership_shares: dict[str, float]
+    inherited_accounts: list[InheritedAccountBalance]
     strategy: StrategyConfiguration
     state: str
     plan_to_age: int
@@ -93,9 +119,16 @@ class ResolvedRunContext:
 def _sum_accounts(scenario: Scenario) -> AccountBalances:
     """Sums same-typed Account entries -- 001's Scenario schema allows more
     than one Account of a given type; 004/005's AccountBalances takes one
-    total per type."""
+    total per type.
+
+    012-inherited-ira-rmd (data-model.md § Exclusion from pooling): an
+    inherited account is excluded entirely -- it is never legally
+    commingled with the beneficiary's own accounts (research.md §5), and
+    is instead tracked independently via _inherited_accounts() below."""
     totals = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0}
     for account in scenario.accounts:
+        if account.inherited is not None:
+            continue
         totals[account.account_type] += account.balance
     return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"])
 
@@ -107,10 +140,16 @@ def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
     _sum_accounts() sums, alongside it. Callable only once the scenario has
     already been confirmed is_usable (checked immediately before this is
     called, below), so every account.owner here is guaranteed non-None and
-    a real household member's person_name -- validate()'s own guarantee."""
+    a real household member's person_name -- validate()'s own guarantee.
+
+    012-inherited-ira-rmd: an inherited account is excluded from this
+    pooled total too, for the same reason _sum_accounts() excludes it
+    (data-model.md § Exclusion from pooling)."""
     per_member_traditional = {member.person_name: 0.0 for member in scenario.household.members}
     household_traditional_total = 0.0
     for account in scenario.accounts:
+        if account.inherited is not None:
+            continue
         if account.account_type == "traditional":
             per_member_traditional[account.owner] += account.balance
             household_traditional_total += account.balance
@@ -123,6 +162,29 @@ def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
         person_name: balance / household_traditional_total
         for person_name, balance in per_member_traditional.items()
     }
+
+
+def _inherited_accounts(scenario: Scenario) -> list[InheritedAccountBalance]:
+    """012-inherited-ira-rmd (data-model.md § Derived): one
+    InheritedAccountBalance per Account with inherited is not None,
+    independently tracked (never pooled -- research.md §5). Callable only
+    once the scenario has already been confirmed is_usable, so every
+    inherited account here is guaranteed account_type="traditional",
+    inherited.decedent_was_taking_rmds=True,
+    inherited.beneficiary_classification="non_eligible_designated_beneficiary",
+    and a non-None account_id -- validate()'s own guarantee (the four
+    blocking rules in scenario-api.md)."""
+    return [
+        InheritedAccountBalance(
+            account_id=account.account_id,
+            balance=account.balance,
+            death_year=account.inherited.death_year,
+            decedent_age_at_death=account.inherited.decedent_age_at_death,
+            depletion_deadline_year=account.inherited.death_year + 10,
+        )
+        for account in scenario.accounts
+        if account.inherited is not None
+    ]
 
 
 def resolve_run_context(
@@ -187,6 +249,7 @@ def resolve_run_context(
         household=scenario.household,
         accounts=_sum_accounts(scenario),
         traditional_ownership_shares=_traditional_ownership_shares(scenario),
+        inherited_accounts=_inherited_accounts(scenario),
         strategy=strategy,
         state=resolved_state,
         plan_to_age=plan_to_age if plan_to_age is not None else scenario.simulation_settings.plan_to_age,
@@ -204,3 +267,16 @@ def check_run_cost(context: ResolvedRunContext, candidate_count: int = 1) -> Non
     check_cost_within_budget(
         path_count=context.n_paths, candidate_count=candidate_count, horizon_years=horizon_years
     )
+
+
+def check_simulation_supports_inherited_accounts(context: ResolvedRunContext) -> None:
+    """012-inherited-ira-rmd (FR-013): raises
+    InheritedAccountsUnsupportedForSimulationError before any 005 call if
+    the resolved scenario has any inherited account -- called by both
+    routes/simulations.py's resolve_and_run_simulation() and
+    routes/comparisons.py's simulated-comparison resolve path (never the
+    deterministic path, which fully supports inherited accounts)."""
+    if context.inherited_accounts:
+        raise InheritedAccountsUnsupportedForSimulationError(
+            [account.account_id for account in context.inherited_accounts]
+        )

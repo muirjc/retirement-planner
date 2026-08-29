@@ -44,9 +44,11 @@ from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
 from ..resolution import (
     BlockingValidationFlagsError,
+    InheritedAccountsUnsupportedForSimulationError,
     ResolvedRunContext,
     UnknownReferenceValueError,
     check_run_cost,
+    check_simulation_supports_inherited_accounts,
     resolve_run_context,
     unsupported_tax_year_error,
 )
@@ -140,6 +142,11 @@ def resolve_and_compare_deterministic(
         # deterministic compare_*() function now accepts this parameter
         # (contracts/comparison-api.md), including compare_claiming_age_grid_deterministic.
         hsa_contribution=context.strategy.hsa_contribution,
+        # 012-inherited-ira-rmd: likewise safe to force into every branch
+        # below -- every deterministic compare_*() function now accepts
+        # this parameter, each building its own fresh per-candidate copy
+        # internally (comparison-api.md).
+        inherited_accounts=context.inherited_accounts,
     )
 
     try:
@@ -194,6 +201,14 @@ def resolve_and_compare_simulated(
         for state in body.candidates:
             if state not in STATE_MODULES:
                 _reject_unknown("state", state)
+
+    try:
+        check_simulation_supports_inherited_accounts(context)
+    except InheritedAccountsUnsupportedForSimulationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "inherited_accounts_unsupported_for_simulation", "account_ids": exc.account_ids},
+        )
 
     candidate_count = len(body.candidates) or 1
     try:

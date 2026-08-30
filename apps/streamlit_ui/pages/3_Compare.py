@@ -9,6 +9,7 @@ same file later, as small additive edits.
 
 import streamlit as st
 
+from rp_ui.account_table import render_account_table
 from rp_ui.api_client import (
     compare_deterministic,
     compare_simulated,
@@ -312,6 +313,15 @@ if "compare_last_result" in st.session_state:
     # (contracts/ui-pages.md § 3_Compare.py).
     union_unverified = sorted({name for s in summaries for name in s.get("unverified_figure_names", [])})
     render_verification_indicator(union_unverified)
+
+    # 015-per-account-projection-detail (US2): one expander per candidate
+    # -- keeps every candidate simultaneously visible (Compare's whole
+    # reason for existing: side-by-side comparison), rather than a
+    # selector that would hide all but one at a time.
+    account_detail_by_candidate = st.session_state["compare_last_result"].get("account_detail", [])
+    for s, candidate_detail in zip(summaries, account_detail_by_candidate):
+        with st.expander(f"Year-by-year detail: {s.get('candidate_label')}"):
+            render_account_table(candidate_detail)
 
     # US5, FR-014: the same request body already used for the on-screen
     # comparison, plus the engine that produced it (data-model.md §

@@ -20,11 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from retirement_planner.comparison import deemed_rmd_owner
-from retirement_planner.reporting import summarize_run
+from retirement_planner.reporting import compute_account_shares, summarize_run
 from retirement_planner.scenario import ScenarioParseError
 from retirement_planner.simulation import SimulationRun, generate_return_paths, run_simulation
 from retirement_planner.tax import UnsupportedTaxYearError
 
+from ..account_detail import PathIndexOutOfRangeError, build_account_detail_for_run, path_index_out_of_range_error
 from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
 from ..resolution import (
@@ -53,6 +54,10 @@ class SimulationRequest(BaseModel):
     plan_to_age: int | None = None
     n_paths: int | None = None
     seed: int | None = None
+    detail_path_index: int | None = None
+    """015-per-account-projection-detail (contracts/bff-api.md): which
+    path's account_detail to compute -- defaults to 0 (export.py's own
+    "path 0 is representative" precedent) when omitted."""
 
 
 def resolve_and_run_simulation(
@@ -141,4 +146,14 @@ def run_simulation_route(
     """POST /simulations -- run + summary in one response (FR-008, US3.1)."""
     context, run = resolve_and_run_simulation(body, scenarios_dir)
     summary = summarize_run(run, household=context.household, reference_tax_year=body.reference_tax_year)
-    return {"run": to_jsonable(run), "summary": to_jsonable(summary)}
+
+    # 015-per-account-projection-detail (contracts/bff-api.md, US1):
+    # computed for exactly one path, regardless of how many the
+    # simulation ran -- never once per path.
+    shares = compute_account_shares(context.scenario.accounts)
+    try:
+        account_detail = build_account_detail_for_run(shares, run, body.detail_path_index)
+    except PathIndexOutOfRangeError as exc:
+        raise path_index_out_of_range_error(exc)
+
+    return {"run": to_jsonable(run), "summary": to_jsonable(summary), "account_detail": to_jsonable(account_detail)}

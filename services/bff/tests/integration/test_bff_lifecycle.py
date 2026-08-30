@@ -246,6 +246,53 @@ def test_omitted_seed_n_paths_plan_to_age_default_from_scenario_settings(client)
     assert without_defaults == with_explicit_matching_values                       # US3.4, FR-011
 
 
+# -- 015-per-account-projection-detail (US1): per-account year-by-year
+# detail on a simulation result --
+
+
+def test_run_simulation_response_includes_account_detail_shaped_per_account(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "account_detail" in payload
+    assert len(payload["account_detail"]) == len(payload["run"]["path_results"][0]["years"])
+    first_year_detail = payload["account_detail"][0]
+    assert set(first_year_detail.keys()) == {"plan_year", "tax_year", "accounts", "member_social_security_benefits"}
+    account_ids = {row["account_id"] for row in first_year_detail["accounts"]}
+    # _SCENARIO_BODY's 3 accounts (auto-filled account_ids, per the CRUD test above).
+    assert account_ids == {"traditional-0", "roth-1", "taxable-2"}
+    for row in first_year_detail["accounts"]:
+        assert row["attribution"] in ("independently_tracked", "fixed_share_of_pooled_total")
+    assert first_year_detail["member_social_security_benefits"].keys() == {"you", "spouse"}
+
+
+def test_run_simulation_detail_path_index_defaults_to_path_zero(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    without_index = client.post("/api/v1/simulations", json=_RUN_BODY).json()["account_detail"]
+    with_explicit_zero = client.post("/api/v1/simulations", json={**_RUN_BODY, "detail_path_index": 0}).json()[
+        "account_detail"
+    ]
+
+    assert without_index == with_explicit_zero
+
+
+def test_run_simulation_out_of_range_detail_path_index_returns_422(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+    n_paths = _SCENARIO_BODY["simulation_settings"]["n_paths"]
+
+    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "detail_path_index": n_paths})
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "path_index_out_of_range"
+    assert payload["requested"] == n_paths
+    assert payload["path_count"] == n_paths
+
+
 # --- User Story 4: run and retrieve a comparison ---
 
 
@@ -259,6 +306,53 @@ def test_simulated_state_comparison_returns_one_summary_per_state(client):
     summaries = response.json()["summaries"]
     assert len(summaries) == 3                                                     # US4.1
     assert {s["candidate_label"] for s in summaries} == {"SC", "DE", "FL"}
+
+
+# -- 015-per-account-projection-detail (US2): per-candidate year-by-year
+# detail on both comparison endpoints --
+
+
+def test_simulated_comparison_response_includes_one_account_detail_list_per_candidate(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["SC", "DE", "FL"]}
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    payload = response.json()
+    assert len(payload["account_detail"]) == len(payload["summaries"]) == 3
+    # each candidate's own detail is independently populated -- never
+    # empty, never mixed with another candidate's.
+    for candidate_detail in payload["account_detail"]:
+        assert len(candidate_detail) > 0
+        account_ids = {row["account_id"] for row in candidate_detail[0]["accounts"]}
+        assert account_ids == {"traditional-0", "roth-1", "taxable-2"}
+
+
+def test_deterministic_comparison_response_includes_account_detail_per_candidate(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY, "axis": "withdrawal_sequencing",
+        "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+    }
+    response = client.post("/api/v1/comparisons/deterministic", json=body)
+
+    payload = response.json()
+    assert len(payload["account_detail"]) == len(payload["summaries"]) == 1
+    assert len(payload["account_detail"][0]) > 0
+
+
+def test_simulated_comparison_out_of_range_detail_path_index_returns_422(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+    n_paths = _SCENARIO_BODY["simulation_settings"]["n_paths"]
+
+    body = {
+        **_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["FL"], "detail_path_index": n_paths,
+    }
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "path_index_out_of_range"
 
 
 def test_deterministic_roth_conversion_comparison_marks_monte_carlo_fields_not_applicable(client):

@@ -66,6 +66,17 @@ class UnsupportedTaxYearError(RpUiError):
         super().__init__(f"{figure_name!r} has no documented value for tax year {requested_year}")
 
 
+class PathIndexOutOfRangeError(RpUiError):
+    """007 returned 422 {"error": "path_index_out_of_range", "requested": ...,
+    "path_count": ...} -- 015-per-account-projection-detail's Detail path
+    index override pointed past however many paths the run actually has."""
+
+    def __init__(self, *, requested: int, path_count: int) -> None:
+        self.requested = requested
+        self.path_count = path_count
+        super().__init__(f"Path index {requested} is out of range (this run has {path_count} path(s))")
+
+
 class CostBudgetExceededError(RpUiError):
     """007 returned 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": ..., "budget_seconds": ...}."""
 

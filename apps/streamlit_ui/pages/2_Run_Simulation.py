@@ -7,6 +7,7 @@ independently testable without either (tasks.md's own sequencing note).
 
 import streamlit as st
 
+from rp_ui.account_table import render_account_table
 from rp_ui.api_client import export_simulation_csv, list_scenarios, list_withdrawal_strategies, run_simulation
 from rp_ui.charts import fan_chart
 from rp_ui.narration import render_results_explanation
@@ -15,6 +16,7 @@ from rp_ui.errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
+    PathIndexOutOfRangeError,
     RpUiError,
     ScenarioNotFoundError,
     UnknownReferenceValueError,
@@ -92,6 +94,17 @@ with st.expander("Advanced overrides"):
         key="run_plan_to_age_override",
         help="Overrides the scenario's saved Plan to age for this run only.",
     )
+    st.number_input(
+        "Detail path index",
+        min_value=0,
+        step=1,
+        key="run_detail_path_index",
+        help=(
+            "Which one Monte Carlo path's year-by-year account detail table (below) to show -- "
+            "0 is the first path. This only changes which single example path's detail is "
+            "displayed, never the success rate or fan chart, which always reflect every path."
+        ),
+    )
 
 
 def _build_run_body() -> dict:
@@ -101,6 +114,11 @@ def _build_run_body() -> dict:
         "reference_tax_year": st.session_state["run_reference_tax_year"],
         "start_plan_year": st.session_state["run_start_plan_year"],
         "start_tax_year": st.session_state["run_start_tax_year"],
+        # 015-per-account-projection-detail: unlike Paths/Seed/Plan to
+        # age, this isn't gated by "Override scenario defaults" -- it
+        # only selects which single path's detail table to display, not
+        # a scenario-level setting with its own saved default to override.
+        "detail_path_index": st.session_state["run_detail_path_index"],
     }
     if st.session_state.get("run_override_advanced"):
         body["n_paths"] = st.session_state["run_n_paths_override"]
@@ -128,6 +146,11 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
                 f"enter a year between {min(years)} and {max(years)}." if years else
                 f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
             )
+        except PathIndexOutOfRangeError as err:
+            st.error(
+                f"Detail path index {err.requested} is out of range -- this run only has "
+                f"{err.path_count} path(s). Enter a value from 0 to {err.path_count - 1}."
+            )
         except CostBudgetExceededError as err:
             st.error(
                 f"This request is too large (estimated {err.estimated_seconds:.0f}s "
@@ -152,6 +175,7 @@ if "run_last_result" in st.session_state:
     # rather than just a percentage.
     render_results_explanation(summary, path_count=len(run["path_results"]))
     render_verification_indicator(summary.get("unverified_figure_names", []))
+    render_account_table(st.session_state["run_last_result"].get("account_detail", []))
 
     # US5, FR-014: the *same* request body already used for the on-screen
     # run, sent again to the CSV export endpoint (data-model.md §

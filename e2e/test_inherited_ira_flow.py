@@ -107,4 +107,7 @@ def test_build_a_roth_spouse_edb_inherited_account_and_run_both_engines(page, e2
     page.get_by_role("button", name="Compare", exact=True).click()
     wait_for_results(page)
     assert not page.get_by_test_id("stException").count()
-    assert page.get_by_test_id("stDataFrame").count() == 1
+    # 015-per-account-projection-detail: the summary table (1) plus one
+    # per-candidate "Year-by-year detail" table (1) -- this comparison has
+    # a single candidate ("default").
+    assert page.get_by_test_id("stDataFrame").count() == 2

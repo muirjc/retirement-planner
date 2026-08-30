@@ -94,7 +94,7 @@ C4Component
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring. Wraps comparison's projection loop per path.")
-        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export — depends on all five other subpackages, none of them depend on it.")
+        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) — depends on all five other subpackages, none of them depend on it.")
     }
 
     Rel(tax, scenario, "reads config types from")
@@ -111,7 +111,7 @@ C4Component
 | `mechanics` | RMDs (own + inherited), Roth conversion, withdrawal sequencing, HSA | `compute_rmd()`, `compute_inherited_rmd()`, `compute_roth_conversion()` |
 | `comparison` | One-plan-year-at-a-time full-horizon projection; deterministic comparisons | `run_plan_projection()`, `compare_states()`, `compare_withdrawal_strategies()`, `compare_claiming_ages()` |
 | `simulation` | Monte Carlo core over `comparison`'s projection loop | `run_simulation()`, `run_simulation_comparison()`, `generate_return_paths()` |
-| `reporting` | Summary stats + CSV export, shared by the BFF's JSON and CSV responses | `summarize_run()`, `run_to_csv_text()` |
+| `reporting` | Summary stats + CSV export + per-account attribution, shared by the BFF's JSON and CSV responses | `summarize_run()`, `run_to_csv_text()`, `compute_account_shares()`, `attribute_plan_projection()` |
 
 ## 4. Components — the BFF
 
@@ -128,12 +128,15 @@ C4Component
         Component(resolution, "resolution.py", "Loads a named scenario, validates it, resolves optional request fields against the scenario's own defaults, builds the StrategyConfiguration/AccountBalances/inherited_accounts the core library needs. The one seam every route shares.")
         Component(schemas, "schemas.py", "Pydantic request/response models.")
         Component(routes, "routes/", "scenarios.py, reference.py, simulations.py, comparisons.py, reports.py — one router per resource.")
+        Component(accountdetail, "account_detail.py", "Assembles the account_detail response field (015) from reporting.account_attribution — one shared AccountShare computation per request, reused across every candidate in a comparison.")
     }
 
     Rel(routes, resolution, "calls resolve_run_context()")
     Rel(routes, schemas, "validates against")
+    Rel(routes, accountdetail, "calls build_account_detail_for_*()")
     Rel(main, routes, "registers")
     Rel(resolution, "src/retirement_planner", "calls run_plan_projection(), run_simulation(), ...", "in-process import")
+    Rel(accountdetail, "src/retirement_planner", "calls reporting.compute_account_shares(), attribute_plan_projection()", "in-process import")
 ```
 
 **Routes** (all under `/api/v1`):
@@ -143,8 +146,8 @@ C4Component
 | GET/PUT/DELETE | `/scenarios`, `/scenarios/{name}` | List/save/load/delete named scenarios |
 | POST | `/scenarios/{name}/validate` | Run validation without executing a projection |
 | GET | `/reference/states`, `/reference/withdrawal-strategies`, `/reference/conversion-strategies`, `/reference/comparison-axes` | Live registries the UI populates its dropdowns from — never hardcoded client-side |
-| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape) |
-| POST | `/comparisons/deterministic`, `/comparisons/simulated` | Deterministic (single-path) or simulated (Monte Carlo) comparison across one axis |
+| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) |
+| POST | `/comparisons/deterministic`, `/comparisons/simulated` | Deterministic (single-path) or simulated (Monte Carlo) comparison across one axis. Response includes `account_detail` (015) — one per candidate, same shape as `/simulations`' |
 | POST | `/reports/simulations.csv`, `/reports/comparisons.csv` | CSV export of the above |
 
 ## 5. Components — the Streamlit UI
@@ -156,7 +159,7 @@ C4Component
     Container_Boundary(ui, "apps/streamlit_ui") {
         Component(app, "app.py", "Streamlit entry point / landing page.")
         Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields), 2_Run_Simulation, 3_Compare.")
-        Component(client, "src/rp_ui", "HTTP client wrapping the BFF's OpenAPI-described contract, chart helpers (fan chart, comparison overlay), the verification.py 'needs verification' indicator renderer.")
+        Component(client, "src/rp_ui", "HTTP client wrapping the BFF's OpenAPI-described contract, chart helpers (fan chart, comparison overlay), the verification.py 'needs verification' indicator renderer, the account_table.py per-account year-by-year detail table (015).")
     }
 
     Rel(pages, client, "uses")
@@ -202,6 +205,13 @@ sequenceDiagram
 The same shape (resolve → core library call → JSON) is how every other
 route works; only which `comparison`/`simulation` function gets called,
 and whether it loops over multiple candidates, differs.
+
+Since `015-per-account-projection-detail`, the BFF step above also calls
+`account_detail.py` once per candidate (reusing one shared
+`compute_account_shares()` call per request) before returning — a
+reporting-layer derivation over the same `SimulationComparisonResult`/
+`ComparisonResult`/`SimulationRun` already in hand, not a new call back
+into `comparison`/`simulation`.
 
 ## 7. Data model at a glance
 

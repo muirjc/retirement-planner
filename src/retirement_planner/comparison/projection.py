@@ -67,17 +67,31 @@ def _approximate_magi(income: IncomeComponents, federal_tax: FederalTaxResult) -
     return income.ordinary_income + federal_tax.taxable_social_security
 
 
+def _member_gross_social_security_benefits(
+    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int]
+) -> dict[str, float]:
+    """Each member's own gross ss_annual_benefit received this year,
+    counted only once that member's translated age reaches their
+    configured claiming age (data-model.md § Relationships) -- 0.0
+    before then, never omitted (015-per-account-projection-detail
+    data-model.md § PlanYearProjection extension). Summing these values
+    reproduces _household_gross_social_security_benefit()'s own total
+    exactly."""
+    return {
+        member.person_name: (
+            member.ss_annual_benefit if ages_this_year[member.person_name] >= claiming_ages[member.person_name] else 0.0
+        )
+        for member in household.members
+    }
+
+
 def _household_gross_social_security_benefit(
     household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int]
 ) -> float:
     """Sums each member's ss_annual_benefit, counted only once that
     member's translated age reaches their configured claiming age
     (data-model.md § Relationships)."""
-    return sum(
-        member.ss_annual_benefit
-        for member in household.members
-        if ages_this_year[member.person_name] >= claiming_ages[member.person_name]
-    )
+    return sum(_member_gross_social_security_benefits(household, ages_this_year, claiming_ages).values())
 
 
 def run_plan_projection(
@@ -146,9 +160,12 @@ def run_plan_projection(
         if deemed_owner_age > plan_to_age:
             break
 
-        household_ss_benefit = _household_gross_social_security_benefit(
-            household, ages_this_year, strategy.claiming_ages
-        )
+        # 015-per-account-projection-detail: the per-member breakdown is
+        # retained (below, threaded into PlanYearProjection), not just the
+        # household sum -- household_ss_benefit stays the same value
+        # _household_gross_social_security_benefit() would have returned.
+        member_ss_benefits = _member_gross_social_security_benefits(household, ages_this_year, strategy.claiming_ages)
+        household_ss_benefit = sum(member_ss_benefits.values())
 
         # 011-per-owner-accounts: one compute_rmd() call per member with a
         # positive traditional share, replacing the single deemed-owner-
@@ -156,8 +173,11 @@ def run_plan_projection(
         # still always False (004 research.md §3, unaffected by this
         # feature); spouse_age is still each member's actual co-member's
         # age, for a household of at most 2 (001's own household-size cap).
-        rmd_results = [
-            compute_rmd(
+        # 015-per-account-projection-detail: keyed by person_name (a dict,
+        # not a list) so each member's own exact required_amount can be
+        # retained (below) instead of only surviving as the summed total.
+        member_rmd_results = {
+            member.person_name: compute_rmd(
                 traditional_balance=traditional_ownership_shares[member.person_name] * current_balances.traditional,
                 member_age=ages_this_year[member.person_name],
                 tax_year=tax_year,
@@ -169,9 +189,10 @@ def run_plan_projection(
             )
             for member in household.members
             if traditional_ownership_shares[member.person_name] > 0
-        ]
-        rmd_amount = sum(result.required_amount for result in rmd_results)
-        rmd_figures_used = [figure for result in rmd_results for figure in result.figures_used]
+        }
+        rmd_amount = sum(result.required_amount for result in member_rmd_results.values())
+        rmd_figures_used = [figure for result in member_rmd_results.values() for figure in result.figures_used]
+        member_rmd_amounts = {name: result.required_amount for name, result in member_rmd_results.items()}
 
         # 012-inherited-ira-rmd (research.md §7, §8, §10), extended by
         # 013-inherited-ira-edge-cases (research.md § Handoff): one
@@ -196,6 +217,12 @@ def run_plan_projection(
         # the household's growth_factor to whatever balance remains.
         inherited_distribution_total = 0.0
         inherited_rmd_figures_used: list = []
+        # 015-per-account-projection-detail: each inherited account's own
+        # distribution is snapshotted here, at the same point it's already
+        # computed -- inherited_account_balances is filled in below, after
+        # this year's growth (step 7) has been applied, since that's this
+        # year's true ending balance.
+        inherited_account_distributions: dict[str, float] = {}
         for inherited_account in inherited_accounts:
             if inherited_account.balance <= 0:
                 continue
@@ -217,6 +244,7 @@ def run_plan_projection(
                 inherited_rmd_figures_used.extend(inherited_result.figures_used)
             inherited_account.balance -= distribution
             inherited_distribution_total += distribution
+            inherited_account_distributions[inherited_account.account_id] = distribution
 
         # HSA (010-advanced-tax-benefits FR-008-FR-012): eligibility is
         # always computed (informative even when no contribution is
@@ -342,6 +370,15 @@ def run_plan_projection(
         for inherited_account in inherited_accounts:
             inherited_account.balance *= growth_factor
 
+        # 015-per-account-projection-detail: snapshotted after growth, so
+        # this reflects this year's true ending balance -- every inherited
+        # account still on the books this year, including one that fully
+        # depleted this year (balance 0.0, still present so a consumer can
+        # see it reached zero rather than silently disappearing).
+        inherited_account_balances = {
+            inherited_account.account_id: inherited_account.balance for inherited_account in inherited_accounts
+        }
+
         # mechanics_result.figures_used already includes hsa_contribution's
         # own figures_used (compute_plan_year_mechanics() folds it in), so
         # it is not repeated here.
@@ -368,6 +405,10 @@ def run_plan_projection(
                 niit=niit,
                 hsa_contribution=hsa_contribution,
                 figures_used=figures_used,
+                member_rmd_amounts=member_rmd_amounts,
+                member_social_security_benefits=member_ss_benefits,
+                inherited_account_balances=inherited_account_balances,
+                inherited_account_distributions=inherited_account_distributions,
             )
         )
 

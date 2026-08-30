@@ -66,6 +66,10 @@ def test_run_shows_success_rate_fan_chart_explanation_and_verification(page, e2e
     # 006/US4: the verification indicator, always rendered one way or the other.
     alerts_text = page.get_by_test_id("stAlertContainer").all_inner_texts()
     assert any("verified" in text.lower() for text in alerts_text)
+    # 015-per-account-projection-detail: the per-account year-by-year
+    # detail table, with its "apportioned vs. tracked exactly" disclosure.
+    assert page.get_by_text("apportioned").count() == 1
+    assert page.get_by_test_id("stDataFrame").count() >= 1
 
 
 def test_prepare_csv_download_produces_a_download_button(page, e2e_stack):

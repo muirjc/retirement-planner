@@ -28,7 +28,7 @@ from retirement_planner.comparison import (
     derive_deterministic_return,
 )
 from retirement_planner.mechanics import CONVERSION_STRATEGIES, WITHDRAWAL_STRATEGIES
-from retirement_planner.reporting import summarize_deterministic_comparison, summarize_simulation_comparison
+from retirement_planner.reporting import compute_account_shares, summarize_deterministic_comparison, summarize_simulation_comparison
 from retirement_planner.scenario import ScenarioParseError
 from retirement_planner.simulation import SimulationComparisonResult, generate_return_paths
 from retirement_planner.simulation import compare_claiming_age_grid as compare_claiming_age_grid_simulated
@@ -39,6 +39,12 @@ from retirement_planner.simulation import (
 )
 from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
+from ..account_detail import (
+    PathIndexOutOfRangeError,
+    build_account_detail_for_projection,
+    build_account_detail_for_run,
+    path_index_out_of_range_error,
+)
 from ..comparison_candidates import build_candidates_for_axis
 from ..cost_estimation import CostBudgetExceededError
 from ..dependencies import get_scenarios_dir
@@ -75,6 +81,11 @@ class ComparisonRequest(BaseModel):
     seed: int | None = None
     axis: str
     candidates: list[Any]
+    detail_path_index: int | None = None
+    """015-per-account-projection-detail (contracts/bff-api.md): which
+    path's account_detail to compute for the simulated route -- ignored
+    by the deterministic route, where each candidate's own PlanProjection
+    already *is* the one path. Defaults to 0 when omitted."""
 
 
 def _resolve(body: ComparisonRequest, scenarios_dir: Path | None) -> ResolvedRunContext:
@@ -305,7 +316,15 @@ def compare_deterministic_route(
     """POST /comparisons/deterministic (US4.2-US4.4)."""
     context, result = resolve_and_compare_deterministic(body, scenarios_dir)
     summaries = summarize_deterministic_comparison(result, household=context.household, reference_tax_year=body.reference_tax_year)
-    return {"axis": body.axis, "summaries": to_jsonable(summaries)}
+
+    # 015-per-account-projection-detail (US2): one candidate's own
+    # PlanProjection already *is* the one path -- detail_path_index is
+    # accepted but ignored here. compute_account_shares() runs once,
+    # shared across every candidate (contracts/bff-api.md).
+    shares = compute_account_shares(context.scenario.accounts)
+    account_detail = [build_account_detail_for_projection(shares, projection) for projection in result.projections]
+
+    return {"axis": body.axis, "summaries": to_jsonable(summaries), "account_detail": to_jsonable(account_detail)}
 
 
 @router.post("/comparisons/simulated")
@@ -315,4 +334,15 @@ def compare_simulated_route(
     """POST /comparisons/simulated (US4.1, US4.3-US4.4)."""
     context, result = resolve_and_compare_simulated(body, scenarios_dir)
     summaries = summarize_simulation_comparison(result, household=context.household, reference_tax_year=body.reference_tax_year)
-    return {"axis": body.axis, "summaries": to_jsonable(summaries)}
+
+    # 015-per-account-projection-detail (US2): one path per candidate's
+    # own SimulationRun (default path 0) -- the first out-of-range
+    # candidate's path_index is reported, mirroring /simulations' own
+    # translation (contracts/bff-api.md).
+    shares = compute_account_shares(context.scenario.accounts)
+    try:
+        account_detail = [build_account_detail_for_run(shares, run, body.detail_path_index) for run in result.runs]
+    except PathIndexOutOfRangeError as exc:
+        raise path_index_out_of_range_error(exc)
+
+    return {"axis": body.axis, "summaries": to_jsonable(summaries), "account_detail": to_jsonable(account_detail)}

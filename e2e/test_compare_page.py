@@ -84,10 +84,15 @@ def _run_one_compare(page, e2e_stack, *, engine: str, axis: str) -> None:
 
     assert not page.get_by_test_id("stException").count(), page.content()
     assert page.locator('[data-testid="stPlotlyChart"]').count() == 1
-    assert page.get_by_test_id("stDataFrame").count() == 1
     # rp-r07: one results-explanation expander per candidate (one
     # candidate here in every case).
     assert page.get_by_text("How were these numbers computed?").count() >= 1
+    # 015-per-account-projection-detail (US2): one "Year-by-year detail"
+    # expander per candidate (one candidate here in every case), each
+    # containing its own account table -- the summary table (1) plus one
+    # per-candidate detail table.
+    assert page.get_by_text("Year-by-year detail:").count() >= 1
+    assert page.get_by_test_id("stDataFrame").count() >= 2
 
 
 @pytest.mark.parametrize(

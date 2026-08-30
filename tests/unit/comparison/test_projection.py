@@ -674,3 +674,152 @@ def test_regression_parity_every_existing_multi_year_test_fixture_unaffected():
     assert result.years[1].starting_balances.taxable == result.years[0].ending_balances.taxable
     assert result.years[2].ending_balances.taxable == pytest.approx(100_000 * 1.05**3)
     assert result.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn == 0.0
+
+
+# -- 015-per-account-projection-detail: PlanYearProjection's four new
+# retained (not newly-computed) fields (data-model.md § PlanYearProjection
+# extension) --
+
+
+def test_member_rmd_amounts_sum_to_the_pooled_rmd_drawn_and_match_each_members_own_figure():
+    household = _mfj_household(you_age=76, spouse_age=74)
+    accounts = AccountBalances(traditional=2_000_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.6, "spouse": 0.4},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=76,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert sum(year.member_rmd_amounts.values()) == pytest.approx(year.mechanics.withdrawal_plan.rmd_drawn)
+    assert year.member_rmd_amounts["you"] == pytest.approx(1_200_000 / 23.7)
+    assert year.member_rmd_amounts["spouse"] == pytest.approx(800_000 / 25.5)
+
+
+def test_member_rmd_amounts_omits_a_member_with_zero_share_or_below_start_age():
+    household = _mfj_household(you_age=80, spouse_age=60)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=80,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    # spouse has a 0.0 share, so no compute_rmd() call is ever made for them
+    # -- absent from the dict entirely, not present at $0.0.
+    assert "spouse" not in result.years[0].member_rmd_amounts
+    assert result.years[0].member_rmd_amounts["you"] == pytest.approx(500_000 / 20.2)
+
+
+def test_member_social_security_benefits_present_even_before_claiming_never_omitted():
+    household = _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 70})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]  # you=60, spouse=58 -- neither has claimed yet
+    assert first_year.member_social_security_benefits == {"you": 0.0, "spouse": 0.0}
+    assert sum(first_year.member_social_security_benefits.values()) == 0.0
+
+    last_year = result.years[-1]  # you=70, spouse=68 -- you has claimed (67), spouse hasn't (70)
+    assert last_year.member_social_security_benefits["you"] == 32_000.0
+    assert last_year.member_social_security_benefits["spouse"] == 0.0
+    assert sum(last_year.member_social_security_benefits.values()) == 32_000.0
+
+
+def test_inherited_account_balances_and_distributions_are_snapshotted_per_account_id():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = _inherited_account()
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[inherited],
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=55,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    # A single inherited account's own distribution is the entire
+    # pooled inherited_distribution_drawn figure -- same value, now also
+    # individually addressable by account_id.
+    assert year.inherited_account_distributions == {"traditional-1": pytest.approx(250_000 / 9.2)}
+    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(
+        year.mechanics.withdrawal_plan.inherited_distribution_drawn
+    )
+    assert year.inherited_account_balances["traditional-1"] == pytest.approx(inherited.balance)
+
+
+def test_two_inherited_accounts_have_independently_keyed_snapshots():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    account_a = _inherited_account(account_id="traditional-1", balance=250_000, death_year=2023, decedent_age_at_death=80)
+    account_b = _inherited_account(
+        account_id="traditional-2", balance=90_000, death_year=2020, decedent_age_at_death=75, depletion_deadline_year=2030
+    )
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[account_a, account_b],
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=55,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert set(year.inherited_account_distributions) == {"traditional-1", "traditional-2"}
+    assert sum(year.inherited_account_distributions.values()) == pytest.approx(
+        year.mechanics.withdrawal_plan.inherited_distribution_drawn
+    )
+    # account_a's own snapshot is unaffected by account_b's presence.
+    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(250_000 / 9.2)

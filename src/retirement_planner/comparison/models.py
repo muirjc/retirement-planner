@@ -76,6 +76,26 @@ class PlanYearProjection:
     niit: NiitResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
     hsa_contribution: HsaContributionResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
     figures_used: list[FigureUsage] = field(default_factory=list)
+    # 015-per-account-projection-detail (data-model.md § PlanYearProjection
+    # extension): four additive fields, each retaining a figure the engine
+    # already computes correctly this year but previously discarded before
+    # returning -- no existing field's value changes, every existing
+    # construction call site is unaffected by these defaults.
+    member_rmd_amounts: dict[str, float] = field(default_factory=dict)
+    """person_name -> that member's own exact RMD required_amount this
+    year (pre-cap), 011-per-owner-accounts' own already-correct per-member
+    figure, retained instead of being summed away."""
+    member_social_security_benefits: dict[str, float] = field(default_factory=dict)
+    """person_name -> that member's own gross Social Security benefit
+    received this year -- 0.0 before that member's own claiming age, never
+    omitted."""
+    inherited_account_balances: dict[str, float] = field(default_factory=dict)
+    """account_id -> that inherited account's own ending balance this
+    year, snapshotted from InheritedAccountBalance.balance (012/013's own
+    already-independently-tracked state)."""
+    inherited_account_distributions: dict[str, float] = field(default_factory=dict)
+    """account_id -> that inherited account's own distribution amount
+    this year."""
 
 
 @dataclass

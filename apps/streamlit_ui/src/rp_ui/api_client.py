@@ -20,6 +20,7 @@ from .errors import (
     BlockingValidationError,
     CostBudgetExceededError,
     InvalidScenarioError,
+    PathIndexOutOfRangeError,
     ScenarioNotFoundError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
@@ -81,6 +82,11 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
             figure_name=body.get("figure_name", ""),
             requested_year=body.get("requested_year", 0),
             documented_years=body.get("documented_years", []),
+        )
+    if error == "path_index_out_of_range":
+        raise PathIndexOutOfRangeError(
+            requested=body.get("requested", 0),
+            path_count=body.get("path_count", 0),
         )
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 
@@ -161,12 +167,15 @@ def list_comparison_axes() -> list[str]:
 
 
 def run_simulation(body: dict) -> dict:
-    """POST /simulations -- {"run": ..., "summary": ...} on success."""
+    """POST /simulations -- {"run": ..., "summary": ..., "account_detail": ...}
+    on success (account_detail added by 015-per-account-projection-detail)."""
     return _json("POST", "/simulations", json=body)
 
 
 def compare_deterministic(body: dict) -> dict:
-    """POST /comparisons/deterministic -- {"axis": ..., "summaries": [...]}."""
+    """POST /comparisons/deterministic -- {"axis": ..., "summaries": [...],
+    "account_detail": [...]} (account_detail added by
+    015-per-account-projection-detail, one list per candidate)."""
     return _json("POST", "/comparisons/deterministic", json=body)
 
 

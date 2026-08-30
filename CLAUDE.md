@@ -60,18 +60,29 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+Four independent test suites — see [README.md#testing](README.md#testing) for exact commands and current counts:
 
 ```bash
-# Example:
-# npm install
-# npm test
+pytest tests/                                   # core library
+pytest services/bff/tests/                      # BFF API service
+pytest apps/streamlit_ui/tests/                 # Streamlit UI
+cd e2e && ../.venv/bin/python3.12 -m pytest -q  # browser-driven e2e (Playwright)
 ```
+
+Run the layer(s) touched by your change, not necessarily all four — but a change to `src/retirement_planner` should at minimum pass `pytest tests/` before being considered done.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Three deployable packages (core library → BFF → Streamlit UI) plus an e2e test harness — full detail, including C4 diagrams, in [docs/SOLUTION_ARCHITECTURE.md](docs/SOLUTION_ARCHITECTURE.md). What this tool models — regulations covered, math used, verification status of each figure — is in [docs/BRD.md](docs/BRD.md).
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+This project is built with a spec-driven workflow (`specs/NNN-*/spec.md` → `plan.md` → `tasks.md`, checked against `.specify/memory/constitution.md`'s principles — accuracy over cleverness, reproducibility, auditability, extensibility, offline-first, performance budget). See `README.md`'s "Development process" section.
+
+**Living documentation — update these in the same change, not a follow-up pass:**
+
+- **`README.md`** — when a package, dependency, run command, or test count changes.
+- **`docs/BRD.md`** — when a feature adds/changes a regulated figure (a new `SourcedFigure`), a tax rule, or a piece of financial math, or when a figure's `verified` status changes.
+- **`docs/SOLUTION_ARCHITECTURE.md`** — when a package boundary, BFF route, UI page, or core subpackage's dependency chain changes.
+
+Treat a stale diagram or stale figure-verification table the same as a stale `spec.md` — it's a defect to fix, not background noise to route around. If you're not sure whether a change is substantive enough to warrant an update, err toward updating.

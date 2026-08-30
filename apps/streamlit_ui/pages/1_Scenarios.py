@@ -68,6 +68,7 @@ DEFAULTS = {
     "conversion_window_start": 0,
     "conversion_window_end": 0,
     "include_inherited_ira": False,
+    "inherited_account_type": "traditional",
     "inherited_owner": None,
     "inherited_account_id": "",
     "inherited_balance": 0.0,
@@ -131,6 +132,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     inherited_account = next((a for a in scenario["accounts"] if a.get("inherited")), None)
     st.session_state["include_inherited_ira"] = inherited_account is not None
     if inherited_account is not None:
+        st.session_state["inherited_account_type"] = inherited_account["account_type"]
         st.session_state["inherited_owner"] = inherited_account.get("owner") or ""
         st.session_state["inherited_account_id"] = inherited_account.get("account_id") or ""
         st.session_state["inherited_balance"] = inherited_account["balance"]
@@ -333,6 +335,7 @@ def _seed_inherited_ira_defaults() -> None:
     re-checking intentionally resets the sub-fields rather than trying
     to preserve a half-entered, hidden state."""
     if st.session_state["include_inherited_ira"]:
+        st.session_state["inherited_account_type"] = "traditional"
         st.session_state["inherited_owner"] = ""  # blank placeholder -- see selectbox's own comment below
         st.session_state["inherited_account_id"] = ""
         st.session_state["inherited_balance"] = 0.0
@@ -344,14 +347,15 @@ def _seed_inherited_ira_defaults() -> None:
 
 
 st.checkbox(
-    "Include an inherited traditional IRA",
+    "Include an inherited IRA",
     key="include_inherited_ira",
     on_change=_seed_inherited_ira_defaults,
     help=(
-        "Only a traditional account inherited from an original owner who had already begun "
-        "their own RMDs before dying is computed by this tool today. See the Instructions "
-        "page's Inherited IRA section for what each field below means and what's not yet "
-        "supported."
+        "A traditional or Roth account inherited from an original owner is computed by this "
+        "tool -- covering the owner-died-on/after-RBD case, the owner-died-before-RBD case, "
+        "and both non-eligible and eligible designated beneficiaries. See the Instructions "
+        "page's Inherited IRA section for what each field below means and the one case still "
+        "not supported (a trust or entity beneficiary)."
     ),
 )
 if st.session_state["include_inherited_ira"]:
@@ -366,7 +370,17 @@ if st.session_state["include_inherited_ira"]:
     if st.session_state["filing_status"] == "married_filing_jointly":
         inherited_owner_options.append(st.session_state["member2_person_name"])
 
-    i1, i2 = st.columns(2)
+    i0, i1, i2 = st.columns(3)
+    i0.selectbox(
+        "Account type",
+        options=["traditional", "roth"],
+        key="inherited_account_type",
+        help=(
+            "A Roth account's original owner is always treated as having died before their "
+            "own Required Beginning Date (RBD), regardless of the checkbox below -- Roth "
+            "owners never have RMDs during their own lifetime."
+        ),
+    )
     i1.selectbox(
         "Beneficiary",
         options=inherited_owner_options,
@@ -400,9 +414,14 @@ if st.session_state["include_inherited_ira"]:
         "Original owner had already begun their own RMDs before death",
         key="inherited_decedent_was_taking_rmds",
         help=(
-            "Must stay checked -- if the owner died *before* starting their own RMDs, this "
-            "tool doesn't compute that case yet and will block the scenario rather than "
-            "guess, once you Save or Validate."
+            "Ignored entirely for a Roth account above (always treated as unchecked -- see "
+            "its own help text). For a traditional account: checked means the owner was "
+            "already in RMD status (\"post-RBD\") -- an eligible designated beneficiary's "
+            "annual amount is then based on the longer of their own or the owner's "
+            "remaining life expectancy. Unchecked (\"pre-RBD\") means no annual distribution "
+            "is required at all for a non-eligible designated beneficiary (only a year-10 "
+            "full-depletion deadline), and an eligible designated beneficiary's own annual "
+            "amount is based on their life expectancy alone."
         ),
     )
 
@@ -411,7 +430,12 @@ if st.session_state["include_inherited_ira"]:
         "Beneficiary relationship",
         options=["spouse", "minor_child", "other_individual", "trust_or_entity"],
         key="inherited_beneficiary_relationship",
-        help="Descriptive only -- doesn't by itself change what's computed.",
+        help=(
+            "`trust_or_entity` blocks the scenario -- not yet supported. `minor_child` "
+            "(alongside classification `eligible_designated_beneficiary_other`) converts to "
+            "the 10-year rule once the beneficiary turns 21, using a fresh 10-year clock from "
+            "that year -- otherwise, only used to enforce that combination."
+        ),
     )
     i6.selectbox(
         "Beneficiary classification",
@@ -422,10 +446,13 @@ if st.session_state["include_inherited_ira"]:
         ],
         key="inherited_beneficiary_classification",
         help=(
-            "Must stay `non_eligible_designated_beneficiary` -- the SECURE 2.0 10-year-rule "
-            "case, the only one this tool computes today. An eligible-designated-beneficiary "
-            "case (spouse, minor child, disabled/chronically ill, <10-years-younger) follows "
-            "different rules not yet supported, and will block the scenario rather than guess."
+            "`non_eligible_designated_beneficiary` -- the SECURE 2.0 10-year rule (most "
+            "non-spouse beneficiaries). `eligible_designated_beneficiary_spouse` / `_other` -- "
+            "an annual life-expectancy \"stretch\" instead (spouse, minor child, disabled/"
+            "chronically ill, or someone not more than 10 years younger than the owner); a "
+            "spouse's own amount is recalculated fresh every year, a non-spouse's is reduced "
+            "by 1.0 each year from an initial lookup. See the Instructions page for the full "
+            "explanation of each case."
         ),
     )
 
@@ -650,7 +677,7 @@ def _build_body() -> dict:
         }
     if st.session_state["include_inherited_ira"]:
         inherited_account = {
-            "account_type": "traditional",
+            "account_type": st.session_state["inherited_account_type"],
             "balance": st.session_state["inherited_balance"],
             "owner": st.session_state["inherited_owner"],
             "inherited": {

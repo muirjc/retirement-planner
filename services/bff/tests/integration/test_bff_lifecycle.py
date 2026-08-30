@@ -317,6 +317,28 @@ def test_claiming_age_grid_comparison_works_on_both_engines(client):
     assert len(sim_response.json()["summaries"]) == 2
 
 
+def test_claiming_age_grid_candidate_missing_a_household_member_is_a_clean_422_not_500(client):
+    """Regression for rp-dd9, found via the e2e Playwright suite: a
+    candidate omitting a household member's claiming age (e.g. Person 2
+    left blank on the Compare page for a married household) previously
+    reached run_plan_projection()'s own unconditional
+    claiming_ages[member.person_name] lookup as an uncaught KeyError --
+    a bare HTTP 500 -- on both engines."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    candidates = [{"you": 67}]  # missing "spouse" -- base_case is married_filing_jointly
+
+    det_body = {**_RUN_BODY, "axis": "claiming_age_grid", "candidates": candidates}
+    det_response = client.post("/api/v1/comparisons/deterministic", json=det_body)
+    assert det_response.status_code == 422
+    assert det_response.json()["error"] == "unknown_reference_value"
+
+    sim_body = {**_RUN_BODY, "plan_to_age": 61, "axis": "claiming_age_grid", "candidates": candidates}
+    sim_response = client.post("/api/v1/comparisons/simulated", json=sim_body)
+    assert sim_response.status_code == 422
+    assert sim_response.json()["error"] == "unknown_reference_value"
+
+
 def test_unrecognized_axis_or_candidate_value_is_rejected(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
@@ -545,3 +567,98 @@ def test_validate_endpoint_against_an_inherited_account_scenario_is_unaffected(c
     response = client.post("/api/v1/scenarios/base_case/validate", json=_INHERITED_SCENARIO_BODY)
     assert response.status_code == 200
     assert response.json()["is_usable"] is True
+
+
+# --- 013-inherited-ira-edge-cases (rp-c8b, rp-iju, rp-l4d): Roth, pre-RBD, and EDB accounts ---
+
+
+def _inherited_account(**inherited_overrides):
+    inherited = {
+        "death_year": 2020,
+        "decedent_age_at_death": 80,
+        "decedent_was_taking_rmds": True,
+        "beneficiary_relationship": "other_individual",
+        "beneficiary_classification": "non_eligible_designated_beneficiary",
+    }
+    inherited.update(inherited_overrides)
+    return {"account_type": "traditional", "balance": 200_000, "owner": "you", "inherited": inherited}
+
+
+@pytest.mark.parametrize(
+    "label,account",
+    [
+        ("roth_non_edb", {**_inherited_account(), "account_type": "roth"}),
+        ("pre_rbd_traditional", _inherited_account(decedent_was_taking_rmds=False)),
+        (
+            "spouse_edb",
+            _inherited_account(
+                beneficiary_relationship="spouse", beneficiary_classification="eligible_designated_beneficiary_spouse"
+            ),
+        ),
+        (
+            "minor_child_edb",
+            _inherited_account(
+                beneficiary_relationship="minor_child",
+                beneficiary_classification="eligible_designated_beneficiary_other",
+            ),
+        ),
+    ],
+)
+def test_each_013_case_runs_to_completion_on_both_engines(client, label, account):
+    """Regression for rp-c8b/rp-iju/rp-l4d: each of the four newly-
+    supported cases (Roth, pre-RBD traditional, spouse EDB, minor-child
+    EDB) must validate as usable and run to completion on both the
+    deterministic and the Monte Carlo engine -- none of them were
+    reachable before this work (all four were blocked by validation)."""
+    scenario_body = {**_SCENARIO_BODY, "accounts": [*_SCENARIO_BODY["accounts"], account]}
+    save_response = client.put(f"/api/v1/scenarios/{label}", json=scenario_body)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is True
+
+    body = {**_RUN_BODY, "scenario_name": label}
+    sim_response = client.post("/api/v1/simulations", json=body)
+    assert sim_response.status_code == 200
+    assert 0.0 <= sim_response.json()["summary"]["success_rate"] <= 1.0
+
+    det_response = client.post(
+        "/api/v1/comparisons/deterministic",
+        json={
+            **body, "axis": "withdrawal_sequencing",
+            "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+        },
+    )
+    assert det_response.status_code == 200
+    assert len(det_response.json()["summaries"]) == 1
+
+
+def test_trust_or_entity_beneficiary_still_blocked(client):
+    """research.md §7: closes a pre-existing gap -- relaxing
+    beneficiary_classification's own blocking flag must not newly let a
+    trust/entity beneficiary through the EDB divisor logic."""
+    scenario_body = {
+        **_SCENARIO_BODY,
+        "accounts": [
+            *_SCENARIO_BODY["accounts"],
+            _inherited_account(
+                beneficiary_relationship="trust_or_entity",
+                beneficiary_classification="eligible_designated_beneficiary_other",
+            ),
+        ],
+    }
+    response = client.put("/api/v1/scenarios/trust_beneficiary", json=scenario_body)
+    assert response.status_code == 200
+    assert response.json()["is_usable"] is False
+    blocking_fields = {flag["field"] for flag in response.json()["validation_flags"] if flag["severity"] == "blocking"}
+    assert "accounts[3].inherited" in blocking_fields
+
+
+def test_taxable_inherited_account_still_blocked(client):
+    """research.md §8: account_type narrows from "!= traditional" to
+    "not in (traditional, roth)" -- taxable stays blocked."""
+    scenario_body = {
+        **_SCENARIO_BODY,
+        "accounts": [*_SCENARIO_BODY["accounts"], {**_inherited_account(), "account_type": "taxable"}],
+    }
+    response = client.put("/api/v1/scenarios/taxable_inherited", json=scenario_body)
+    assert response.status_code == 200
+    assert response.json()["is_usable"] is False

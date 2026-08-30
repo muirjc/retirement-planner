@@ -80,17 +80,48 @@ class InheritedRmdResult:
 
 @dataclass
 class InheritedAccountBalance:
-    """One inherited traditional account's independently-tracked runtime
-    state, threaded through a multi-year projection (research.md §5, §8).
-    Never pooled with AccountBalances.traditional -- mutated in place by
-    run_plan_projection() as distributions are taken and growth applied.
-    data-model.md § Derived: InheritedAccountBalance."""
+    """One inherited account's independently-tracked runtime state,
+    threaded through a multi-year projection (research.md §5, §8; the
+    account_type/decedent_was_taking_rmds/beneficiary_classification/
+    beneficiary_person_name fields added by 013-inherited-ira-edge-cases,
+    research.md § Handoff). Never pooled with AccountBalances.traditional
+    -- mutated in place by run_plan_projection() as distributions are
+    taken and growth applied. data-model.md § Derived: InheritedAccountBalance."""
 
     account_id: str
     balance: float
     death_year: int
     decedent_age_at_death: int
     depletion_deadline_year: int
+    """013-inherited-ira-edge-cases research.md §5/§6: computed once at
+    resolution time, same as 012's own death_year + 10 -- death_year + 10
+    for a non-eligible designated beneficiary (unchanged from 012);
+    majority_year + 10 for a minor-child EDB; a far-future sentinel
+    (effectively never) for any other EDB, who has no 10-year deadline of
+    their own under the annual "stretch" they're taking instead."""
+    account_type: Literal["traditional", "roth"] = "traditional"
+    """013-inherited-ira-edge-cases research.md §2: a Roth account is
+    always treated as pre-RBD by compute_inherited_rmd(), regardless of
+    decedent_was_taking_rmds below."""
+    decedent_was_taking_rmds: bool = True
+    """013-inherited-ira-edge-cases research.md §1: defaults to True,
+    reproducing 012's own only-supported case (the deterministic
+    post-RBD, non-EDB divisor logic) for every existing caller that
+    doesn't set this explicitly."""
+    beneficiary_classification: Literal[
+        "eligible_designated_beneficiary_spouse",
+        "eligible_designated_beneficiary_other",
+        "non_eligible_designated_beneficiary",
+    ] = "non_eligible_designated_beneficiary"
+    """013-inherited-ira-edge-cases research.md §3-§6: defaults to
+    012's own only-supported classification, for the same reason."""
+    beneficiary_person_name: str | None = None
+    """013-inherited-ira-edge-cases research.md §3-§6: the beneficiary's
+    own household_member.person_name, used to look up their current age
+    each plan year for an EDB's own life-expectancy divisor -- never
+    consulted for beneficiary_classification="non_eligible_designated_beneficiary"
+    (012's existing, decedent-only divisor logic), so None is a safe
+    default for every existing caller."""
 
 
 @dataclass

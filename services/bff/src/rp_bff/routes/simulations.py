@@ -72,6 +72,7 @@ def resolve_and_run_simulation(
             plan_to_age=body.plan_to_age,
             n_paths=body.n_paths,
             seed=body.seed,
+            reference_tax_year=body.reference_tax_year,
             scenarios_dir=scenarios_dir,
         )
     except ScenarioParseError:

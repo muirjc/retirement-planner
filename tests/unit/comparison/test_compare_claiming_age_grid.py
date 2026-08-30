@@ -114,3 +114,16 @@ def test_full_grid_covers_every_combination():
 def test_single_entry_grid_still_returns_a_valid_comparison_result():
     result = _run([{"you": 67, "spouse": 67}])
     assert len(result.projections) == 1
+
+
+def test_grid_entry_missing_a_household_member_raises_value_error():
+    """Regression for rp-dd9: previously reached
+    _household_gross_social_security_benefit()'s own unconditional
+    claiming_ages[member.person_name] lookup as an uncaught KeyError."""
+    with pytest.raises(ValueError):
+        _run([{"you": 67}])  # missing "spouse"
+
+
+def test_grid_entry_with_an_extra_unknown_member_raises_value_error():
+    with pytest.raises(ValueError):
+        _run([{"you": 67, "spouse": 67, "someone_else": 65}])

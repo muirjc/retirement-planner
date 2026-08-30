@@ -173,20 +173,23 @@ def run_plan_projection(
         rmd_amount = sum(result.required_amount for result in rmd_results)
         rmd_figures_used = [figure for result in rmd_results for figure in result.figures_used]
 
-        # 012-inherited-ira-rmd (research.md §7, §8, §10): one
+        # 012-inherited-ira-rmd (research.md §7, §8, §10), extended by
+        # 013-inherited-ira-edge-cases (research.md § Handoff): one
         # compute_inherited_rmd() call per inherited account still holding
-        # a positive balance. decedent_was_taking_rmds=True and
-        # beneficiary_classification="non_eligible_designated_beneficiary"
-        # are hardcoded here -- the only case scenario.validation's
-        # blocking flags ever let reach this point (data-model.md §
-        # Construction) -- mirroring compute_rmd()'s own
-        # spouse_is_sole_beneficiary=False hardcode immediately above.
-        # In the account's depletion_deadline_year (and, as a safety net,
-        # any later year a positive balance somehow still remains), the
-        # ENTIRE remaining balance is force-distributed instead of the
-        # divisor-computed amount (US2, FR-003) -- the 10-year deadline and
-        # the annual divisor arithmetic are two independent IRS rules that
-        # happen to interact, so this deadline check is never folded into
+        # a positive balance, forwarding each account's own real
+        # decedent_was_taking_rmds/beneficiary_classification/account_type
+        # -- no longer hardcoded to 012's own single originally-supported
+        # combination, now that scenario.validation allows more (013
+        # research.md §8). beneficiary_current_age is this year's own
+        # translated age for an EDB account's beneficiary (None for a
+        # non-EDB account, which never consults it -- inherited_rmd.py's
+        # own docstring). In the account's depletion_deadline_year (and,
+        # as a safety net, any later year a positive balance somehow
+        # still remains), the ENTIRE remaining balance is force-
+        # distributed instead of the divisor-computed amount (US2,
+        # FR-003) -- the 10-year deadline and the annual divisor
+        # arithmetic are two independent IRS rules that happen to
+        # interact, so this deadline check is never folded into
         # compute_inherited_rmd()'s own divisor math (research.md §8).
         # This year's distribution is subtracted from each account's own
         # balance immediately; step 7 below (investment growth) applies
@@ -204,8 +207,11 @@ def run_plan_projection(
                     tax_year=tax_year,
                     death_year=inherited_account.death_year,
                     decedent_age_at_death=inherited_account.decedent_age_at_death,
-                    decedent_was_taking_rmds=True,
-                    beneficiary_classification="non_eligible_designated_beneficiary",
+                    decedent_was_taking_rmds=inherited_account.decedent_was_taking_rmds,
+                    beneficiary_classification=inherited_account.beneficiary_classification,
+                    account_type=inherited_account.account_type,
+                    beneficiary_current_age=ages_this_year.get(inherited_account.beneficiary_person_name),
+                    depletion_deadline_year=inherited_account.depletion_deadline_year,
                 )
                 distribution = min(inherited_result.required_amount, inherited_account.balance)
                 inherited_rmd_figures_used.extend(inherited_result.figures_used)

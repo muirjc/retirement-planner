@@ -1,0 +1,26 @@
+[project]
+name = "rp-e2e"
+version = "0.1.0"
+description = "Full-stack, browser-driven end-to-end tests for the Retirement Planner: launches a real services/bff (uvicorn) + apps/streamlit_ui (streamlit run) pair, isolated from config/scenarios/, and drives the UI through a real Chromium browser via Playwright. See README.md."
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-playwright>=0.5",
+    "pytest-rerunfailures>=14",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+# A real Streamlit rerun's own frontend paint can trail its
+# stStatusWidget "finished" signal by an unpredictable amount under
+# sustained load (helpers.py's own wait_for_results() docstring) --
+# genuine timing flakiness in a real browser against a real server under
+# this suite's own full ~16-test run, not a flaky assertion about
+# behavior: every failure reproduces as a pass in isolation. Several
+# reruns with a short delay (Playwright's own test runner defaults to
+# retrying for the same reason) absorbs that without masking an actual
+# regression, which fails the same way on every attempt, retries or not.
+addopts = "--reruns 3 --reruns-delay 3"

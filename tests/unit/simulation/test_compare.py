@@ -168,6 +168,30 @@ def test_compare_claiming_age_grid_reuses_the_identical_return_paths_object():
     assert comparison.runs[0].path_results[0].return_assumption is _RETURN_PATHS[0]
 
 
+def test_compare_claiming_age_grid_entry_missing_a_household_member_raises_value_error():
+    """Regression for rp-dd9: a married household's grid entry omitting
+    one member previously reached run_plan_projection()'s own
+    claiming_ages[member.person_name] lookup as an uncaught KeyError
+    (found via e2e testing) instead of this function's own validation."""
+    from retirement_planner.simulation.compare import compare_claiming_age_grid
+
+    married_household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="you", current_age=90, ss_claim_age=99, ss_annual_benefit=0),
+            HouseholdMember(person_name="spouse", current_age=88, ss_claim_age=99, ss_annual_benefit=0),
+        ],
+    )
+    kwargs = {**_COMMON_KWARGS, "household": married_household}
+
+    with pytest.raises(ValueError):
+        compare_claiming_age_grid(
+            **kwargs, state="FL", withdrawal_strategy="rmd_taxable_traditional_roth",
+            conversion_strategy=None, conversion_bracket_ceiling_or_amount=None, conversion_window=None,
+            return_paths=_RETURN_PATHS, claiming_age_grid=[{"you": 67}],  # missing "spouse"
+        )
+
+
 # --- single-candidate validity (US2, Acceptance Scenario US2.5, FR-010) ---
 
 

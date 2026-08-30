@@ -56,7 +56,7 @@ def test_strategy_configuration_claiming_ages_come_from_ss_claim_age(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.strategy.claiming_ages == {"you": 67, "spouse": 70}
@@ -69,7 +69,7 @@ def test_strategy_configuration_conversion_fields_come_from_roth_conversion_plan
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.strategy.conversion_strategy == "fill_to_bracket"
@@ -83,7 +83,7 @@ def test_no_roth_conversion_plan_yields_none_conversion_fields(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.strategy.conversion_strategy is None
@@ -97,7 +97,7 @@ def test_accounts_are_summed_by_type(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.accounts.traditional == 1_500_000  # two traditional entries summed
@@ -131,7 +131,7 @@ def test_inherited_account_excluded_from_pooled_accounts_and_ownership_shares(tm
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     # Unchanged from the non-inherited-only fixture above -- the $250k
@@ -162,7 +162,7 @@ def test_inherited_accounts_derived_with_stable_ids_and_deadline(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert len(context.inherited_accounts) == 1
@@ -180,7 +180,7 @@ def test_no_inherited_accounts_yields_empty_list(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.inherited_accounts == []
@@ -192,7 +192,7 @@ def test_omitted_optional_fields_default_from_scenario_simulation_settings(tmp_p
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.plan_to_age == 95
@@ -207,7 +207,7 @@ def test_explicit_overrides_win_over_scenario_defaults(tmp_path):
 
     context = resolve_run_context(
         "base_case", withdrawal_strategy=None, state="SC", plan_to_age=80, n_paths=50, seed=7,
-        scenarios_dir=tmp_path,
+        reference_tax_year=2026, scenarios_dir=tmp_path,
     )
 
     assert context.plan_to_age == 80
@@ -223,7 +223,7 @@ def test_unknown_state_is_rejected(tmp_path):
     with pytest.raises(UnknownReferenceValueError) as exc_info:
         resolve_run_context(
             "base_case", withdrawal_strategy=None, state="ZZ", plan_to_age=None, n_paths=None, seed=None,
-            scenarios_dir=tmp_path,
+            reference_tax_year=2026, scenarios_dir=tmp_path,
         )
     assert exc_info.value.field == "state"
     assert exc_info.value.value == "ZZ"
@@ -236,7 +236,7 @@ def test_unknown_withdrawal_strategy_is_rejected(tmp_path):
     with pytest.raises(UnknownReferenceValueError) as exc_info:
         resolve_run_context(
             "base_case", withdrawal_strategy="not_a_real_strategy", state=None, plan_to_age=None,
-            n_paths=None, seed=None, scenarios_dir=tmp_path,
+            n_paths=None, seed=None, reference_tax_year=2026, scenarios_dir=tmp_path,
         )
     assert exc_info.value.field == "withdrawal_strategy"
 
@@ -250,6 +250,6 @@ def test_scenario_with_blocking_flags_is_rejected(tmp_path):
     with pytest.raises(BlockingValidationFlagsError) as exc_info:
         resolve_run_context(
             "base_case", withdrawal_strategy=None, state=None, plan_to_age=None, n_paths=None, seed=None,
-            scenarios_dir=tmp_path,
+            reference_tax_year=2026, scenarios_dir=tmp_path,
         )
     assert any(flag.severity == "blocking" for flag in exc_info.value.flags)

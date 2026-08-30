@@ -222,11 +222,19 @@ def compare_claiming_age_grid(
     010-advanced-tax-benefits contracts/comparison-api.md -- this
     function builds each StrategyConfiguration directly, like 004's own
     version, so needs an explicit parameter here). Raises ValueError if
-    any grid entry names a claiming age outside 62-70 (FR-010). Mirrors
+    any grid entry names a claiming age outside 62-70 (FR-010), or omits
+    any household member's own person_name -- see comparison/compare.py's
+    own compare_claiming_age_grid() docstring for why (rp-dd9). Mirrors
     004's compare_claiming_age_grid() exactly, substituting return_paths
     for return_assumption. inherited_accounts (012-inherited-ira-rmd
     rp-mt7): see compare_states()'s own docstring."""
+    member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
+        if set(entry) != member_names:
+            raise ValueError(
+                f"claiming age grid entry {entry!r} must name exactly this household's members "
+                f"{sorted(member_names)}"
+            )
         for person_name, age in entry.items():
             if not (_MIN_CLAIMING_AGE <= age <= _MAX_CLAIMING_AGE):
                 raise ValueError(

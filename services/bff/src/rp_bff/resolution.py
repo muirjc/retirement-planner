@@ -144,27 +144,71 @@ def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
     }
 
 
-def _inherited_accounts(scenario: Scenario) -> list[InheritedAccountBalance]:
-    """012-inherited-ira-rmd (data-model.md § Derived): one
+_MINOR_CHILD_MAJORITY_AGE = 21
+"""013-inherited-ira-edge-cases research.md §5: the IRS's own final-
+regulation age of majority for the minor-child EDB -> 10-year-rule
+transition (Pub. 590-B (2025) p.10's "attainment of majority") -- not a
+state's own age-of-majority law."""
+
+_NO_FORCED_DEPLETION_DEADLINE_YEARS = 200
+"""013-inherited-ira-edge-cases research.md §6: added to death_year for a
+true EDB (spouse, or non-spouse who is not a minor child) -- a sentinel
+far beyond any plan_to_age this project can represent, standing in for
+"no 10-year deadline at all" without changing
+InheritedAccountBalance.depletion_deadline_year's type to int | None."""
+
+
+def _inherited_accounts(scenario: Scenario, reference_tax_year: int) -> list[InheritedAccountBalance]:
+    """012-inherited-ira-rmd (data-model.md § Derived), extended by
+    013-inherited-ira-edge-cases (research.md §5, §6, § Handoff): one
     InheritedAccountBalance per Account with inherited is not None,
     independently tracked (never pooled -- research.md §5). Callable only
     once the scenario has already been confirmed is_usable, so every
-    inherited account here is guaranteed account_type="traditional",
-    inherited.decedent_was_taking_rmds=True,
-    inherited.beneficiary_classification="non_eligible_designated_beneficiary",
-    and a non-None account_id -- validate()'s own guarantee (the four
-    blocking rules in scenario-api.md)."""
-    return [
-        InheritedAccountBalance(
-            account_id=account.account_id,
-            balance=account.balance,
-            death_year=account.inherited.death_year,
-            decedent_age_at_death=account.inherited.decedent_age_at_death,
-            depletion_deadline_year=account.inherited.death_year + 10,
+    inherited account here is guaranteed account_type in
+    ("traditional", "roth"), a non-trust/entity beneficiary, and a
+    non-None account_id/owner -- validate()'s own guarantee (the two
+    blocking rules in scenario-api.md, 013 research.md §8).
+
+    depletion_deadline_year (013 research.md §5, §6): death_year + 10 for
+    a non-eligible designated beneficiary (unchanged from 012);
+    majority_year + 10 for a minor-child EDB, where majority_year is
+    computed once here from the beneficiary's own current_age and
+    reference_tax_year (the same age-anchoring arithmetic
+    comparison/projection.py's own member_age_in_tax_year() uses); the
+    "effectively never" sentinel for any other EDB."""
+    member_current_age = {member.person_name: member.current_age for member in scenario.household.members}
+    result = []
+    for account in scenario.accounts:
+        if account.inherited is None:
+            continue
+        details = account.inherited
+        is_edb = details.beneficiary_classification != "non_eligible_designated_beneficiary"
+        is_minor_child = (
+            details.beneficiary_relationship == "minor_child"
+            and details.beneficiary_classification == "eligible_designated_beneficiary_other"
         )
-        for account in scenario.accounts
-        if account.inherited is not None
-    ]
+        if not is_edb:
+            depletion_deadline_year = details.death_year + 10
+        elif is_minor_child:
+            birth_year = reference_tax_year - member_current_age[account.owner]
+            majority_year = birth_year + _MINOR_CHILD_MAJORITY_AGE
+            depletion_deadline_year = majority_year + 10
+        else:
+            depletion_deadline_year = details.death_year + _NO_FORCED_DEPLETION_DEADLINE_YEARS
+        result.append(
+            InheritedAccountBalance(
+                account_id=account.account_id,
+                balance=account.balance,
+                death_year=details.death_year,
+                decedent_age_at_death=details.decedent_age_at_death,
+                depletion_deadline_year=depletion_deadline_year,
+                account_type=account.account_type,
+                decedent_was_taking_rmds=details.decedent_was_taking_rmds,
+                beneficiary_classification=details.beneficiary_classification,
+                beneficiary_person_name=account.owner,
+            )
+        )
+    return result
 
 
 def resolve_run_context(
@@ -175,6 +219,7 @@ def resolve_run_context(
     plan_to_age: int | None,
     n_paths: int | None,
     seed: int | None,
+    reference_tax_year: int,
     scenarios_dir: Path | None = None,
 ) -> ResolvedRunContext:
     """Loads the named scenario (raises ScenarioParseError if it doesn't
@@ -185,7 +230,14 @@ def resolve_run_context(
     state/withdrawal_strategy against the live reference-data registries
     (FR-014), and builds the StrategyConfiguration 004/005 need from the
     scenario's own household/roth_conversion data (data-model.md § Run
-    Request/Response)."""
+    Request/Response).
+
+    reference_tax_year (013-inherited-ira-edge-cases): forwarded to
+    _inherited_accounts() to compute a minor-child EDB's own
+    majority-triggered depletion deadline (research.md §5) -- every
+    existing caller already has this value in scope (each request body's
+    own reference_tax_year), so this is a new required keyword-only
+    parameter, not optional."""
     scenario = load_scenario(scenario_name, scenarios_dir=scenarios_dir)
 
     if not scenario.is_usable:
@@ -229,7 +281,7 @@ def resolve_run_context(
         household=scenario.household,
         accounts=_sum_accounts(scenario),
         traditional_ownership_shares=_traditional_ownership_shares(scenario),
-        inherited_accounts=_inherited_accounts(scenario),
+        inherited_accounts=_inherited_accounts(scenario, reference_tax_year),
         strategy=strategy,
         state=resolved_state,
         plan_to_age=plan_to_age if plan_to_age is not None else scenario.simulation_settings.plan_to_age,

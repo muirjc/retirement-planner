@@ -70,43 +70,41 @@ def _validate_accounts(scenario: Scenario) -> list[ValidationFlag]:
                     severity="blocking",
                 )
             )
-        # 012-inherited-ira-rmd (data-model.md § Validation rules): three
-        # independent checks, each firing on its own -- an inherited
-        # account can fail more than one at once (e.g. wrong account_type
-        # AND an unsupported beneficiary_classification), and every
-        # problem is reported, not just the first (FR-006, 001).
+        # 012-inherited-ira-rmd, narrowed/extended by
+        # 013-inherited-ira-edge-cases (data-model.md § Validation rules,
+        # research.md §8): two independent checks, each firing on its own,
+        # and every problem is reported, not just the first (FR-006, 001).
+        # 012's own original decedent_was_taking_rmds=False and
+        # beneficiary_classification != "non_eligible_designated_beneficiary"
+        # blocking flags are gone -- 013 now computes both (research.md
+        # §1-§6).
         if account.inherited is not None:
-            if account.inherited.decedent_was_taking_rmds is False:
-                flags.append(
-                    ValidationFlag(
-                        field=f"accounts[{index}].inherited",
-                        message=(
-                            "This inherited account's original owner had not yet begun "
-                            "required distributions before death (\"pre-RBD\") — this case "
-                            "is not yet supported."
-                        ),
-                        severity="blocking",
-                    )
-                )
-            if account.inherited.beneficiary_classification != "non_eligible_designated_beneficiary":
-                flags.append(
-                    ValidationFlag(
-                        field=f"accounts[{index}].inherited",
-                        message=(
-                            "This inherited account's beneficiary is classified as "
-                            f"'{account.inherited.beneficiary_classification}' — eligible "
-                            "designated beneficiary cases are not yet supported."
-                        ),
-                        severity="blocking",
-                    )
-                )
-            if account.account_type != "traditional":
+            if account.account_type not in ("traditional", "roth"):
                 flags.append(
                     ValidationFlag(
                         field=f"accounts[{index}].inherited",
                         message=(
                             f"This inherited account is '{account.account_type}' — only "
-                            "inherited traditional accounts are supported."
+                            "inherited traditional and Roth accounts are supported."
+                        ),
+                        severity="blocking",
+                    )
+                )
+            # 013 research.md §7, §8: relaxing beneficiary_classification's
+            # own blocking flag newly makes the EDB divisor logic
+            # reachable -- a trust/entity beneficiary must still be
+            # blocked explicitly (a pre-existing gap this closes), since
+            # that logic is wrong for a non-individual beneficiary (a
+            # "see-through" trust's own life expectancy is a separate,
+            # unresolved question; a non-qualifying trust needs the
+            # 5-year rule instead, never modeled here).
+            if account.inherited.beneficiary_relationship == "trust_or_entity":
+                flags.append(
+                    ValidationFlag(
+                        field=f"accounts[{index}].inherited",
+                        message=(
+                            "This inherited account's beneficiary is a trust or entity — "
+                            "trust/entity beneficiaries are not yet supported."
                         ),
                         severity="blocking",
                     )

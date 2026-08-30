@@ -179,13 +179,26 @@ def compare_claiming_age_grid(
     an explicit parameter here, unlike the two compare_*() functions
     above that already take candidates: list[StrategyConfiguration]).
     Raises ValueError if any grid entry names a claiming age outside
-    62-70 inclusive (FR-010).
+    62-70 inclusive (FR-010), or omits any household member's own
+    person_name (found via e2e testing rp-dd9 -- a candidate entry
+    missing a member previously reached
+    _household_gross_social_security_benefit()'s own
+    claiming_ages[member.person_name] lookup as an uncaught KeyError,
+    surfacing as a bare HTTP 500 rather than a clean, actionable error;
+    routes/comparisons.py already maps a raised ValueError here to a 422,
+    so raising here is enough -- no BFF-layer change needed).
 
     inherited_accounts (012-inherited-ira-rmd): see
     compare_roth_conversion_strategies()'s own docstring -- identical
     per-entry fresh-copy treatment. Defaults to [].
     """
+    member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
+        if set(entry) != member_names:
+            raise ValueError(
+                f"claiming age grid entry {entry!r} must name exactly this household's members "
+                f"{sorted(member_names)}"
+            )
         for person_name, age in entry.items():
             if not (_MIN_CLAIMING_AGE <= age <= _MAX_CLAIMING_AGE):
                 raise ValueError(

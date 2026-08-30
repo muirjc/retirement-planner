@@ -21,6 +21,10 @@ class HouseholdMemberRequest(BaseModel):
     current_age: int
     ss_claim_age: int
     ss_annual_benefit: float
+    full_retirement_age: float | None = None
+    """016-ss-claiming-age-actuarial-adjustment: defaults to None, which
+    parse_scenario() resolves to this member's own ss_claim_age (no
+    adjustment) -- see scenario/loader.py."""
     hdhp_coverage: bool = False
     """010-advanced-tax-benefits."""
 

@@ -25,9 +25,13 @@ def _market_assumptions():
     )
 
 
-def _member(name="you", age=60, claim_age=67, benefit=32_000.0):
+def _member(name="you", age=60, claim_age=67, benefit=32_000.0, fra=None):
     return HouseholdMember(
-        person_name=name, current_age=age, ss_claim_age=claim_age, ss_annual_benefit=benefit
+        person_name=name,
+        current_age=age,
+        ss_claim_age=claim_age,
+        ss_annual_benefit=benefit,
+        full_retirement_age=fra,
     )
 
 
@@ -84,6 +88,39 @@ def test_validate_flags_negative_ss_annual_benefit_as_blocking():
     assert len(flags) == 1
     assert flags[0].field == "household.members[0].ss_annual_benefit"
     assert flags[0].severity == "blocking"
+
+
+def test_validate_accepts_full_retirement_age_inside_plausible_range():
+    # 016-ss-claiming-age-actuarial-adjustment
+    for fra in (65.0, 66.0, 67.0):
+        scenario = _clean_scenario(
+            household=Household(filing_status="single", members=[_member(fra=fra)])
+        )
+        assert validate(scenario) == []
+
+
+def test_validate_flags_full_retirement_age_outside_plausible_range_as_warning():
+    # 016-ss-claiming-age-actuarial-adjustment
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(fra=64.0)])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].full_retirement_age"
+    assert flags[0].severity == "warning"
+
+    scenario.validation_flags = flags
+    assert scenario.is_usable is True
+
+
+def test_validate_never_flags_full_retirement_age_when_none():
+    # A HouseholdMember constructed directly (bypassing loader.parse_scenario(), which always
+    # resolves a concrete float) still validates cleanly -- None is skipped, not treated as
+    # implausible.
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(fra=None)])
+    )
+    assert validate(scenario) == []
 
 
 def test_validate_flags_negative_spending_as_blocking():

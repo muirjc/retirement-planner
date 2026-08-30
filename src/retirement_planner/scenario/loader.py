@@ -75,11 +75,20 @@ def _require(data: object, field_name: str, source: str, context: str = ""):
 
 
 def _build_household_member(data: object, source: str, context: str) -> HouseholdMember:
+    ss_claim_age = _require(data, "ss_claim_age", source, context)
+    # full_retirement_age (016-ss-claiming-age-actuarial-adjustment):
+    # optional, defaults to this member's own ss_claim_age when omitted --
+    # i.e. assume no claiming-age adjustment -- so every scenario YAML
+    # written before this feature round-trips to exactly its prior
+    # behavior unchanged (research.md Decision 3). A present value is read
+    # as-is (float(...) accepts either a YAML int or float).
+    full_retirement_age = data.get("full_retirement_age") if isinstance(data, dict) else None
     return HouseholdMember(
         person_name=_require(data, "person_name", source, context),
         current_age=_require(data, "current_age", source, context),
-        ss_claim_age=_require(data, "ss_claim_age", source, context),
+        ss_claim_age=ss_claim_age,
         ss_annual_benefit=_require(data, "ss_annual_benefit", source, context),
+        full_retirement_age=float(full_retirement_age) if full_retirement_age is not None else float(ss_claim_age),
         # hdhp_coverage (010-advanced-tax-benefits): optional, defaults to
         # False when omitted -- every existing scenario YAML round-trips
         # unchanged.

@@ -40,11 +40,18 @@ SECTIONS: list[Section] = [
             "account balances, below) appear once you pick this.\n\n"
             "For each party (each adult in the household), gather: their name or a short "
             "label, their current age, the Social Security claiming age you're planning "
-            "around, and their estimated annual Social Security benefit **at that specific "
-            "claiming age** -- not the amount shown for full retirement age if you plan to "
-            "claim earlier or later. The Social Security Administration's own benefit "
-            "estimator lets you check the amount for a specific age; a benefit figure that "
-            "doesn't match the claiming age you enter is the most common mistake here."
+            "around, their **full retirement age (FRA)** -- typically 66-67 depending on "
+            "birth year -- and their **Primary Insurance Amount (PIA)**: the annual Social "
+            "Security benefit payable if claimed exactly at that FRA, not the (possibly "
+            "reduced or increased) amount actually paid at the claiming age you enter. The "
+            "tool derives the claiming-age-adjusted amount from the PIA and FRA together, so "
+            "entering the PIA at the wrong age (or the FRA-adjusted amount you'd actually "
+            "receive) is the most common mistake here -- the Social Security Administration's "
+            "own benefit estimator shows both the FRA amount and the amount for a specific "
+            "claiming age; use the FRA amount here. If you don't yet know your real FRA, "
+            "leaving this field at its default (equal to your claiming age) is a safe "
+            "fallback -- it simply means the tool won't reduce or increase the entered amount "
+            "for claiming early or late."
         ),
     ),
     Section(

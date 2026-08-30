@@ -232,3 +232,67 @@ def test_figures_used_deduplicates_across_paths_and_years():
 
     keys = [(f.name, f.last_verified) for f in run.figures_used]
     assert len(keys) == len(set(keys))
+
+
+def test_claiming_age_adjusted_benefit_matches_deterministic_projection_exactly():
+    """016-ss-claiming-age-actuarial-adjustment US2 (spec.md Acceptance
+    Scenario 2, Principle II Reproducibility): run_simulation() derives
+    the identical claiming-age-adjusted benefit run_plan_projection()
+    would for the same inputs -- both funnel through the same shared call
+    site (research.md Decision 4), so this is a regression guard against
+    that ever drifting apart, not a re-test of the formula itself
+    (covered by tests/unit/mechanics/test_social_security_benefit.py)."""
+    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=63,
+                ss_claim_age=64,
+                ss_annual_benefit=30_000,
+                full_retirement_age=67.0,
+            ),
+        ],
+    )
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        claiming_ages={"you": 64},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=strategy,
+    )
+
+    deterministic = run_plan_projection(
+        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+    )
+    simulated = run_simulation(
+        **common_kwargs,
+        return_paths=[
+            ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
+        ],
+        candidate_label="test",
+    )
+
+    assert (
+        simulated.path_results[0].years[0].member_social_security_benefits["you"]
+        == deterministic.years[0].member_social_security_benefits["you"]
+    )
+    # Sanity: this is actually the reduced amount, not the flat PIA.
+    assert deterministic.years[0].member_social_security_benefits["you"] < 30_000.0

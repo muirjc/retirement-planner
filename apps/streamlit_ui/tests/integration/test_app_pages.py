@@ -240,6 +240,41 @@ def test_us2_married_household_renders_per_member_account_fields_with_structural
     assert spouse_traditional["balance"] == 300_000.0
 
 
+def test_full_retirement_age_defaults_and_is_saved_and_reloaded():
+    """016-ss-claiming-age-actuarial-adjustment: the FRA widget defaults to
+    67.0 (matching the ss_claim_age widget's own default), an explicit
+    value the user enters is sent in the saved payload, and loading a
+    previously saved scenario repopulates it (not just ss_claim_age/
+    ss_annual_benefit)."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.number_input(key="member1_full_retirement_age").value == 67.0
+
+    at.text_input(key="scenario_name").set_value("fra_case")
+    at.text_input(key="member1_person_name").set_value("alex")
+    at.number_input(key="member1_current_age").set_value(61)
+    at.number_input(key="member1_ss_claim_age").set_value(62)
+    at.number_input(key="member1_ss_annual_benefit").set_value(30_000.0)
+    at.number_input(key="member1_full_retirement_age").set_value(67.0)
+    at.number_input(key="annual_need_real").set_value(60_000.0)
+    at.selectbox(key="state").set_value("FL")
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["fra_case"]["household"]["members"][0]["full_retirement_age"] == 67.0
+
+    # A fresh page load, then loading that saved scenario back, repopulates it.
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("fra_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.number_input(key="member1_full_retirement_age").value == 67.0
+
+
 def test_us2_single_member_household_never_renders_member2_account_fields():
     """A single-filer household has only one possible owner -- no second
     row is ever offered (FR-003)."""
@@ -271,8 +306,20 @@ def test_us3_loading_a_stale_owner_account_leaves_its_balance_absent_not_guessed
         "household": {
             "filing_status": "married_filing_jointly",
             "members": [
-                {"person_name": "you", "current_age": 74, "ss_claim_age": 67, "ss_annual_benefit": 32_000},
-                {"person_name": "spouse", "current_age": 60, "ss_claim_age": 67, "ss_annual_benefit": 24_000},
+                {
+                    "person_name": "you",
+                    "current_age": 74,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 32_000,
+                    "full_retirement_age": 67.0,
+                },
+                {
+                    "person_name": "spouse",
+                    "current_age": 60,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 24_000,
+                    "full_retirement_age": 67.0,
+                },
             ],
         },
         "accounts": [
@@ -400,7 +447,15 @@ def test_inherited_ira_load_round_trip_populates_fields_without_double_counting(
         "name": "inherited_case",
         "household": {
             "filing_status": "single",
-            "members": [{"person_name": "Alex", "current_age": 55, "ss_claim_age": 67, "ss_annual_benefit": 28_000}],
+            "members": [
+                {
+                    "person_name": "Alex",
+                    "current_age": 55,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 28_000,
+                    "full_retirement_age": 67.0,
+                }
+            ],
         },
         "accounts": [
             {"account_type": "traditional", "balance": 100_000.0, "owner": "Alex"},

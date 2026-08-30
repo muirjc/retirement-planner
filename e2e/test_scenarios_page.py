@@ -17,7 +17,10 @@ def _fill_minimal_single_filer(page, name: str) -> None:
     fill_field(page, "Name", "alex")
     fill_field(page, "Current age", "60")
     fill_field(page, "SS claim age", "67")
-    fill_field(page, "SS annual benefit ($)", "20000")
+    # 016-ss-claiming-age-actuarial-adjustment: relabeled from "SS annual
+    # benefit ($)" -- it's now the member's PIA (benefit at full
+    # retirement age), not the amount paid at the claim age above.
+    fill_field(page, "SS benefit at FRA ($)", "20000")
     fill_field(page, "Traditional balance ($)", "800000")
     fill_field(page, "Roth balance ($)", "100000")
     fill_field(page, "Taxable balance ($)", "100000")

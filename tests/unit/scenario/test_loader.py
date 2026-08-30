@@ -73,6 +73,28 @@ def test_parse_scenario_name_override_parameter():
     assert scenario.name == "renamed"
 
 
+def test_parse_scenario_defaults_full_retirement_age_to_claim_age_when_omitted():
+    # 016-ss-claiming-age-actuarial-adjustment: FULL_SCENARIO_YAML above
+    # never sets full_retirement_age -- every member should resolve to
+    # their own ss_claim_age (research.md Decision 3), never None.
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert scenario.household.members[0].full_retirement_age == 67.0
+    assert scenario.household.members[1].full_retirement_age == 67.0
+
+
+def test_parse_scenario_passes_through_explicit_full_retirement_age():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 62\n      ss_annual_benefit: 32000\n      full_retirement_age: 67.0\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].ss_claim_age == 62
+    assert scenario.household.members[0].full_retirement_age == 67.0
+    # The second member still gets the default -- explicit FRA is per-member.
+    assert scenario.household.members[1].full_retirement_age == 67.0
+
+
 def test_parse_scenario_reports_missing_required_field():
     yaml_text = FULL_SCENARIO_YAML.replace(
         "spending:\n  annual_need_real: 110000\n", ""

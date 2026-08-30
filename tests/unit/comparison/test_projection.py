@@ -18,16 +18,34 @@ from retirement_planner.comparison import (
 from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HouseholdMember
-from retirement_planner.tax import FederalTaxResult, IncomeComponents
+from retirement_planner.tax import FederalTaxResult, IncomeComponents, compute_taxable_social_security
 
 
-def _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000):
+def _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=67.0):
+    # 016-ss-claiming-age-actuarial-adjustment: full_retirement_age defaults
+    # to 67.0, matching this helper's own hardcoded ss_claim_age=67 -- so
+    # every existing caller that relies on the default claiming_ages
+    # ({"you": 67, "spouse": 67}, _strategy()'s own base) sees 0% adjustment
+    # and unchanged pre-feature benefit amounts, exactly as
+    # research.md Decision 3 intends. Callers exercising a claiming age
+    # that diverges from 67 pass an explicit *_fra to keep their own
+    # expected amounts meaningful.
     return Household(
         filing_status="married_filing_jointly",
         members=[
-            HouseholdMember(person_name="you", current_age=you_age, ss_claim_age=67, ss_annual_benefit=you_benefit),
             HouseholdMember(
-                person_name="spouse", current_age=spouse_age, ss_claim_age=67, ss_annual_benefit=spouse_benefit
+                person_name="you",
+                current_age=you_age,
+                ss_claim_age=67,
+                ss_annual_benefit=you_benefit,
+                full_retirement_age=you_fra,
+            ),
+            HouseholdMember(
+                person_name="spouse",
+                current_age=spouse_age,
+                ss_claim_age=67,
+                ss_annual_benefit=spouse_benefit,
+                full_retirement_age=spouse_fra,
             ),
         ],
     )
@@ -65,21 +83,29 @@ def testdeemed_rmd_owner_is_the_older_member():
 
 
 def test_household_gross_social_security_benefit_counts_only_after_claiming_age():
-    household = _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000)
+    # full_retirement_age matches each member's own claiming_ages entry
+    # below (67 for "you", 70 for spouse) so this test isolates the
+    # 0-vs-nonzero *timing* logic under test here, unaffected by the
+    # separate claiming-age-adjustment magnitude logic (that math has its
+    # own dedicated coverage in test_social_security_benefit.py and
+    # test_compare_claiming_age_grid.py).
+    household = _mfj_household(
+        you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=70.0
+    )
     claiming_ages = {"you": 67, "spouse": 70}
 
     before_anyone_claims = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 65, "spouse": 63}, claiming_ages=claiming_ages
+        household, ages_this_year={"you": 65, "spouse": 63}, claiming_ages=claiming_ages, tax_year=2026
     )
     assert before_anyone_claims == 0.0
 
     after_you_claim = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 67, "spouse": 65}, claiming_ages=claiming_ages
+        household, ages_this_year={"you": 67, "spouse": 65}, claiming_ages=claiming_ages, tax_year=2026
     )
     assert after_you_claim == 32_000.0
 
     after_both_claim = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 70, "spouse": 70}, claiming_ages=claiming_ages
+        household, ages_this_year={"you": 70, "spouse": 70}, claiming_ages=claiming_ages, tax_year=2026
     )
     assert after_both_claim == 56_000.0
 
@@ -389,7 +415,15 @@ def test_approximate_magi_ignores_gross_social_security_benefit_directly():
 def _single_member_household(current_age=55):
     return Household(
         filing_status="single",
-        members=[HouseholdMember(person_name="you", current_age=current_age, ss_claim_age=67, ss_annual_benefit=0)],
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=current_age,
+                ss_claim_age=67,
+                ss_annual_benefit=0,
+                full_retirement_age=67.0,
+            )
+        ],
     )
 
 
@@ -758,6 +792,125 @@ def test_member_social_security_benefits_present_even_before_claiming_never_omit
     assert last_year.member_social_security_benefits["you"] == 32_000.0
     assert last_year.member_social_security_benefits["spouse"] == 0.0
     assert sum(last_year.member_social_security_benefits.values()) == 32_000.0
+
+
+def test_full_retirement_age_equal_to_claim_age_reproduces_pre_feature_flat_benefit():
+    """016-ss-claiming-age-actuarial-adjustment backward compatibility
+    (research.md Decision 3, spec.md FR-001): a member whose
+    full_retirement_age equals their ss_claim_age -- the default every
+    scenario predating this feature resolves to -- receives exactly their
+    configured ss_annual_benefit once claimed, with zero adjustment,
+    identical to this feature's absence."""
+    household = _mfj_household(
+        you_age=65, spouse_age=65, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=67.0
+    )
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    last_year = result.years[-1]  # you=67, spouse=67 -- both have just claimed, exactly at FRA
+    assert last_year.member_social_security_benefits == {"you": 32_000.0, "spouse": 24_000.0}
+
+
+def test_omitted_full_retirement_age_defaults_to_claim_age_even_when_household_built_directly():
+    """The same backward-compatible default applies even when
+    full_retirement_age is left None entirely (not just when explicitly
+    set equal to ss_claim_age) -- the defense-in-depth default in
+    _member_gross_social_security_benefits() itself (data-model.md), not
+    only scenario.loader.parse_scenario()'s own resolution."""
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(person_name="you", current_age=66, ss_claim_age=67, ss_annual_benefit=32_000),
+        ],
+    )
+    assert household.members[0].full_retirement_age is None  # never set -- the raw dataclass default
+
+    strategy = _strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.years[-1].member_social_security_benefits["you"] == 32_000.0
+
+
+def test_plain_non_grid_projection_uses_the_reduced_benefit_in_income_and_tax():
+    """016-ss-claiming-age-actuarial-adjustment US2 (spec.md Acceptance
+    Scenario 1): a household running one fixed, non-comparison claiming
+    age -- not the claiming-age grid -- still gets the actuarially
+    reduced benefit, and that reduced amount (not the PIA) is what flows
+    into this year's income/tax figures, since _member_gross_social_
+    security_benefits() is the one call site every engine path shares
+    (research.md Decision 4)."""
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=64,
+                ss_claim_age=64,  # claiming 3 years before FRA
+                ss_annual_benefit=30_000,  # PIA
+                full_retirement_age=67.0,
+            ),
+        ],
+    )
+    strategy = _strategy(claiming_ages={"you": 64})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    # 36 months early against a 67 FRA: 20% reduction -> 24,000, not 30,000.
+    expected_reduction = 36 * (5 / 9) / 100
+    expected_benefit = 30_000.0 * (1 - expected_reduction)
+    assert first_year.member_social_security_benefits["you"] == pytest.approx(expected_benefit)
+
+    # The reduced amount, not the PIA, is what fed into this year's federal
+    # tax computation's own provisional-income test -- reproduced directly
+    # against compute_taxable_social_security() with the reduced benefit to
+    # confirm equality (not just a >0 proxy, since this household's zero
+    # ordinary income keeps both the reduced and unreduced case under the
+    # single-filer 0%-taxable threshold either way).
+    expected_taxable_ss, _ = compute_taxable_social_security(
+        IncomeComponents(
+            ordinary_income=first_year.mechanics.ordinary_income,
+            social_security_gross_benefit=expected_benefit,
+        ),
+        filing_status="single",
+        tax_year=2026,
+    )
+    assert first_year.federal_tax.taxable_social_security == pytest.approx(expected_taxable_ss)
 
 
 def test_inherited_account_balances_and_distributions_are_snapshotted_per_account_id():

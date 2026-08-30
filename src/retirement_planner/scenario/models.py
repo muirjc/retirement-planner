@@ -21,6 +21,23 @@ class HouseholdMember:
     current_age: int
     ss_claim_age: int
     ss_annual_benefit: float
+    """016-ss-claiming-age-actuarial-adjustment: this member's Primary
+    Insurance Amount (PIA) -- the Social Security benefit payable if
+    claimed exactly at full_retirement_age -- not the amount actually
+    paid at ss_claim_age. The amount actually paid is derived by
+    retirement_planner.mechanics.compute_social_security_benefit() from
+    this PIA, full_retirement_age, and ss_claim_age together
+    (contracts/mechanics-api.md)."""
+    full_retirement_age: float | None = None
+    """016-ss-claiming-age-actuarial-adjustment: this member's Social
+    Security full retirement age, in years (fractional allowed, e.g.
+    66.8333 for 66 years 10 months). None (the YAML-omitted case) is
+    resolved by scenario.loader.parse_scenario() to this member's own
+    ss_claim_age -- i.e., assume no adjustment -- so every scenario that
+    predates this feature keeps producing exactly its current output
+    unless it explicitly opts in with a real FRA (data-model.md,
+    research.md Decision 3). Every HouseholdMember that has passed
+    through parse_scenario() carries a concrete float here, never None."""
     hdhp_coverage: bool = False
     """Whether this member is covered by a qualifying high-deductible
     health plan -- the HSA-eligibility precondition

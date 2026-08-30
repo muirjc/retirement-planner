@@ -55,6 +55,31 @@ def test_save_read_and_list_round_trip(client):
     assert "base_case" in list_response.json()["scenarios"]                       # US1.2
 
 
+def test_full_retirement_age_round_trips_and_defaults_when_omitted(client):
+    """016-ss-claiming-age-actuarial-adjustment: an explicit
+    full_retirement_age round-trips through PUT/GET; a member that omits
+    it entirely (like _SCENARIO_BODY's own members) resolves to that
+    member's own ss_claim_age -- the same backward-compatible default
+    scenario.loader.parse_scenario() already applies directly."""
+    body_with_explicit_fra = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {**_SCENARIO_BODY["household"]["members"][0], "ss_claim_age": 62, "full_retirement_age": 67.0},
+                _SCENARIO_BODY["household"]["members"][1],
+            ],
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/fra_case", json=body_with_explicit_fra)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/fra_case").json()
+    assert read_response["household"]["members"][0]["full_retirement_age"] == 67.0
+    # The second member never set it -- resolves to their own ss_claim_age (67).
+    assert read_response["household"]["members"][1]["full_retirement_age"] == 67.0
+
+
 def test_account_owner_omitted_on_single_member_household_is_auto_filled(client):
     """011-per-owner-accounts: a single-filer household needs no owner in
     the request at all -- the response shows it auto-filled (FR-003)."""

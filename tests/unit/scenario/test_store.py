@@ -70,6 +70,25 @@ def test_hdhp_coverage_and_hsa_contribution_survive_a_save_load_round_trip(scena
     assert reloaded.hsa_contribution == HsaContributionPlan(annual_amount=3_000.0)
 
 
+def test_full_retirement_age_survives_a_save_load_round_trip(scenario_store_dir):
+    """016-ss-claiming-age-actuarial-adjustment regression, found via a real
+    BFF save/read round-trip test: _scenario_to_dict() builds its YAML dict
+    field-by-field (not generically) and initially omitted
+    HouseholdMember.full_retirement_age -- silently dropping it on save, so
+    a saved-then-reloaded scenario would fall back to full_retirement_age
+    defaulting to ss_claim_age (0% adjustment) even when a real, distinct
+    FRA had been explicitly configured. The same class of gap
+    hdhp_coverage/hsa_contribution hit in 010 (test above)."""
+    scenario = _scenario("fra_case")
+    scenario.household.members[0].ss_claim_age = 62
+    scenario.household.members[0].full_retirement_age = 67.0
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("fra_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].full_retirement_age == 67.0
+
+
 def test_account_owner_survives_a_save_load_round_trip(scenario_store_dir):
     """011-per-owner-accounts regression: the same class of bug as the HSA
     one above -- _scenario_to_dict() initially omitted Account.owner,

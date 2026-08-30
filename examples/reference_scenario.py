@@ -29,8 +29,23 @@ def main() -> None:
     household = Household(
         filing_status="married_filing_jointly",
         members=[
-            HouseholdMember(person_name="you", current_age=60, ss_claim_age=67, ss_annual_benefit=32_000),
-            HouseholdMember(person_name="spouse", current_age=58, ss_claim_age=67, ss_annual_benefit=24_000),
+            # full_retirement_age matches ss_claim_age for both members here
+            # (016-ss-claiming-age-actuarial-adjustment) -- claiming exactly
+            # at FRA, so ss_annual_benefit (now each member's PIA) is paid
+            # unadjusted; this reference scenario's printed numbers are
+            # unchanged from before this feature. Stated explicitly rather
+            # than left to the same-value default so the field is visible
+            # here, not just documented in scenario/models.py.
+            HouseholdMember(
+                person_name="you", current_age=60, ss_claim_age=67, ss_annual_benefit=32_000, full_retirement_age=67.0
+            ),
+            HouseholdMember(
+                person_name="spouse",
+                current_age=58,
+                ss_claim_age=67,
+                ss_annual_benefit=24_000,
+                full_retirement_age=67.0,
+            ),
         ],
     )
     accounts = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)

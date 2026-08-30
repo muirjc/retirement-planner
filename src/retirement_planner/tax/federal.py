@@ -12,11 +12,12 @@ projection. This is the "explicit, documented inflation-indexing assumption"
 FR-003 requires: the assumption is "real terms, no further indexing engine,"
 stated here rather than left implicit.
 
-The bracket dollar thresholds below are illustrative placeholders (round
-numbers in the right order of magnitude), not asserted as the actual IRS
-Rev. Proc. 2026 figures — see quickstart.md and plan.md's Development
-Workflow gate. `verified=False` reflects that honestly; replacing these with
-real, cited figures is follow-on work, not a gap this feature hides.
+The bracket dollar thresholds below are IRS Rev. Proc. 2025-32's actual
+tax year 2026 figures, cross-checked directly against that Revenue
+Procedure (014-figure-verification, rp-9wi.1) — the tax year they were
+pinned to is fixed by this feature's own "real dollars, no further
+indexing engine" design (above), not by whatever the current calendar
+year happens to be when this module is read.
 
 Schedule note (added for 004-strategy-comparison-layer): since these edges
 are already stated to be real (inflation-adjusted) dollars with "no further
@@ -41,22 +42,22 @@ from .social_security import compute_taxable_social_security
 _DOCUMENTED_YEARS = range(2020, 2075)
 
 _MFJ_BRACKETS: BracketTable = (
-    BracketRow(rate=0.10, income_up_to=24_000.0),
-    BracketRow(rate=0.12, income_up_to=96_000.0),
-    BracketRow(rate=0.22, income_up_to=206_000.0),
-    BracketRow(rate=0.24, income_up_to=394_000.0),
-    BracketRow(rate=0.32, income_up_to=500_000.0),
-    BracketRow(rate=0.35, income_up_to=750_000.0),
+    BracketRow(rate=0.10, income_up_to=24_800.0),
+    BracketRow(rate=0.12, income_up_to=100_800.0),
+    BracketRow(rate=0.22, income_up_to=211_400.0),
+    BracketRow(rate=0.24, income_up_to=403_550.0),
+    BracketRow(rate=0.32, income_up_to=512_450.0),
+    BracketRow(rate=0.35, income_up_to=768_700.0),
     BracketRow(rate=0.37, income_up_to=None),
 )
 
 _SINGLE_BRACKETS: BracketTable = (
-    BracketRow(rate=0.10, income_up_to=12_000.0),
-    BracketRow(rate=0.12, income_up_to=48_000.0),
-    BracketRow(rate=0.22, income_up_to=103_000.0),
-    BracketRow(rate=0.24, income_up_to=197_000.0),
-    BracketRow(rate=0.32, income_up_to=250_000.0),
-    BracketRow(rate=0.35, income_up_to=625_000.0),
+    BracketRow(rate=0.10, income_up_to=12_400.0),
+    BracketRow(rate=0.12, income_up_to=50_400.0),
+    BracketRow(rate=0.22, income_up_to=105_700.0),
+    BracketRow(rate=0.24, income_up_to=201_775.0),
+    BracketRow(rate=0.32, income_up_to=256_225.0),
+    BracketRow(rate=0.35, income_up_to=640_600.0),
     BracketRow(rate=0.37, income_up_to=None),
 )
 
@@ -64,16 +65,16 @@ _FEDERAL_BRACKETS: dict[FilingStatus, SourcedFigure[BracketTable]] = {
     "married_filing_jointly": SourcedFigure(
         name="federal_brackets_mfj",
         schedule={year: _MFJ_BRACKETS for year in _DOCUMENTED_YEARS},
-        citation="IRS Rev. Proc. 2026-XX, MFJ schedule (placeholder — pending verification)",
-        last_verified=date(2026, 8, 27),
-        verified=False,
+        citation="IRS Rev. Proc. 2025-32 §2.01, tax year 2026 married filing jointly schedule",
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
     "single": SourcedFigure(
         name="federal_brackets_single",
         schedule={year: _SINGLE_BRACKETS for year in _DOCUMENTED_YEARS},
-        citation="IRS Rev. Proc. 2026-XX, single schedule (placeholder — pending verification)",
-        last_verified=date(2026, 8, 27),
-        verified=False,
+        citation="IRS Rev. Proc. 2025-32 §2.01, tax year 2026 single filer schedule",
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
 }
 

@@ -103,28 +103,31 @@ def test_run_to_csv_text_has_one_row_per_plan_year_with_percentile_columns():
 def test_run_to_csv_text_has_unverified_figure_column_reflects_path_zero():
     from retirement_planner.reporting.export import run_to_csv_text
 
-    # Real federal-tax figures ship verified=False in this codebase today,
-    # so a run built from real projections always has has_unverified_figure
-    # true for every row -- confirm that, then confirm the column flips to
-    # false when path 0's year figures are (deliberately) all verified.
+    # This household/state (single filer, FL -- no state-tax figure, no
+    # spouse -- no joint-life table) draws only on federal-tax and RMD
+    # figures that 014-figure-verification has since cross-checked and
+    # verified: has_unverified_figure is false for every row of a real
+    # run built from it. Confirm that, then confirm the column still
+    # flips to true when a path's year figures are (deliberately) made
+    # to include an unverified one.
     run = _run()
     text = run_to_csv_text(run)
     rows = _rows(text)
-    assert all(row["has_unverified_figure"] == "True" for row in rows)
+    assert all(row["has_unverified_figure"] == "False" for row in rows)
 
     # Deep-copy before mutating -- run.path_results[0] is the shared,
     # module-level _PROJECTION_A fixture; mutating it in place would leak
     # into other tests.
-    verified_run = copy.deepcopy(run)
-    all_verified_figures = [
-        FigureUsage(name="f", citation="c", last_verified=date(2026, 1, 1), verified=True)
+    unverified_run = copy.deepcopy(run)
+    an_unverified_figure = [
+        FigureUsage(name="f", citation="c", last_verified=date(2026, 1, 1), verified=False)
     ]
-    verified_run.path_results[0].years[0].figures_used = all_verified_figures
-    verified_run.path_results[0].years[1].figures_used = all_verified_figures
+    unverified_run.path_results[0].years[0].figures_used = an_unverified_figure
+    unverified_run.path_results[0].years[1].figures_used = an_unverified_figure
 
-    text = run_to_csv_text(verified_run)
+    text = run_to_csv_text(unverified_run)
     rows = _rows(text)
-    assert all(row["has_unverified_figure"] == "False" for row in rows)
+    assert all(row["has_unverified_figure"] == "True" for row in rows)
 
 
 # --- simulation_comparison_to_csv_text() / deterministic_comparison_to_csv_text() ---

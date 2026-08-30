@@ -24,7 +24,10 @@ def test_federal_result_figures_are_also_individually_traceable():
     income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
     result = compute_federal_tax(income, filing_status="married_filing_jointly", tax_year=2026)
     assert len(result.figures_used) == 2  # SS thresholds + federal brackets
-    assert all(f.verified is False for f in result.figures_used)
+    # Both verified against their primary sources (014-figure-verification,
+    # rp-9wi.1/.6) -- unlike SC's own state-tax figures above, which remain
+    # out of scope and unverified.
+    assert all(f.verified is True for f in result.figures_used)
 
 
 def test_sc_scheduled_rate_change_produces_different_results_2026_vs_2027():

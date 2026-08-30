@@ -1,10 +1,13 @@
 """Unit tests for compute_rmd() (US1).
 
-Expected divisors/amounts are hand-calculated against this feature's own
-placeholder tables (rmd.py) — see that module's docstring for why the
-figures are illustrative pending citation verification; what's under test
-here is the table-selection logic (Uniform Lifetime vs. Joint Life), not
-that these specific numbers are IRS-official.
+RMD_START_AGE and UNIFORM_LIFETIME_TABLE are IRS Pub. 590-B/26 U.S.C.
+§401(a)(9)(C)(v)'s actual figures, cross-checked directly against those
+primary sources (014-figure-verification, rp-9wi.5/.7); expected
+divisors/amounts below use those real figures. JOINT_LIFE_TABLE remains
+an illustrative placeholder outside that feature's scope (rmd.py's own
+docstring) — what's under test for it here is still just the
+table-selection logic (Uniform Lifetime vs. Joint Life), not that its
+specific numbers are IRS-official.
 """
 
 import pytest
@@ -80,3 +83,62 @@ def test_figures_used_includes_start_age_and_table_used():
 def test_unsupported_tax_year_raises():
     with pytest.raises(UnsupportedTaxYearError):
         compute_rmd(traditional_balance=1_000_000, member_age=75, tax_year=1999)
+
+
+def test_rmd_start_age_and_uniform_lifetime_table_are_verified():
+    """014-figure-verification (rp-9wi.5, rp-9wi.7)."""
+    from retirement_planner.mechanics.rmd import RMD_START_AGE, UNIFORM_LIFETIME_TABLE
+
+    assert RMD_START_AGE.verified is True
+    assert UNIFORM_LIFETIME_TABLE.verified is True
+    assert "26 U.S.C. §401(a)(9)(C)(v)" in RMD_START_AGE.citation
+    assert "IRS Pub. 590-B" in UNIFORM_LIFETIME_TABLE.citation
+
+
+def test_rmd_start_age_steps_from_73_to_75_in_2033():
+    """014-figure-verification (rp-9wi.5): SECURE 2.0's scheduled 2033
+    step is modeled, not silently flattened to one value forever."""
+    from retirement_planner.mechanics.rmd import RMD_START_AGE
+
+    assert RMD_START_AGE.value_for_year(2032) == 73
+    assert RMD_START_AGE.value_for_year(2033) == 75
+
+    # A 73-year-old owes an RMD the year before the step but not the year
+    # of/after it, since 75 is the applicable age from 2033 on.
+    assert compute_rmd(traditional_balance=500_000, member_age=73, tax_year=2032).required_amount > 0.0
+    assert compute_rmd(traditional_balance=500_000, member_age=73, tax_year=2033).required_amount == 0.0
+
+
+@pytest.mark.parametrize(
+    "age,expected_divisor",
+    [
+        (72, 27.4),
+        (75, 24.6),
+        (90, 12.2),
+        (100, 6.4),
+        (101, 6.0),
+        (110, 3.5),
+        (120, 2.0),
+    ],
+)
+def test_uniform_lifetime_divisors_match_irs_pub_590_b(age, expected_divisor):
+    """014-figure-verification (rp-9wi.7): spot-checks against IRS Pub.
+    590-B (2025), Appendix B, Table III directly, including ages beyond
+    100 -- the table's own coverage gap this feature closes. Checked
+    against the table itself, not through compute_rmd(), since age 72 is
+    below every documented tax year's own RMD_START_AGE gate (73 or 75)
+    and so is never reachable through compute_rmd() -- the table still
+    documents its divisor, matching the published table's own coverage."""
+    from retirement_planner.mechanics.rmd import UNIFORM_LIFETIME_TABLE
+
+    assert UNIFORM_LIFETIME_TABLE.value_for_year(2026)[age] == expected_divisor
+
+
+def test_age_over_100_no_longer_raises_a_lookup_error():
+    """Before rp-9wi.7, member_age=101 (and above) had no entry in
+    _UNIFORM_LIFETIME_DIVISORS and raised a plain KeyError -- not the
+    typed UnsupportedTaxYearError compute_rmd() raises for an
+    undocumented *year* (data-model.md). Now it succeeds."""
+    result = compute_rmd(traditional_balance=500_000, member_age=101, tax_year=2026)
+    assert result.divisor is not None
+    assert result.required_amount == 500_000 / result.divisor

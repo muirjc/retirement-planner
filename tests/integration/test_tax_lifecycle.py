@@ -115,8 +115,12 @@ def test_quickstart_walkthrough_end_to_end():
 
     # Step 3: figure provenance on both the federal and state results, a
     # multi-year schedule change, and a refusal for an unsupported year.
+    # federal_result's figures (SS thresholds + federal brackets) are now
+    # verified (014-figure-verification, rp-9wi.1/.6); SC's own state-tax
+    # figures remain out of scope for that feature and stay unverified.
     all_figures = federal_result.figures_used + sc_result.figures_used
-    assert all(f.verified is False for f in all_figures)
+    assert all(f.verified is True for f in federal_result.figures_used)
+    assert all(f.verified is False for f in sc_result.figures_used)
     assert all(f.citation and f.last_verified for f in all_figures)
 
     sc_2027 = compute_state_tax("SC", income, filer_ages=ages, filing_status=filing_status, tax_year=2027)

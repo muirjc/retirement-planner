@@ -61,3 +61,16 @@ def test_unsupported_tax_year_raises():
         compute_taxable_social_security(income, "married_filing_jointly", 2075)
     assert exc_info.value.requested_year == 2075
     assert 2026 in exc_info.value.available_years
+
+
+def test_thresholds_are_verified_against_26_usc_86():
+    """014-figure-verification (rp-9wi.6): both threshold pairs are
+    cross-checked directly against 26 U.S.C. §86(c)(1)-(2) -- fixed by
+    statute since 1983, not inflation-indexed."""
+    income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
+    _, mfj_figures = compute_taxable_social_security(income, "married_filing_jointly", 2026)
+    _, single_figures = compute_taxable_social_security(income, "single", 2026)
+    assert mfj_figures[0].verified is True
+    assert mfj_figures[0].citation == "26 U.S.C. §86(c)(1)(B), (c)(2)(B) — MFJ base and adjusted base amounts"
+    assert single_figures[0].verified is True
+    assert single_figures[0].citation == "26 U.S.C. §86(c)(1)(A), (c)(2)(A) — single filer base and adjusted base amounts"

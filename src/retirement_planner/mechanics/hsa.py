@@ -12,11 +12,13 @@ at that limit, never raising for the ordinary "not eligible this year" or
 "configured above the limit" cases (research.md §5) -- only for an
 undocumented tax_year's limit figure.
 
-The dollar limits below are illustrative placeholders, not asserted as
-the IRS's actual current Rev. Proc. figures -- see quickstart.md and this
-project's own established precedent (federal.py's identical disclosure
-for its own bracket tables). `verified=False` reflects that honestly
-(research.md §7).
+The dollar limits below are IRS Rev. Proc. 2025-19's actual tax year 2026
+figures (self-only/family under IRC §223(b); the $1,000 catch-up is
+itself a fixed statutory amount, not inflation-indexed), cross-checked
+directly against that Revenue Procedure and the statute
+(014-figure-verification, rp-9wi.2) — pinned to the same tax year 2026
+basis as federal.py's/irmaa.py's own real-dollar figures, per this
+project's "real dollars, no further indexing engine" convention.
 
 See specs/010-advanced-tax-benefits/contracts/mechanics-api.md for the
 locked public signatures of compute_hsa_eligibility()/compute_hsa_contribution().
@@ -46,11 +48,11 @@ class _HsaLimits:
 _HSA_LIMITS: SourcedFigure[_HsaLimits] = SourcedFigure(
     name="hsa_contribution_limits",
     schedule={
-        year: _HsaLimits(self_only=4_300.0, family=8_550.0, catch_up=1_000.0) for year in _DOCUMENTED_YEARS
+        year: _HsaLimits(self_only=4_400.0, family=8_750.0, catch_up=1_000.0) for year in _DOCUMENTED_YEARS
     },
-    citation="IRS Rev. Proc., annual HSA contribution limits announcement (placeholder — pending verification)",
-    last_verified=date(2026, 8, 28),
-    verified=False,
+    citation="IRS Rev. Proc. 2025-19, tax year 2026 HSA contribution limits (IRC §223(b); $1,000 catch-up per IRC §223(b)(3), fixed by statute)",
+    last_verified=date(2026, 8, 30),
+    verified=True,
 )
 
 

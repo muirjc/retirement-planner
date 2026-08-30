@@ -175,3 +175,23 @@ class PlanYearMechanicsResult:
     ending_balances: AccountBalances
     ordinary_income: float
     figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
+class SocialSecurityBenefitResult:
+    """016-ss-claiming-age-actuarial-adjustment data-model.md §
+    SocialSecurityBenefitResult. One household member's actual annual
+    Social Security benefit, adjusted for how their claiming age compares
+    to their full retirement age (FRA) -- mirrors RmdResult's own shape
+    (a derived dollar amount, a derived descriptor, figures_used)."""
+
+    annual_benefit: float
+    """The member's PIA, reduced for early claiming or increased for
+    delayed claiming -- equals primary_insurance_amount exactly when
+    claiming_age == full_retirement_age."""
+    adjustment_factor: float
+    """annual_benefit / primary_insurance_amount, e.g. ~0.70 at 62 against
+    a 67 FRA, 1.0 at FRA, ~1.24 at 70 against a 67 FRA -- surfaced
+    separately from annual_benefit so a caller/report can show "70% of
+    PIA" without re-deriving it from two floats."""
+    figures_used: list[FigureUsage] = field(default_factory=list)

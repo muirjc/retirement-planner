@@ -137,6 +137,26 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                     severity="blocking",
                 )
             )
+        # 016-ss-claiming-age-actuarial-adjustment: a plausibility warning,
+        # not a blocking rejection (spec.md Edge Cases) -- [65, 67] is the
+        # full range Social Security's own rules can produce a full
+        # retirement age in, for anyone still living (age 65 for anyone
+        # born before 1938, rising in two-month steps to 67 for anyone
+        # born 1960 or later). full_retirement_age is never None here --
+        # loader.parse_scenario() always resolves it to a concrete float
+        # before validate() runs (data-model.md).
+        if member.full_retirement_age is not None and not (65.0 <= member.full_retirement_age <= 67.0):
+            flags.append(
+                ValidationFlag(
+                    field=f"household.members[{index}].full_retirement_age",
+                    message=(
+                        f"Full retirement age {member.full_retirement_age} is outside the "
+                        "plausible range (65-67) Social Security's own rules can produce; "
+                        "double-check this value."
+                    ),
+                    severity="warning",
+                )
+            )
     return flags
 
 

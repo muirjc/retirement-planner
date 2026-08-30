@@ -70,6 +70,14 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
                     "current_age": member.current_age,
                     "ss_claim_age": member.ss_claim_age,
                     "ss_annual_benefit": member.ss_annual_benefit,
+                    "full_retirement_age": member.full_retirement_age,  # 016-ss-claiming-age-actuarial-adjustment:
+                    # found missing here via a real BFF save/read round-trip
+                    # regression test, the same class of gap hdhp_coverage
+                    # hit in 010 (this function builds its dict field-by-
+                    # field rather than generically -- see hsa_contribution's
+                    # own note below). Always a concrete float by the time a
+                    # Scenario reaches here (parse_scenario() resolves it),
+                    # so this round-trips the resolved default, not None.
                     "hdhp_coverage": member.hdhp_coverage,  # 010-advanced-tax-benefits
                 }
                 for member in scenario.household.members

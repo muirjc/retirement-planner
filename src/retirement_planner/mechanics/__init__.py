@@ -19,6 +19,7 @@ from .models import (
     InheritedRmdResult,
     PlanYearMechanicsResult,
     RmdResult,
+    SocialSecurityBenefitResult,
     WithdrawalLineItem,
     WithdrawalPlan,
 )
@@ -32,6 +33,7 @@ from .roth_conversion import (
     fill_to_bracket_ceiling,
     fixed_dollar_amount,
 )
+from .social_security_benefit import compute_social_security_benefit
 from .withdrawal_sequencing import WITHDRAWAL_STRATEGIES, compute_withdrawal_plan
 
 __all__ = [
@@ -49,6 +51,7 @@ __all__ = [
     "RMD_START_AGE",
     "RmdResult",
     "RothConversionFunction",
+    "SocialSecurityBenefitResult",
     "UNIFORM_LIFETIME_TABLE",
     "WITHDRAWAL_STRATEGIES",
     "WithdrawalLineItem",
@@ -59,6 +62,7 @@ __all__ = [
     "compute_plan_year_mechanics",
     "compute_rmd",
     "compute_roth_conversion",
+    "compute_social_security_benefit",
     "compute_withdrawal_plan",
     "fill_to_bracket_ceiling",
     "fixed_dollar_amount",

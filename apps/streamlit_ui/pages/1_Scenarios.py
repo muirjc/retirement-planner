@@ -40,10 +40,12 @@ DEFAULTS = {
     "member1_current_age": 60,
     "member1_ss_claim_age": 67,
     "member1_ss_annual_benefit": 0.0,
+    "member1_full_retirement_age": 67.0,
     "member2_person_name": "",
     "member2_current_age": 60,
     "member2_ss_claim_age": 67,
     "member2_ss_annual_benefit": 0.0,
+    "member2_full_retirement_age": 67.0,
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
     "member1_taxable_balance": 0.0,
@@ -93,12 +95,19 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     st.session_state["member1_current_age"] = m1["current_age"]
     st.session_state["member1_ss_claim_age"] = m1["ss_claim_age"]
     st.session_state["member1_ss_annual_benefit"] = m1["ss_annual_benefit"]
+    # 016-ss-claiming-age-actuarial-adjustment: a scenario saved before this
+    # feature (or via a non-UI client that omitted it) still resolves to a
+    # concrete float server-side (parse_scenario()'s own default), so this
+    # key is never missing from a get_scenario()-shaped response -- no
+    # `.get(..., fallback)` needed, unlike a field this UI predates entirely.
+    st.session_state["member1_full_retirement_age"] = m1["full_retirement_age"]
     if len(members) > 1:
         m2 = members[1]
         st.session_state["member2_person_name"] = m2["person_name"]
         st.session_state["member2_current_age"] = m2["current_age"]
         st.session_state["member2_ss_claim_age"] = m2["ss_claim_age"]
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
+        st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
     # 011-per-owner-accounts: match each account to a member row by
     # (account_type, owner) against the members just loaded above. An
     # account whose owner is None or doesn't match either member (a
@@ -260,27 +269,39 @@ _NAME_HELP = "This person's name or a short label -- used to identify them elsew
 _CURRENT_AGE_HELP = "Their age today, as of right now -- not a future planning age."
 _SS_CLAIM_AGE_HELP = "The age they plan to start claiming Social Security, between 62 and 70."
 _SS_BENEFIT_HELP = (
-    "Their estimated annual Social Security benefit **at the claim age entered here** -- not the "
-    "full-retirement-age amount if claiming earlier or later. See the Instructions page's Household section."
+    "Their Primary Insurance Amount (PIA) -- the annual Social Security benefit payable **at full "
+    "retirement age**, not the (possibly reduced or increased) amount actually paid at the claim age "
+    "entered here. See the Instructions page's Household section."
+)
+_FRA_HELP = (
+    "Their Social Security full retirement age (FRA) -- typically 66-67 depending on birth year. "
+    "Claiming before this reduces the benefit below the PIA; claiming after it (up to 70) increases "
+    "the benefit above the PIA."
 )
 
 st.markdown("**Member 1**")
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.text_input("Name", key="member1_person_name", help=_NAME_HELP)
 c2.number_input("Current age", min_value=0, step=1, key="member1_current_age", help=_CURRENT_AGE_HELP)
 c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
 c4.number_input(
-    "SS annual benefit ($)", min_value=0.0, step=100.0, key="member1_ss_annual_benefit", help=_SS_BENEFIT_HELP
+    "SS benefit at FRA ($)", min_value=0.0, step=100.0, key="member1_ss_annual_benefit", help=_SS_BENEFIT_HELP
+)
+c5.number_input(
+    "Full retirement age", min_value=0.0, step=1.0, key="member1_full_retirement_age", help=_FRA_HELP
 )
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.text_input("Name", key="member2_person_name", help=_NAME_HELP)
     c2.number_input("Current age", min_value=0, step=1, key="member2_current_age", help=_CURRENT_AGE_HELP)
     c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
     c4.number_input(
-        "SS annual benefit ($)", min_value=0.0, step=100.0, key="member2_ss_annual_benefit", help=_SS_BENEFIT_HELP
+        "SS benefit at FRA ($)", min_value=0.0, step=100.0, key="member2_ss_annual_benefit", help=_SS_BENEFIT_HELP
+    )
+    c5.number_input(
+        "Full retirement age", min_value=0.0, step=1.0, key="member2_full_retirement_age", help=_FRA_HELP
     )
 
 st.subheader("Accounts")
@@ -603,6 +624,7 @@ def _build_body() -> dict:
                     "current_age": st.session_state["member1_current_age"],
                     "ss_claim_age": st.session_state["member1_ss_claim_age"],
                     "ss_annual_benefit": st.session_state["member1_ss_annual_benefit"],
+                    "full_retirement_age": st.session_state["member1_full_retirement_age"],
                 }
             ],
         },
@@ -648,6 +670,7 @@ def _build_body() -> dict:
                 "current_age": st.session_state["member2_current_age"],
                 "ss_claim_age": st.session_state["member2_ss_claim_age"],
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
+                "full_retirement_age": st.session_state["member2_full_retirement_age"],
             }
         )
         body["accounts"].extend(

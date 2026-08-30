@@ -35,7 +35,10 @@ def test_build_a_roth_spouse_edb_inherited_account_and_run_both_engines(page, e2
     fill_member_field("Name", 0, "you")
     fill_member_field("Current age", 0, "68")
     fill_member_field("SS claim age", 0, "67")
-    fill_member_field("SS annual benefit ($)", 0, "30000")
+    # 016-ss-claiming-age-actuarial-adjustment: relabeled from "SS annual
+    # benefit ($)" -- it's now the member's PIA (benefit at full
+    # retirement age), not the amount paid at the claim age above.
+    fill_member_field("SS benefit at FRA ($)", 0, "30000")
     fill_member_field("Traditional balance ($)", 0, "500000")
     fill_member_field("Roth balance ($)", 0, "50000")
     fill_member_field("Taxable balance ($)", 0, "50000")
@@ -43,7 +46,7 @@ def test_build_a_roth_spouse_edb_inherited_account_and_run_both_engines(page, e2
     fill_member_field("Name", 1, "spouse")
     fill_member_field("Current age", 1, "65")
     fill_member_field("SS claim age", 1, "67")
-    fill_member_field("SS annual benefit ($)", 1, "20000")
+    fill_member_field("SS benefit at FRA ($)", 1, "20000")
     fill_member_field("Traditional balance ($)", 1, "0")
     fill_member_field("Roth balance ($)", 1, "0")
     fill_member_field("Taxable balance ($)", 1, "0")

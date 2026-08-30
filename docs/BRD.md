@@ -51,7 +51,10 @@ the analysis from scratch each time.
   and an inherited account under SECURE Act/SECURE 2.0 rules
 - Roth conversion strategy comparison (bracket-fill vs. fixed-dollar)
 - Withdrawal-order strategy comparison
-- Social Security claiming-age sensitivity (a full 62–70 grid per spouse)
+- Social Security claiming-age sensitivity (a full 62–70 grid per spouse) —
+  the grid varies the actual benefit *amount* paid at each candidate age
+  (the standard early-reduction/delayed-retirement-credit adjustment,
+  §6.2a), not just when payments start
 - HSA contribution eligibility and annual limit tracking
 - Monte Carlo simulation (parametric and historical-bootstrap return
   generation, sequence-of-returns stress overlay, optional
@@ -145,6 +148,7 @@ methodology this table's federal rows were most recently produced by.
 | RMD start age, including the scheduled 2033 73→75 step | 26 U.S.C. §401(a)(9)(C)(v), as amended by SECURE 2.0 Act (Pub. L. 117-328) §107 | `mechanics/rmd.py` |
 | Uniform Lifetime Table (RMD divisors, ages 72–120+) | IRS Pub. 590-B (2025), Appendix B, Table III | `mechanics/rmd.py` |
 | Single Life Expectancy Table (inherited-account divisors, ages 0–120+) | IRS Pub. 590-B (2025), Appendix B, Table I | `mechanics/inherited_rmd.py` |
+| Social Security claiming-age early-reduction/delayed-credit rates | 42 U.S.C. §402(q)/(w); 20 C.F.R. §404.410/§404.313 (fixed by regulation, not annually revised) | `mechanics/social_security_benefit.py` |
 
 **Simplification, documented not hidden**: the RMD start-age step above is
 modeled as a tax-year cutoff (73 before 2033, 75 from 2033 on), not the
@@ -178,6 +182,16 @@ schedule this tool has no separate model for.
 - Trust/entity inherited-account beneficiaries — blocked by a validation
   flag before reaching any computation (`013-inherited-ira-edge-cases`),
   not silently mis-computed.
+- **Social Security spousal and survivor benefits** — each member's
+  claiming-age-adjusted benefit (§6.2a) is computed entirely
+  independently; a lower-earning spouse's benefit floor derived from the
+  higher earner's PIA, and the higher-of-two-continues/lower-stops
+  survivor rule after one spouse's death, are not modeled (tracked
+  separately: rp-52n, rp-g8y).
+- **Social Security earnings test** — a member who claims while still
+  working before FRA is not subject to the benefit withholding the
+  earnings test would impose; the tool assumes full, unwithheld payment
+  from the configured claiming age on.
 
 ### 5.4 State — South Carolina, Delaware, Florida
 
@@ -233,6 +247,40 @@ between the two thresholds, up to 50% is taxable
 the second threshold, up to 85% is taxable, computed as the smaller of
 `0.85 × benefit` and `0.85 × (provisional_income − threshold_2) +
 (the 50%-tier amount already accrued up to threshold_2)`.
+
+### 6.2a Social Security claiming-age benefit adjustment
+
+A household member's configured Social Security figure is their Primary
+Insurance Amount (PIA) — the benefit payable if claimed exactly at their
+full retirement age (FRA), which is itself now a configurable per-member
+input (defaulting to that member's own claiming age when not set, so a
+scenario predating this feature keeps producing exactly its prior output
+unless it explicitly opts in with a real PIA/FRA pair). The benefit
+actually paid at a chosen claiming age is derived from the PIA and FRA
+together, per 42 U.S.C. §402(q)/(w) and 20 C.F.R. §404.410/§404.313:
+
+- Claiming before FRA: reduced by 5/9 of 1% per month for each of the
+  first 36 months claimed early, plus 5/12 of 1% per month for any
+  additional months beyond that (e.g. claiming at 62 against a 67 FRA is
+  60 months early — a 30% reduction, ~70% of PIA).
+- Claiming exactly at FRA: paid at 100% of PIA, unadjusted.
+- Claiming after FRA, up to age 70: increased by 2/3 of 1% per month (8%
+  per year) delayed, with no further credit accruing past age 70 (e.g.
+  claiming at 70 against a 67 FRA is a 24% credit, ~124% of PIA).
+
+This is what makes the claiming-age comparison grid (§2.1) show a genuine
+early-vs-late trade-off rather than mechanically favoring the earliest
+claiming age — before this was modeled, every candidate age in the grid
+received the same flat PIA for a different number of years, which
+structurally could never show delaying as the better choice even when it
+genuinely was.
+
+Explicitly not modeled: spousal benefits (a lower-earning spouse's
+benefit derived from the higher earner's PIA), survivor benefits (the
+higher of two benefits continuing after one spouse's death, while the
+lower one stops), and the Social Security earnings test for a member who
+claims while still working before FRA — tracked as known gaps, not
+silently assumed away.
 
 ### 6.3 Net Investment Income Tax (NIIT)
 

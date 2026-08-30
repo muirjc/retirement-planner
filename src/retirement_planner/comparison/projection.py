@@ -19,11 +19,13 @@ from retirement_planner.mechanics import (
     compute_inherited_rmd,
     compute_plan_year_mechanics,
     compute_rmd,
+    compute_social_security_benefit,
     compute_withdrawal_plan,
 )
 from retirement_planner.scenario import Household, HouseholdMember
 from retirement_planner.tax import (
     FederalTaxResult,
+    FigureUsage,
     IncomeComponents,
     compute_federal_tax,
     compute_irmaa_surcharge,
@@ -68,30 +70,66 @@ def _approximate_magi(income: IncomeComponents, federal_tax: FederalTaxResult) -
 
 
 def _member_gross_social_security_benefits(
-    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int]
-) -> dict[str, float]:
-    """Each member's own gross ss_annual_benefit received this year,
-    counted only once that member's translated age reaches their
-    configured claiming age (data-model.md § Relationships) -- 0.0
+    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int], tax_year: int
+) -> tuple[dict[str, float], list[FigureUsage]]:
+    """Each member's own actual annual Social Security benefit received
+    this year, counted only once that member's translated age reaches
+    their configured claiming age (data-model.md § Relationships) -- 0.0
     before then, never omitted (015-per-account-projection-detail
-    data-model.md § PlanYearProjection extension). Summing these values
-    reproduces _household_gross_social_security_benefit()'s own total
-    exactly."""
-    return {
-        member.person_name: (
-            member.ss_annual_benefit if ages_this_year[member.person_name] >= claiming_ages[member.person_name] else 0.0
-        )
-        for member in household.members
-    }
+    data-model.md § PlanYearProjection extension). Summing the dict's
+    values reproduces _household_gross_social_security_benefit()'s own
+    total exactly.
+
+    016-ss-claiming-age-actuarial-adjustment: the amount for a member who
+    has reached their claiming age is no longer member.ss_annual_benefit
+    taken flat -- it's derived via compute_social_security_benefit() from
+    that field (now the member's PIA), member.full_retirement_age, and
+    this comparison's own claiming_ages[member.person_name], so claiming
+    earlier or later actually changes the amount, not just when it starts
+    (rp-n44). Each such call's figures_used is collected into the second
+    return value, threaded by the caller into this plan year's overall
+    figures_used list (research.md Decision 2).
+
+    member.full_retirement_age is defaulted here too (to that member's own
+    ss_claim_age, i.e. no adjustment) whenever it's still None -- not just
+    relied on from scenario.loader.parse_scenario()'s own resolution
+    (data-model.md) -- so a Household built directly, bypassing the loader
+    entirely (as most of this codebase's own test fixtures, and any
+    future direct-API caller, do), gets the identical backward-compatible
+    default a parsed scenario already gets, mirroring
+    scenario.validation.validate()'s own "not just relied on from
+    parse_scenario()'s own auto-fill" precedent for Account.owner."""
+    benefits: dict[str, float] = {}
+    figures_used: list[FigureUsage] = []
+    for member in household.members:
+        if ages_this_year[member.person_name] >= claiming_ages[member.person_name]:
+            full_retirement_age = (
+                member.full_retirement_age if member.full_retirement_age is not None else float(member.ss_claim_age)
+            )
+            result = compute_social_security_benefit(
+                primary_insurance_amount=member.ss_annual_benefit,
+                full_retirement_age=full_retirement_age,
+                claiming_age=claiming_ages[member.person_name],
+                tax_year=tax_year,
+            )
+            benefits[member.person_name] = result.annual_benefit
+            figures_used.extend(result.figures_used)
+        else:
+            benefits[member.person_name] = 0.0
+    return benefits, figures_used
 
 
 def _household_gross_social_security_benefit(
-    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int]
+    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int], tax_year: int
 ) -> float:
-    """Sums each member's ss_annual_benefit, counted only once that
+    """Sums each member's actual annual Social Security benefit (see
+    _member_gross_social_security_benefits()), counted only once that
     member's translated age reaches their configured claiming age
-    (data-model.md § Relationships)."""
-    return sum(_member_gross_social_security_benefits(household, ages_this_year, claiming_ages).values())
+    (data-model.md § Relationships). Discards figures_used -- callers
+    that need the audit trail use _member_gross_social_security_benefits()
+    directly, as run_plan_projection() does below."""
+    benefits, _ = _member_gross_social_security_benefits(household, ages_this_year, claiming_ages, tax_year)
+    return sum(benefits.values())
 
 
 def run_plan_projection(
@@ -164,7 +202,12 @@ def run_plan_projection(
         # retained (below, threaded into PlanYearProjection), not just the
         # household sum -- household_ss_benefit stays the same value
         # _household_gross_social_security_benefit() would have returned.
-        member_ss_benefits = _member_gross_social_security_benefits(household, ages_this_year, strategy.claiming_ages)
+        # 016-ss-claiming-age-actuarial-adjustment: each member's own
+        # amount is now claiming-age-adjusted (rp-n44), and this call's
+        # figures_used feeds into this year's overall figures_used below.
+        member_ss_benefits, ss_benefit_figures_used = _member_gross_social_security_benefits(
+            household, ages_this_year, strategy.claiming_ages, tax_year
+        )
         household_ss_benefit = sum(member_ss_benefits.values())
 
         # 011-per-owner-accounts: one compute_rmd() call per member with a
@@ -383,6 +426,7 @@ def run_plan_projection(
         # own figures_used (compute_plan_year_mechanics() folds it in), so
         # it is not repeated here.
         figures_used = [
+            *ss_benefit_figures_used,
             *mechanics_result.figures_used,
             *federal_tax.figures_used,
             *state_tax.figures_used,

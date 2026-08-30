@@ -127,3 +127,67 @@ def test_grid_entry_missing_a_household_member_raises_value_error():
 def test_grid_entry_with_an_extra_unknown_member_raises_value_error():
     with pytest.raises(ValueError):
         _run([{"you": 67, "spouse": 67, "someone_else": 65}])
+
+
+# --- 016-ss-claiming-age-actuarial-adjustment: the grid now varies benefit
+# AMOUNT, not just timing (rp-n44, spec.md Acceptance Scenarios 1-4) ---
+
+_ADJUSTMENT_HOUSEHOLD = Household(
+    filing_status="single",
+    members=[
+        HouseholdMember(
+            person_name="alex", current_age=61, ss_claim_age=67, ss_annual_benefit=30_000, full_retirement_age=67.0
+        ),
+    ],
+)
+
+
+def _run_adjustment(grid):
+    return compare_claiming_age_grid(
+        household=_ADJUSTMENT_HOUSEHOLD,
+        accounts=AccountBalances(traditional=800_000, roth=200_000, taxable=100_000),
+        traditional_ownership_shares={"alex": 1.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=90,
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        claiming_age_grid=grid,
+    )
+
+
+def _first_benefit(projection, person_name="alex"):
+    return next(y.member_social_security_benefits[person_name] for y in projection.years if y.member_social_security_benefits[person_name] > 0)
+
+
+def test_grid_amount_matches_the_actuarial_formula_at_62_67_and_70():
+    result = _run_adjustment([{"alex": 62}, {"alex": 67}, {"alex": 70}])
+    by_age = {p.strategy.claiming_ages["alex"]: _first_benefit(p) for p in result.projections}
+
+    # Before this feature, every one of these was 30,000 flat (SC-001).
+    assert by_age[62] == pytest.approx(21_000.0)  # 60 months early: 30% reduction
+    assert by_age[67] == pytest.approx(30_000.0)  # exactly PIA at FRA
+    assert by_age[70] == pytest.approx(37_200.0)  # 36 months delayed: 24% credit
+    assert by_age[62] < by_age[67] < by_age[70]
+
+
+def test_grid_amount_within_first_36_months_uses_only_tier_1_rate():
+    # FRA 67, claiming at 64: 36 months early, exactly the tier-1 boundary.
+    result = _run_adjustment([{"alex": 64}])
+    amount = _first_benefit(result.projections[0])
+    expected_reduction = 36 * (5 / 9) / 100
+    assert amount == pytest.approx(30_000.0 * (1 - expected_reduction))
+
+
+def test_grid_amount_beyond_36_months_blends_both_tiers():
+    # FRA 67, claiming at 62: 60 months early -- 36 at tier 1, 24 at tier 2.
+    result = _run_adjustment([{"alex": 62}])
+    amount = _first_benefit(result.projections[0])
+    expected_reduction = 36 * (5 / 9) / 100 + 24 * (5 / 12) / 100
+    assert amount == pytest.approx(30_000.0 * (1 - expected_reduction))

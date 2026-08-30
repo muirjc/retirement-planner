@@ -268,19 +268,29 @@ def test_us3_contribution_reduces_ordinary_income_in_every_eligible_year():
             assert with_year.mechanics.ordinary_income < without_year.mechanics.ordinary_income
 
 
-# -- Polish: every new figure defaults verified=False and propagates (T032) --
+# -- Polish: every figure this feature named started verified=False and
+# propagated that status (T032); 014-figure-verification (rp-9wi.1-.4,
+# .6) has since cross-checked every one of them -- federal brackets, SS
+# thresholds, IRMAA tiers, NIIT rate/threshold, and HSA limits are all now
+# verified=True, so this test's own name and assertions flip along with
+# them. The "needs verification" propagation path itself (figures_used ->
+# unverified_figure_names) is unchanged and still exercised by 006's own
+# tests directly -- this test now demonstrates the *other* half: a fully
+# verified run's unverified_figure_names is empty, not that it's silently
+# skipped.
 
 
-def test_irmaa_niit_hsa_figures_are_all_unverified_and_propagate():
-    """Principle III (Auditability): every new externally-sourced figure
-    this feature introduces starts verified=False, and that status must
-    reach unverified_figure_names, the same "needs verification"
-    propagation path every existing tax figure already uses -- IRMAA/NIIT
-    are computed every plan year regardless of whether a surcharge/surtax
-    is actually triggered, and HSA eligibility/limits are computed every
-    plan year regardless of whether a contribution is configured, so all
-    four figure names are expected on every projection, not only ones
-    that happen to trigger a nonzero result."""
+def test_irmaa_niit_hsa_figures_are_all_verified_and_absent_from_unverified_list():
+    """Principle III (Auditability): once every figure a run relies on has
+    been cross-checked (014-figure-verification), that verified status
+    must reach unverified_figure_names too -- IRMAA/NIIT are computed
+    every plan year regardless of whether a surcharge/surtax is actually
+    triggered, and HSA eligibility/limits are computed every plan year
+    regardless of whether a contribution is configured, so all four
+    figure names are expected on every projection, not only ones that
+    happen to trigger a nonzero result. FL (this test's state) carries no
+    state-tax SourcedFigure of its own (zero-tax state), so this
+    household's entire figures_used set is now fully verified."""
     from retirement_planner.reporting import summarize_run
     from retirement_planner.simulation import run_simulation
 
@@ -298,7 +308,7 @@ def test_irmaa_niit_hsa_figures_are_all_unverified_and_propagate():
     assert "niit_threshold_mfj" in figure_names
     assert "niit_rate" in figure_names
     assert "hsa_contribution_limits" in figure_names
-    assert all(not figure.verified for year in projection.years for figure in year.figures_used)
+    assert all(figure.verified for year in projection.years for figure in year.figures_used)
 
     # Same propagation through 006's own aggregation, the layer 007/008
     # actually surface unverified_figure_names through to a user.
@@ -312,8 +322,7 @@ def test_irmaa_niit_hsa_figures_are_all_unverified_and_propagate():
         candidate_label="test",
     )
     summary = summarize_run(run, household=household, reference_tax_year=2026)
-    for name in ("irmaa_tiers_mfj", "niit_threshold_mfj", "niit_rate", "hsa_contribution_limits"):
-        assert name in summary.unverified_figure_names
+    assert summary.unverified_figure_names == []
 
 
 # -- Polish: the full quickstart.md walkthrough, chained verbatim (T035) --

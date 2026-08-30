@@ -9,9 +9,8 @@ flags as a known accuracy gap.
 
 The $32,000/$44,000 (MFJ) and $25,000/$34,000 (single) thresholds are the
 actual, longstanding statutory base amounts and have not changed since 1983
-— but per this project's Development Workflow gate (plan.md), they still
-ship here as `verified=False` because they have not been cross-checked
-against 26 U.S.C. §86 as part of this implementation.
+— confirmed directly against 26 U.S.C. §86(c)(1)-(2)'s text
+(014-figure-verification, rp-9wi.6), hence `verified=True` below.
 
 Schedule note (added for 004-strategy-comparison-layer): these thresholds
 are not inflation-indexed by statute (unlike federal brackets), so the same
@@ -50,8 +49,8 @@ _THRESHOLDS: dict[FilingStatus, SourcedFigure[_ProvisionalIncomeThresholds]] = {
             for year in _DOCUMENTED_YEARS
         },
         citation="26 U.S.C. §86(c)(1)(B), (c)(2)(B) — MFJ base and adjusted base amounts",
-        last_verified=date(2026, 8, 27),
-        verified=False,
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
     "single": SourcedFigure(
         name="ss_provisional_income_thresholds_single",
@@ -60,8 +59,8 @@ _THRESHOLDS: dict[FilingStatus, SourcedFigure[_ProvisionalIncomeThresholds]] = {
             for year in _DOCUMENTED_YEARS
         },
         citation="26 U.S.C. §86(c)(1)(A), (c)(2)(A) — single filer base and adjusted base amounts",
-        last_verified=date(2026, 8, 27),
-        verified=False,
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
 }
 

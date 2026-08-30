@@ -6,21 +6,32 @@ beneficiary and more than 10 years younger — the source requirement
 document's flagged gap in the prototype (which only ever implemented the
 Uniform Lifetime Table).
 
-RMD_START_AGE, UNIFORM_LIFETIME_TABLE, and JOINT_LIFE_TABLE are illustrative
-placeholder figures (SourcedFigure, verified=False), continuing 002's
-citation/verification convention (FR-019) — see quickstart.md and plan.md's
-Development Workflow gate. JOINT_LIFE_TABLE covers only the age pairs this
-project's tests and quickstart.md exercise; extending coverage to the full
-IRS Pub. 590-B Table II is follow-on work, not something this feature hides.
+RMD_START_AGE and UNIFORM_LIFETIME_TABLE have both been cross-checked
+against their primary sources and ship verified=True
+(014-figure-verification, rp-9wi.5/.7). JOINT_LIFE_TABLE remains an
+illustrative placeholder figure (SourcedFigure, verified=False),
+continuing 002's citation/verification convention (FR-019) — it covers
+only the age pairs this project's tests and quickstart.md exercise, and
+neither its coverage nor its verification is in that feature's scope;
+extending it to the full IRS Pub. 590-B Table II remains follow-on work.
 
-Schedule note (added for 004-strategy-comparison-layer): RMD_START_AGE is
-scheduled to actually change (73 -> 75 in 2033 under SECURE 2.0) — a real
-future caller must not assume it never will — but this project's own
-documented figures don't yet model that second step, so the same value is
-repeated across `_DOCUMENTED_YEARS` for now, same as the divisor tables
-below (which are not scheduled to change). This keeps a multi-year caller
-(a full-horizon projection) from hitting `UnsupportedTaxYearError` for
-every year after 2026; modeling the 2033 step is follow-on work.
+Schedule note (added for 004-strategy-comparison-layer, updated by
+014-figure-verification): RMD_START_AGE is scheduled to actually change
+(73 -> 75 in 2033 under SECURE 2.0 Act §107, codified at 26 U.S.C.
+§401(a)(9)(C)(v)) — a real future caller must not assume it never will.
+That step is now modeled directly: the schedule below returns 73 for
+tax years before 2033 and 75 for 2033 onward. This is a tax-year-keyed
+approximation of the statute's actual rule, which is keyed to the
+account owner's *birth year* (age 73 applies to those born 1951-1959,
+age 75 to those born 1960 or later — the 2033 tax-year cutoff is where
+the birth-year cohorts' own RMD-triggering ages happen to cross that
+line, not a literal restatement of the statute). Modeling the full
+birth-year-cohort distinction would require threading the account
+owner's birth year through compute_rmd()'s signature and every caller —
+a materially larger change than this feature's other figure corrections
+— and is deliberately left as separate follow-on work
+(research.md §3, spec.md Assumptions). The divisor tables below are not
+scheduled to change and keep the same flat-schedule shape.
 
 See specs/003-retirement-account-mechanics/contracts/mechanics-api.md
 ("Operations (rmd)" section) for the locked public signature of
@@ -39,10 +50,19 @@ _DOCUMENTED_YEARS = range(2020, 2075)
 
 RMD_START_AGE: SourcedFigure[int] = SourcedFigure(
     name="rmd_start_age",
-    schedule={year: 73 for year in _DOCUMENTED_YEARS},
-    citation="26 U.S.C. §401(a)(9)(C), as amended by SECURE 2.0 Act §107 (illustrative — pending verification)",
-    last_verified=date(2026, 8, 28),
-    verified=False,
+    schedule={
+        **{year: 73 for year in range(_DOCUMENTED_YEARS.start, 2033)},
+        **{year: 75 for year in range(2033, _DOCUMENTED_YEARS.stop)},
+    },
+    citation=(
+        "26 U.S.C. §401(a)(9)(C)(v), as amended by SECURE 2.0 Act (Pub. L. 117-328) §107 — "
+        "applicable age 73 for individuals attaining age 72 after Dec. 31, 2022 and age 73 "
+        "before Jan. 1, 2033; applicable age 75 for individuals attaining age 74 after "
+        "Dec. 31, 2032. Modeled here as a tax-year step (73 before 2033, 75 from 2033 on) "
+        "rather than the statute's own birth-year-cohort basis — see module docstring."
+    ),
+    last_verified=date(2026, 8, 30),
+    verified=True,
 )
 
 _UNIFORM_LIFETIME_DIVISORS = {
@@ -75,14 +95,36 @@ _UNIFORM_LIFETIME_DIVISORS = {
     98: 7.3,
     99: 6.8,
     100: 6.4,
+    101: 6.0,
+    102: 5.6,
+    103: 5.2,
+    104: 4.9,
+    105: 4.6,
+    106: 4.3,
+    107: 4.1,
+    108: 3.9,
+    109: 3.7,
+    110: 3.5,
+    111: 3.4,
+    112: 3.3,
+    113: 3.1,
+    114: 3.0,
+    115: 2.9,
+    116: 2.8,
+    117: 2.7,
+    118: 2.5,
+    119: 2.3,
+    120: 2.0,  # "120 and over" per the published table -- see compute_rmd()'s
+    # own age lookup, which indexes this dict directly by member_age with no
+    # clamping; an age above 120 still raises a plain KeyError (data-model.md).
 }
 
 UNIFORM_LIFETIME_TABLE: SourcedFigure[dict[int, float]] = SourcedFigure(
     name="uniform_lifetime_table",
     schedule={year: _UNIFORM_LIFETIME_DIVISORS for year in _DOCUMENTED_YEARS},
-    citation="IRS Pub. 590-B, Table III (Uniform Lifetime) (illustrative — pending verification)",
-    last_verified=date(2026, 8, 28),
-    verified=False,
+    citation="IRS Pub. 590-B (2025), Appendix B, Table III (Uniform Lifetime) — full published age range, 72 through 120 and over",
+    last_verified=date(2026, 8, 30),
+    verified=True,
 )
 
 _JOINT_LIFE_DIVISORS = {

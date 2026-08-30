@@ -6,13 +6,16 @@ Genuine tiered-threshold lookup against a MAGI figure the caller supplies
 two-year look-back logic, research.md §§2-3 -- this module has no opinion
 about how MAGI was derived, only what tier it falls into).
 
-The dollar tier thresholds and surcharge amounts below are illustrative
-placeholders (round numbers in the right order of magnitude), not
-asserted as CMS's actual current tables -- see quickstart.md and this
-project's own established precedent (federal.py's own docstring makes
-the identical disclosure for its bracket tables). `verified=False`
-reflects that honestly; cross-checking against CMS.gov's published IRMAA
-tables is follow-on work, not a gap this feature hides (research.md §7).
+The dollar tier thresholds and surcharge amounts below are CMS's actual
+published tax year 2026 IRMAA figures (Part B + Part D surcharge,
+combined into one annual `annual_surcharge_per_person` per tier — this
+module has no separate Part B/Part D breakdown), cross-checked directly
+against CMS's published tables (014-figure-verification, rp-9wi.3). Note
+this also corrects a modeling bug the placeholder figures carried: real
+IRMAA surcharge amounts are identical for both filing statuses at the
+same relative tier (only the MAGI threshold differs by filing status) —
+the old placeholder halved the single-filer surcharge relative to MFJ's,
+which was never how IRMAA actually works.
 
 Schedule note: mirroring federal.py's own precedent, these tier tables
 are stated in real (inflation-adjusted, "today's dollars") terms with no
@@ -34,35 +37,35 @@ from .models import FilingStatus, IrmaaResult, IrmaaTierRow, IrmaaTierTable, Sou
 _DOCUMENTED_YEARS = range(2020, 2075)
 
 _MFJ_TIERS: IrmaaTierTable = (
-    IrmaaTierRow(magi_threshold=206_000.0, annual_surcharge_per_person=1_800.0),
-    IrmaaTierRow(magi_threshold=258_000.0, annual_surcharge_per_person=2_700.0),
-    IrmaaTierRow(magi_threshold=322_000.0, annual_surcharge_per_person=3_900.0),
-    IrmaaTierRow(magi_threshold=386_000.0, annual_surcharge_per_person=4_600.0),
-    IrmaaTierRow(magi_threshold=750_000.0, annual_surcharge_per_person=5_000.0),
+    IrmaaTierRow(magi_threshold=218_000.0, annual_surcharge_per_person=1_148.40),
+    IrmaaTierRow(magi_threshold=274_000.0, annual_surcharge_per_person=2_884.80),
+    IrmaaTierRow(magi_threshold=342_000.0, annual_surcharge_per_person=4_620.00),
+    IrmaaTierRow(magi_threshold=410_000.0, annual_surcharge_per_person=6_355.20),
+    IrmaaTierRow(magi_threshold=750_000.0, annual_surcharge_per_person=6_936.00),
 )
 
 _SINGLE_TIERS: IrmaaTierTable = (
-    IrmaaTierRow(magi_threshold=103_000.0, annual_surcharge_per_person=900.0),
-    IrmaaTierRow(magi_threshold=129_000.0, annual_surcharge_per_person=1_350.0),
-    IrmaaTierRow(magi_threshold=161_000.0, annual_surcharge_per_person=1_950.0),
-    IrmaaTierRow(magi_threshold=193_000.0, annual_surcharge_per_person=2_300.0),
-    IrmaaTierRow(magi_threshold=500_000.0, annual_surcharge_per_person=2_500.0),
+    IrmaaTierRow(magi_threshold=109_000.0, annual_surcharge_per_person=1_148.40),
+    IrmaaTierRow(magi_threshold=137_000.0, annual_surcharge_per_person=2_884.80),
+    IrmaaTierRow(magi_threshold=171_000.0, annual_surcharge_per_person=4_620.00),
+    IrmaaTierRow(magi_threshold=205_000.0, annual_surcharge_per_person=6_355.20),
+    IrmaaTierRow(magi_threshold=500_000.0, annual_surcharge_per_person=6_936.00),
 )
 
 _IRMAA_TIERS: dict[FilingStatus, SourcedFigure[IrmaaTierTable]] = {
     "married_filing_jointly": SourcedFigure(
         name="irmaa_tiers_mfj",
         schedule={year: _MFJ_TIERS for year in _DOCUMENTED_YEARS},
-        citation="CMS.gov IRMAA premium tables, MFJ schedule (placeholder — pending verification)",
-        last_verified=date(2026, 8, 28),
-        verified=False,
+        citation="CMS.gov, 2026 Medicare Parts B & D IRMAA tables (CMS-8089-N/8090-N/8091-N), MFJ schedule",
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
     "single": SourcedFigure(
         name="irmaa_tiers_single",
         schedule={year: _SINGLE_TIERS for year in _DOCUMENTED_YEARS},
-        citation="CMS.gov IRMAA premium tables, single schedule (placeholder — pending verification)",
-        last_verified=date(2026, 8, 28),
-        verified=False,
+        citation="CMS.gov, 2026 Medicare Parts B & D IRMAA tables (CMS-8089-N/8090-N/8091-N), single schedule",
+        last_verified=date(2026, 8, 30),
+        verified=True,
     ),
 }
 

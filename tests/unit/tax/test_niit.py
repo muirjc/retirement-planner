@@ -1,9 +1,9 @@
 """Unit tests for compute_niit() (010-advanced-tax-benefits, US2).
 
-Expected amounts are hand-calculated against this feature's own
-placeholder NIIT threshold/rate figures (niit.py) -- see that module's
-docstring for why the dollar threshold is illustrative pending citation
-verification against IRC §1411 (research.md §7).
+Expected amounts are hand-calculated against the NIIT threshold/rate
+figures (niit.py), which are fixed directly by 26 U.S.C. §1411 and have
+been cross-checked against that statute's text
+(014-figure-verification, rp-9wi.4).
 """
 
 import pytest
@@ -66,12 +66,20 @@ def test_single_filer_uses_its_own_lower_threshold():
     assert result.surtax_owed == pytest.approx(20_000.0 * 0.038)
 
 
-def test_figures_used_reflects_both_threshold_and_rate_verification_status():
+def test_figures_used_are_verified_against_26_usc_1411():
+    """014-figure-verification (rp-9wi.4): niit_threshold_mfj and niit_rate
+    are cross-checked directly against 26 U.S.C. §1411(a)(1), (b)(1) --
+    fixed by statute, not inflation-indexed."""
     result = compute_niit(
         magi=100_000.0, investment_income=0.0, filing_status="married_filing_jointly", tax_year=2026,
     )
     assert len(result.figures_used) == 2
-    assert all(figure.verified is False for figure in result.figures_used)
+    assert all(figure.verified is True for figure in result.figures_used)
+    figures_by_name = {figure.name: figure for figure in result.figures_used}
+    assert figures_by_name["niit_threshold_mfj"].citation == (
+        "26 U.S.C. §1411(b)(1) — married filing jointly threshold ($250,000, fixed, not inflation-indexed)"
+    )
+    assert figures_by_name["niit_rate"].citation == "26 U.S.C. §1411(a)(1) — 3.8% surtax rate"
 
 
 def test_unsupported_tax_year_raises():

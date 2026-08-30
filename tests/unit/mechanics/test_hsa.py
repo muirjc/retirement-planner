@@ -1,11 +1,10 @@
 """Unit tests for compute_hsa_eligibility() and compute_hsa_contribution()
 (010-advanced-tax-benefits, US3).
 
-Expected limits are hand-calculated against this feature's own
-placeholder HSA contribution-limit figures (hsa.py) -- see that module's
-docstring for why the dollar amounts are illustrative pending citation
-verification against the IRS's annual Rev. Proc. HSA-limits announcement
-(research.md §7).
+Expected limits are hand-calculated against hsa.py's actual IRS
+Rev. Proc. 2025-19 tax year 2026 HSA contribution-limit figures,
+cross-checked directly against that Revenue Procedure
+(014-figure-verification, rp-9wi.2).
 """
 
 import pytest
@@ -54,7 +53,7 @@ def test_one_members_eligibility_is_independent_of_anothers():
 def test_one_eligible_member_uses_the_self_only_limit():
     eligibility = compute_hsa_eligibility(members=[("you", 45, True)], medicare_enrolled={"you": False})
     result = compute_hsa_contribution(eligibility, configured_annual_amount=3_000.0, tax_year=2026)
-    assert result.applicable_limit == 4_300.0
+    assert result.applicable_limit == 4_400.0
     assert result.amount_contributed == 3_000.0
     assert result.rejected_reason is None
 
@@ -64,7 +63,7 @@ def test_two_eligible_members_use_the_family_limit():
         members=[("you", 45, True), ("spouse", 43, True)], medicare_enrolled={"you": False, "spouse": False},
     )
     result = compute_hsa_contribution(eligibility, configured_annual_amount=8_000.0, tax_year=2026)
-    assert result.applicable_limit == 8_550.0
+    assert result.applicable_limit == 8_750.0
     assert result.amount_contributed == 8_000.0
 
 
@@ -73,13 +72,13 @@ def test_catchup_added_once_per_eligible_member_55_or_older():
         members=[("you", 56, True), ("spouse", 57, True)], medicare_enrolled={"you": False, "spouse": False},
     )
     result = compute_hsa_contribution(eligibility, configured_annual_amount=20_000.0, tax_year=2026)
-    assert result.applicable_limit == 8_550.0 + 1_000.0 * 2
+    assert result.applicable_limit == 8_750.0 + 1_000.0 * 2
 
 
 def test_configured_amount_above_the_limit_is_capped_and_flagged():
     eligibility = compute_hsa_eligibility(members=[("you", 45, True)], medicare_enrolled={"you": False})
     result = compute_hsa_contribution(eligibility, configured_annual_amount=10_000.0, tax_year=2026)
-    assert result.amount_contributed == 4_300.0
+    assert result.amount_contributed == 4_400.0
     assert result.rejected_reason is not None
 
 
@@ -97,7 +96,8 @@ def test_figures_used_reflects_the_limit_table_verification_status():
     eligibility = compute_hsa_eligibility(members=[("you", 45, True)], medicare_enrolled={"you": False})
     result = compute_hsa_contribution(eligibility, configured_annual_amount=1_000.0, tax_year=2026)
     assert len(result.figures_used) == 1
-    assert result.figures_used[0].verified is False
+    assert result.figures_used[0].verified is True
+    assert "Rev. Proc. 2025-19" in result.figures_used[0].citation
 
 
 def test_unsupported_tax_year_raises():

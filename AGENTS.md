@@ -47,6 +47,16 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Project Documentation
+
+See `CLAUDE.md`'s Build & Test / Architecture Overview / Conventions &
+Patterns sections (mirrored here since `AGENTS.md` and `CLAUDE.md` are
+independent files) — in short: `README.md`, `docs/BRD.md`, and
+`docs/SOLUTION_ARCHITECTURE.md` are living documents. Update the relevant
+one in the same change whenever you touch what it describes (a package
+boundary, a regulated figure, a piece of financial math, a run command).
+Don't let them go stale.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 

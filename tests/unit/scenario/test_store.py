@@ -89,6 +89,30 @@ def test_full_retirement_age_survives_a_save_load_round_trip(scenario_store_dir)
     assert reloaded.household.members[0].full_retirement_age == 67.0
 
 
+def test_predicted_death_age_survives_a_save_load_round_trip(scenario_store_dir):
+    """017-ss-spousal-survivor-benefits regression, caught the same way
+    full_retirement_age was above: _scenario_to_dict() builds its YAML
+    dict field-by-field and initially omitted
+    HouseholdMember.predicted_death_age -- silently dropping it on save."""
+    scenario = _scenario("death_age_case")
+    scenario.household.members[0].predicted_death_age = 85
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("death_age_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].predicted_death_age == 85
+
+
+def test_predicted_death_age_defaults_to_none_after_a_save_load_round_trip(scenario_store_dir):
+    scenario = _scenario("no_death_age_case")
+    assert scenario.household.members[0].predicted_death_age is None
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("no_death_age_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].predicted_death_age is None
+
+
 def test_account_owner_survives_a_save_load_round_trip(scenario_store_dir):
     """011-per-owner-accounts regression: the same class of bug as the HSA
     one above -- _scenario_to_dict() initially omitted Account.owner,

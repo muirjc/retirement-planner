@@ -203,3 +203,37 @@ class SocialSecurityBenefitResult:
     separately from annual_benefit so a caller/report can show "70% of
     PIA" without re-deriving it from two floats."""
     figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
+class SpousalBenefitResult:
+    """017-ss-spousal-survivor-benefits data-model.md § SpousalBenefitResult.
+    One member's spousal-derived Social Security amount -- up to 50% of
+    their spouse's PIA, adjusted for the claiming member's own claiming
+    age relative to their own FRA (never the spouse's FRA)."""
+
+    spousal_amount: float
+    """0.5 * other_member_pia, reduced for the claiming member's own
+    early claiming via the SSA's spousal-specific reduction rate; never
+    increased for delayed claiming -- capped at exactly
+    0.5 * other_member_pia for claiming at or after the claiming
+    member's own FRA (no delayed-retirement credit on a spousal amount,
+    research.md Decision 2)."""
+    adjustment_factor: float
+    """spousal_amount / (0.5 * other_member_pia), e.g. ~0.65 at 62
+    against a 67 FRA (25% + 10% reduction), 1.0 at or after FRA -- never
+    > 1.0, unlike SocialSecurityBenefitResult.adjustment_factor which can
+    exceed 1.0 for delayed claiming."""
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
+class SurvivorBenefitResult:
+    """017-ss-spousal-survivor-benefits data-model.md § SurvivorBenefitResult.
+    The surviving member's ongoing Social Security benefit after one
+    member has died -- the higher of the two members' own currently-
+    claimed benefit amounts (research.md Decision 4)."""
+
+    survivor_benefit: float
+    """max(member_a_benefit, member_b_benefit)."""
+    figures_used: list[FigureUsage] = field(default_factory=list)

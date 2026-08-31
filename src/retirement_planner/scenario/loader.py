@@ -93,6 +93,18 @@ def _build_household_member(data: object, source: str, context: str) -> Househol
         # False when omitted -- every existing scenario YAML round-trips
         # unchanged.
         hdhp_coverage=data.get("hdhp_coverage", False) if isinstance(data, dict) else False,
+        # predicted_death_age (017-ss-spousal-survivor-benefits): optional,
+        # defaults to None when omitted -- unlike full_retirement_age,
+        # None is already this field's own fully-meaningful "no
+        # hypothetical death configured" value, so there is no computed
+        # substitute to resolve here (mirrors hdhp_coverage's own
+        # defaults-to-a-no-op-value pattern, not full_retirement_age's
+        # defaults-to-a-computed-value one).
+        predicted_death_age=(
+            int(data["predicted_death_age"])
+            if isinstance(data, dict) and data.get("predicted_death_age") is not None
+            else None
+        ),
     )
 
 

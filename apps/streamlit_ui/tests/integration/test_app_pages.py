@@ -275,6 +275,59 @@ def test_full_retirement_age_defaults_and_is_saved_and_reloaded():
     assert at.number_input(key="member1_full_retirement_age").value == 67.0
 
 
+def test_predicted_death_age_defaults_unset_and_is_saved_and_reloaded():
+    """017-ss-spousal-survivor-benefits: the widget defaults to 0 ("not
+    set"), an explicit value the user enters is sent as a real int in the
+    saved payload (not 0), and loading a previously saved scenario
+    repopulates it; leaving it at 0 sends None, not 0, to the backend."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.number_input(key="member1_predicted_death_age").value == 0
+
+    at.text_input(key="scenario_name").set_value("death_age_case")
+    at.text_input(key="member1_person_name").set_value("alex")
+    at.number_input(key="member1_current_age").set_value(61)
+    at.number_input(key="member1_ss_claim_age").set_value(67)
+    at.number_input(key="member1_ss_annual_benefit").set_value(30_000.0)
+    at.number_input(key="member1_predicted_death_age").set_value(85)
+    at.number_input(key="annual_need_real").set_value(60_000.0)
+    at.selectbox(key="state").set_value("FL")
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["death_age_case"]["household"]["members"][0]["predicted_death_age"] == 85
+
+    # A fresh page load, then loading that saved scenario back, repopulates it.
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("death_age_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.number_input(key="member1_predicted_death_age").value == 85
+
+
+def test_predicted_death_age_left_unset_sends_none_not_zero():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.text_input(key="scenario_name").set_value("no_death_age_case")
+    at.text_input(key="member1_person_name").set_value("alex")
+    at.number_input(key="member1_current_age").set_value(61)
+    at.number_input(key="member1_ss_claim_age").set_value(67)
+    at.number_input(key="member1_ss_annual_benefit").set_value(30_000.0)
+    at.number_input(key="annual_need_real").set_value(60_000.0)
+    at.selectbox(key="state").set_value("FL")
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["no_death_age_case"]["household"]["members"][0]["predicted_death_age"] is None
+
+
 def test_us2_single_member_household_never_renders_member2_account_fields():
     """A single-filer household has only one possible owner -- no second
     row is ever offered (FR-003)."""

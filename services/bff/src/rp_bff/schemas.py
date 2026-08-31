@@ -27,6 +27,10 @@ class HouseholdMemberRequest(BaseModel):
     adjustment) -- see scenario/loader.py."""
     hdhp_coverage: bool = False
     """010-advanced-tax-benefits."""
+    predicted_death_age: int | None = None
+    """017-ss-spousal-survivor-benefits: defaults to None (no hypothetical
+    death configured) -- consulted by nothing in this feature; exists for
+    a future feature (rp-g8y) to consume. See scenario/models.py."""
 
 
 class HouseholdRequest(BaseModel):

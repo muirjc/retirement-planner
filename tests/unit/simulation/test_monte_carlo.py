@@ -299,3 +299,71 @@ def test_claiming_age_adjusted_benefit_matches_deterministic_projection_exactly(
     )
     # Sanity: this is actually the reduced amount, not the flat PIA.
     assert deterministic.years[0].member_social_security_benefits["you"] < 30_000.0
+
+
+def test_spousal_floor_matches_deterministic_projection_exactly():
+    """017-ss-spousal-survivor-benefits (rp-52n), /speckit-analyze finding
+    C1: the spousal benefit floor -- like 016's own claiming-age
+    adjustment above -- is applied inside the one shared call site
+    (_member_gross_social_security_benefits(), research.md Decision 7)
+    every engine path funnels through. This is a regression guard against
+    that ever drifting apart, not a re-test of the formula itself
+    (covered by tests/unit/mechanics/test_social_security_benefit.py and
+    tests/unit/comparison/test_projection.py)."""
+    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(
+                person_name="you", current_age=67, ss_claim_age=67, ss_annual_benefit=30_000, full_retirement_age=67.0
+            ),
+            HouseholdMember(
+                person_name="spouse",
+                current_age=67,
+                ss_claim_age=67,
+                ss_annual_benefit=6_000,  # well under 50% of "you"'s PIA -- the floor must trigger
+                full_retirement_age=67.0,
+            ),
+        ],
+    )
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        claiming_ages={"you": 67, "spouse": 67},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+    )
+
+    deterministic = run_plan_projection(
+        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+    )
+    simulated = run_simulation(
+        **common_kwargs,
+        return_paths=[
+            ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
+        ],
+        candidate_label="test",
+    )
+
+    assert (
+        simulated.path_results[0].years[0].member_social_security_benefits["spouse"]
+        == deterministic.years[0].member_social_security_benefits["spouse"]
+    )
+    # Sanity: this is actually the spousal-floor amount (50% of 30,000), not spouse's own $6,000 PIA.
+    assert deterministic.years[0].member_social_security_benefits["spouse"] == pytest.approx(15_000.0)

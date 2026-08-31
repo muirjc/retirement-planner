@@ -41,11 +41,13 @@ DEFAULTS = {
     "member1_ss_claim_age": 67,
     "member1_ss_annual_benefit": 0.0,
     "member1_full_retirement_age": 67.0,
+    "member1_predicted_death_age": 0,  # 0 = not set (maps to None) -- see _build_body()
     "member2_person_name": "",
     "member2_current_age": 60,
     "member2_ss_claim_age": 67,
     "member2_ss_annual_benefit": 0.0,
     "member2_full_retirement_age": 67.0,
+    "member2_predicted_death_age": 0,
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
     "member1_taxable_balance": 0.0,
@@ -101,6 +103,12 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     # key is never missing from a get_scenario()-shaped response -- no
     # `.get(..., fallback)` needed, unlike a field this UI predates entirely.
     st.session_state["member1_full_retirement_age"] = m1["full_retirement_age"]
+    # 017-ss-spousal-survivor-benefits: predicted_death_age is genuinely
+    # optional (None, unlike full_retirement_age, has no resolved-default
+    # substitute) -- `or 0` maps a None or omitted value to this form's own
+    # "not set" sentinel (DEFAULTS above), never a KeyError for a scenario
+    # saved before this feature existed.
+    st.session_state["member1_predicted_death_age"] = m1.get("predicted_death_age") or 0
     if len(members) > 1:
         m2 = members[1]
         st.session_state["member2_person_name"] = m2["person_name"]
@@ -108,6 +116,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_ss_claim_age"] = m2["ss_claim_age"]
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
         st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
+        st.session_state["member2_predicted_death_age"] = m2.get("predicted_death_age") or 0
     # 011-per-owner-accounts: match each account to a member row by
     # (account_type, owner) against the members just loaded above. An
     # account whose owner is None or doesn't match either member (a
@@ -278,9 +287,14 @@ _FRA_HELP = (
     "Claiming before this reduces the benefit below the PIA; claiming after it (up to 70) increases "
     "the benefit above the PIA."
 )
+_PREDICTED_DEATH_AGE_HELP = (
+    "Optional: a hypothetical age at death, for planning purposes only. Leave at 0 for 'not set' -- "
+    "this input does not yet change any projection (017-ss-spousal-survivor-benefits); it exists for "
+    "a future feature to consume."
+)
 
 st.markdown("**Member 1**")
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.text_input("Name", key="member1_person_name", help=_NAME_HELP)
 c2.number_input("Current age", min_value=0, step=1, key="member1_current_age", help=_CURRENT_AGE_HELP)
 c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
@@ -290,10 +304,13 @@ c4.number_input(
 c5.number_input(
     "Full retirement age", min_value=0.0, step=1.0, key="member1_full_retirement_age", help=_FRA_HELP
 )
+c6.number_input(
+    "Predicted death age", min_value=0, step=1, key="member1_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
+)
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.text_input("Name", key="member2_person_name", help=_NAME_HELP)
     c2.number_input("Current age", min_value=0, step=1, key="member2_current_age", help=_CURRENT_AGE_HELP)
     c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
@@ -302,6 +319,9 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     )
     c5.number_input(
         "Full retirement age", min_value=0.0, step=1.0, key="member2_full_retirement_age", help=_FRA_HELP
+    )
+    c6.number_input(
+        "Predicted death age", min_value=0, step=1, key="member2_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
     )
 
 st.subheader("Accounts")
@@ -625,6 +645,7 @@ def _build_body() -> dict:
                     "ss_claim_age": st.session_state["member1_ss_claim_age"],
                     "ss_annual_benefit": st.session_state["member1_ss_annual_benefit"],
                     "full_retirement_age": st.session_state["member1_full_retirement_age"],
+                    "predicted_death_age": st.session_state["member1_predicted_death_age"] or None,
                 }
             ],
         },
@@ -671,6 +692,7 @@ def _build_body() -> dict:
                 "ss_claim_age": st.session_state["member2_ss_claim_age"],
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
                 "full_retirement_age": st.session_state["member2_full_retirement_age"],
+                "predicted_death_age": st.session_state["member2_predicted_death_age"] or None,
             }
         )
         body["accounts"].extend(

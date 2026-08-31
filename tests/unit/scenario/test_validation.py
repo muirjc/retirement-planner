@@ -25,13 +25,14 @@ def _market_assumptions():
     )
 
 
-def _member(name="you", age=60, claim_age=67, benefit=32_000.0, fra=None):
+def _member(name="you", age=60, claim_age=67, benefit=32_000.0, fra=None, predicted_death_age=None):
     return HouseholdMember(
         person_name=name,
         current_age=age,
         ss_claim_age=claim_age,
         ss_annual_benefit=benefit,
         full_retirement_age=fra,
+        predicted_death_age=predicted_death_age,
     )
 
 
@@ -121,6 +122,57 @@ def test_validate_never_flags_full_retirement_age_when_none():
         household=Household(filing_status="single", members=[_member(fra=None)])
     )
     assert validate(scenario) == []
+
+
+def test_validate_never_flags_predicted_death_age_when_none():
+    # 017-ss-spousal-survivor-benefits: every existing scenario (which
+    # never sets this field) validates cleanly -- None is skipped, not
+    # treated as implausible or incoherent.
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(predicted_death_age=None)])
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_accepts_predicted_death_age_inside_plausible_range():
+    for death_age in (50, 85, 110):
+        scenario = _clean_scenario(
+            household=Household(filing_status="single", members=[_member(age=40, predicted_death_age=death_age)])
+        )
+        assert validate(scenario) == []
+
+
+def test_validate_flags_predicted_death_age_outside_plausible_range_as_warning():
+    # age=60 (matching _clean_scenario's own plan_to_age=60, so the
+    # unrelated spending-vs-assets check stays quiet), predicted_death_age
+    # =120: not blocking (120 >= 60), but still outside the [50, 110]
+    # plausible range -- isolates the warning check from the blocking one
+    # above.
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(age=60, predicted_death_age=120)])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].predicted_death_age"
+    assert flags[0].severity == "warning"
+
+    scenario.validation_flags = flags
+    assert scenario.is_usable is True
+
+
+def test_validate_flags_predicted_death_age_before_current_age_as_blocking():
+    # A "prediction" of a death already in the past is incoherent, not
+    # merely implausible -- distinct from the warning case above.
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(age=60, predicted_death_age=59)])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].predicted_death_age"
+    assert flags[0].severity == "blocking"
+
+    scenario.validation_flags = flags
+    assert scenario.is_usable is False
 
 
 def test_validate_flags_negative_spending_as_blocking():

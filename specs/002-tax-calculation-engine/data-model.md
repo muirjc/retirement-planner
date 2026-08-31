@@ -21,6 +21,8 @@ An enum: `single` or `married_filing_jointly` — the same two values `001`'s `H
 
 A list of filer ages (one per household member) — length **must** be 1 for `single` or 2 for `married_filing_jointly`, mirroring `001`'s `Household.members` count rule (data-model.md § Household). A mismatched length is a shape error the caller made, not a value the engine can compute against — the engine raises rather than guessing which age applies to which slot.
 
+`compute_federal_tax()` also takes `FilerAges` now (rp-7me), for the same reason a state module already did: to add the age-65 standard deduction addition per qualifying filer. It plays no other role in the federal computation.
+
 ## TaxYear
 
 A plain integer (e.g., `2026`). No entity wrapper — every function that needs a tax year takes one directly.
@@ -48,6 +50,17 @@ The value type used by graduated-bracket figures (federal, SC, DE).
 | `income_up_to` | number \| null | Upper edge of this bracket's income range; `null` means "and above" (the top bracket). |
 
 A `BracketTable` is an ordered list of `BracketRow`s, lowest bracket first.
+
+## StandardDeductionAmounts *(added rp-7me)*
+
+The value type for the federal standard-deduction `SourcedFigure`, one per `FilingStatus`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `base` | number | The filing status's base standard deduction for the year. |
+| `additional_per_filer_65_plus` | number | Added once for each `FilerAges` entry that is `>= 65` (26 U.S.C. §63(f)) — e.g. a MFJ household with both members 65+ gets `base + 2 × additional_per_filer_65_plus`. |
+
+`compute_federal_tax()` subtracts `base + (qualifying-filer count × additional_per_filer_65_plus)` from `ordinary_income + taxable_social_security` before applying brackets, floored at `$0` (never negative).
 
 ## FigureUsage
 

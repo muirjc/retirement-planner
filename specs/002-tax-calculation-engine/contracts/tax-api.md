@@ -17,6 +17,11 @@ class IncomeComponents:
 # FilerAges: list[int] — length 1 for "single", 2 for "married_filing_jointly"
 
 @dataclass
+class StandardDeductionAmounts:
+    base: float
+    additional_per_filer_65_plus: float  # added once per filer_ages entry >= 65
+
+@dataclass
 class BracketRow:
     rate: float
     income_up_to: float | None  # None = top bracket, "and above"
@@ -77,13 +82,16 @@ def compute_taxable_social_security(
 
 def compute_federal_tax(
     income: IncomeComponents,
+    filer_ages: list[int],
     filing_status: FilingStatus,
     tax_year: int,
 ) -> FederalTaxResult:
-    """Computes federal tax via compute_taxable_social_security() +
-    genuine progressive bracket math against tax_year's federal brackets
-    (FR-001). Raises UnsupportedTaxYearError if any figure needed (SS
-    thresholds or federal brackets) has no entry for tax_year."""
+    """Computes federal tax via compute_taxable_social_security() + the
+    standard deduction (rp-7me; base amount plus the age-65 addition per
+    filer_ages entry >= 65) + genuine progressive bracket math against
+    tax_year's federal brackets (FR-001). Raises UnsupportedTaxYearError if
+    any figure needed (SS thresholds, federal brackets, or the standard
+    deduction) has no entry for tax_year."""
 
 
 # retirement_planner.tax.state:

@@ -65,9 +65,13 @@ def _projection(traditional, taxable, spending_need):
 # Three real projections: A and B have ample taxable balances (no shortfall)
 # but different traditional balances (so genuinely different RMD-driven
 # cumulative_tax_paid); C has a tiny balance against large spending (a real
-# shortfall, at plan_year=1 -> tax_year=2026 -> age 75).
-_PROJECTION_A = _projection(traditional=200_000, taxable=1_000_000, spending_need=20_000)
-_PROJECTION_B = _projection(traditional=400_000, taxable=1_000_000, spending_need=20_000)
+# shortfall, at plan_year=1 -> tax_year=2026 -> age 75). A and B's traditional
+# balances are large enough that RMD-driven ordinary income clears the
+# household's federal standard deduction (rp-7me; single filer, one member
+# age 75+ so base + age-65 addition applies) -- otherwise both would owe
+# $0 and this fixture could no longer demonstrate "genuinely different".
+_PROJECTION_A = _projection(traditional=700_000, taxable=1_000_000, spending_need=20_000)
+_PROJECTION_B = _projection(traditional=1_100_000, taxable=1_000_000, spending_need=20_000)
 _PROJECTION_C = _projection(traditional=10_000, taxable=0, spending_need=500_000)
 
 

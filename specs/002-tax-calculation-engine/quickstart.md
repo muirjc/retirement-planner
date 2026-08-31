@@ -16,17 +16,17 @@ from retirement_planner.tax import IncomeComponents, compute_federal_tax
 
 # Below the first provisional-income threshold: none of Social Security is taxable.
 low_income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
-result = compute_federal_tax(low_income, filing_status="married_filing_jointly", tax_year=2026)
+result = compute_federal_tax(low_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
 assert result.taxable_social_security == 0
 
 # Between the two thresholds: up to 50% of Social Security becomes taxable.
 mid_income = IncomeComponents(ordinary_income=25_000, social_security_gross_benefit=20_000)
-result = compute_federal_tax(mid_income, filing_status="married_filing_jointly", tax_year=2026)
+result = compute_federal_tax(mid_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
 assert 0 < result.taxable_social_security <= 20_000 * 0.50
 
 # Above the second threshold: up to 85% of Social Security becomes taxable — never more.
 high_income = IncomeComponents(ordinary_income=150_000, social_security_gross_benefit=20_000)
-result = compute_federal_tax(high_income, filing_status="married_filing_jointly", tax_year=2026)
+result = compute_federal_tax(high_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
 assert result.taxable_social_security <= 20_000 * 0.85
 assert result.federal_tax_owed > 0
 ```
@@ -83,7 +83,7 @@ assert result_2026.state_tax_owed != result_2027.state_tax_owed  # the scheduled
 from retirement_planner.tax import UnsupportedTaxYearError
 
 try:
-    compute_federal_tax(low_income, filing_status="married_filing_jointly", tax_year=2075)
+    compute_federal_tax(low_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2075)
     assert False, "expected UnsupportedTaxYearError"
 except UnsupportedTaxYearError as e:
     print(e.figure_name, e.requested_year, e.available_years)

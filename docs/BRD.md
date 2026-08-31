@@ -141,6 +141,7 @@ methodology this table's federal rows were most recently produced by.
 | Figure | Regulation | Module |
 |---|---|---|
 | Federal income tax brackets (MFJ, single) | IRS Rev. Proc. 2025-32, tax year 2026 | `tax/federal.py` |
+| Federal standard deduction (MFJ, single), incl. age-65 addition per filer | 26 U.S.C. §63(c), (f); IRS Rev. Proc. 2025-32 §4.14(1), tax year 2026 | `tax/federal.py` |
 | Social Security taxability thresholds | 26 U.S.C. §86(c)(1)-(2) (fixed since 1983, not inflation-indexed) | `tax/social_security.py` |
 | Net Investment Income Tax (NIIT) rate & thresholds | 26 U.S.C. §1411(a)(1), (b)(1)/(3) (fixed by statute) | `tax/niit.py` |
 | Medicare IRMAA surcharge tiers (Parts B & D, combined) | CMS.gov, 2026 IRMAA tables (CMS-8089-N/8090-N/8091-N) | `tax/irmaa.py` |
@@ -160,15 +161,15 @@ larger, separately-scoped change (`014-figure-verification`, research.md
 
 ### 5.2 Federal — real math, "real-dollar" bracket/tier convention
 
-Federal brackets and IRMAA tiers are pinned to one specific, cited tax
-year (2026) and held flat across every documented year rather than
-re-indexed annually — the same "real (inflation-adjusted) dollars, no
-further indexing engine" convention `tax/federal.py`'s own docstring
-establishes and `tax/irmaa.py` explicitly reuses. This is an explicit,
-documented assumption (constitution Principle I), not silently absorbed
-imprecision: a multi-decade projection uses today's real-dollar bracket
-edges throughout, rather than projecting a nominal-dollar inflation
-schedule this tool has no separate model for.
+Federal brackets, the standard deduction, and IRMAA tiers are pinned to
+one specific, cited tax year (2026) and held flat across every documented
+year rather than re-indexed annually — the same "real (inflation-adjusted)
+dollars, no further indexing engine" convention `tax/federal.py`'s own
+docstring establishes and `tax/irmaa.py` explicitly reuses. This is an
+explicit, documented assumption (constitution Principle I), not silently
+absorbed imprecision: a multi-decade projection uses today's real-dollar
+bracket edges (and standard deduction) throughout, rather than projecting
+a nominal-dollar inflation schedule this tool has no separate model for.
 
 ### 5.3 Federal — not modeled
 
@@ -192,6 +193,12 @@ schedule this tool has no separate model for.
   working before FRA is not subject to the benefit withholding the
   earnings test would impose; the tool assumes full, unwithheld payment
   from the configured claiming age on.
+- **Itemized deductions and the temporary OBBBA senior bonus deduction**
+  (an additional $6,000/qualifying taxpayer for age 65+, phased out above
+  $75k/$150k MAGI, tax years 2025-2028) — every household is modeled as
+  taking the standard deduction (§5.1); a household that would itemize, or
+  that qualifies for the senior bonus deduction, has its federal tax
+  overstated relative to that household's actual liability.
 
 ### 5.4 State — South Carolina, Delaware, Florida
 
@@ -372,6 +379,9 @@ until replaced with an actual, cited source.
 - No CLI or notebook entry point exists yet — the tool is used via the
   Streamlit UI, the BFF's HTTP API directly, or as an importable library
   (`docs/remaining_scope.md` §2).
+- Federal tax assumes every household takes the standard deduction (§5.1);
+  itemizing and the temporary OBBBA senior bonus deduction are not modeled
+  (§5.3).
 
 ## 8. Non-Functional Requirements
 

@@ -216,7 +216,7 @@ def test_inherited_account_row_is_exact_and_independent_of_ordinary_account_shar
     accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
     inherited = InheritedAccountBalance(
         account_id="traditional-1", balance=250_000.0, death_year=2023, decedent_age_at_death=80,
-        depletion_deadline_year=2033,
+        depletion_deadline_year=2033, beneficiary_person_name="you",
     )
     projection = _run(
         household, accounts, {"you": 0.0}, plan_to_age=55,

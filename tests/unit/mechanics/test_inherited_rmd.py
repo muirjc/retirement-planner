@@ -1,4 +1,5 @@
-"""Unit tests for compute_inherited_rmd() (012-inherited-ira-rmd, US1).
+"""Unit tests for compute_inherited_rmd() (012-inherited-ira-rmd, US1;
+divisor comparison for the non-EDB post-RBD case extended by rp-kn5).
 
 Expected divisors/amounts are hand-calculated against
 inherited_rmd.py's SINGLE_LIFE_EXPECTANCY_TABLE, verified against IRS Pub.
@@ -6,6 +7,14 @@ inherited_rmd.py's SINGLE_LIFE_EXPECTANCY_TABLE, verified against IRS Pub.
 this table's real, IRS-published value. What's under test here is the
 "look up once at death_year + 1, then subtract 1.0 per subsequent year"
 divisor logic (research.md §7).
+
+_COMMON_KWARGS's beneficiary_current_age is set to the *decedent's own*
+translated age each year (80 in 2024, 81 in 2025, ...) -- not because
+that's realistic, but because it makes the beneficiary's own divisor
+identical to the decedent's own divisor every year, so these tests keep
+exercising exactly the "look up once, decrement" mechanic the module
+docstring above describes without also entangling the separate "longer
+of" comparison rp-kn5 added (covered by its own dedicated tests below).
 """
 
 import pytest
@@ -24,23 +33,44 @@ _COMMON_KWARGS = dict(
 )
 
 
+def _same_age_as_decedent(tax_year: int) -> int:
+    """This beneficiary's translated age, chosen so their own divisor
+    equals the decedent's -- see module docstring above."""
+    return 80 + (tax_year - 2024)
+
+
 def test_initial_divisor_looked_up_at_decedent_age_for_the_year_after_death():
-    result = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2024, **_COMMON_KWARGS)
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, beneficiary_current_age=_same_age_as_decedent(2024),
+        **_COMMON_KWARGS,
+    )
     assert result.table_used == "single_life_expectancy"
     assert result.divisor == 11.2
     assert result.required_amount == pytest.approx(1_000_000 / 11.2)
 
 
 def test_divisor_reduces_by_exactly_one_per_subsequent_year_not_a_fresh_lookup():
-    year_1 = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2024, **_COMMON_KWARGS)
-    year_2 = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2025, **_COMMON_KWARGS)
-    year_3 = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2026, **_COMMON_KWARGS)
+    year_1 = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, beneficiary_current_age=_same_age_as_decedent(2024),
+        **_COMMON_KWARGS,
+    )
+    year_2 = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2025, beneficiary_current_age=_same_age_as_decedent(2025),
+        **_COMMON_KWARGS,
+    )
+    year_3 = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2026, beneficiary_current_age=_same_age_as_decedent(2026),
+        **_COMMON_KWARGS,
+    )
     assert year_1.divisor == 11.2
     assert year_2.divisor == 10.2
     assert year_3.divisor == 9.2
 
 
 def test_zero_or_negative_balance_is_always_zero_with_no_table_lookup():
+    """No beneficiary_current_age needed here -- the balance<=0 shortcut
+    returns before any divisor (beneficiary's or the decedent's) is ever
+    consulted."""
     result = compute_inherited_rmd(inherited_balance=0, tax_year=2024, **_COMMON_KWARGS)
     assert result.required_amount == 0.0
     assert result.table_used is None
@@ -49,19 +79,31 @@ def test_zero_or_negative_balance_is_always_zero_with_no_table_lookup():
 
 
 def test_depletion_deadline_is_death_year_plus_ten():
-    result = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2024, **_COMMON_KWARGS)
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, beneficiary_current_age=_same_age_as_decedent(2024),
+        **_COMMON_KWARGS,
+    )
     assert result.depletion_deadline_year == 2033
 
 
 def test_is_within_ten_year_window_true_through_deadline_year_false_after():
-    within = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2033, **_COMMON_KWARGS)
-    after = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2034, **_COMMON_KWARGS)
+    within = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2033, beneficiary_current_age=_same_age_as_decedent(2033),
+        **_COMMON_KWARGS,
+    )
+    after = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2034, beneficiary_current_age=_same_age_as_decedent(2034),
+        **_COMMON_KWARGS,
+    )
     assert within.is_within_ten_year_window is True
     assert after.is_within_ten_year_window is False
 
 
 def test_figures_used_includes_the_single_life_expectancy_table():
-    result = compute_inherited_rmd(inherited_balance=1_000_000, tax_year=2024, **_COMMON_KWARGS)
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, beneficiary_current_age=_same_age_as_decedent(2024),
+        **_COMMON_KWARGS,
+    )
     figure_names = {f.name for f in result.figures_used}
     assert figure_names == {"single_life_expectancy_table"}
 
@@ -91,6 +133,7 @@ def test_unsupported_divisor_year_raises():
             decedent_age_at_death=80,
             decedent_was_taking_rmds=True,
             beneficiary_classification="non_eligible_designated_beneficiary",
+            beneficiary_current_age=80,
         )
 
 
@@ -134,12 +177,71 @@ def test_roth_non_edb_requires_no_annual_distribution_even_if_decedent_was_takin
 def test_traditional_post_rbd_non_edb_is_unchanged_by_the_new_account_type_parameter():
     """Regression: account_type defaults to "traditional", reproducing
     012's own existing behavior exactly for every caller that doesn't
-    pass it."""
+    pass it (same-age beneficiary per this module's docstring, so rp-kn5's
+    "longer of" comparison doesn't itself change the number here)."""
     result = compute_inherited_rmd(
         inherited_balance=1_000_000, tax_year=2024, death_year=2023, decedent_age_at_death=80,
         decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=80,
     )
     assert result.divisor == 11.2
+
+
+# --- rp-kn5: non-EDB post-RBD "longer of" comparison (previously missing --
+# the decedent's divisor was used unconditionally, overstating the required
+# distribution whenever the beneficiary is younger than the decedent) ---
+
+
+def test_post_rbd_non_edb_uses_the_longer_of_beneficiary_or_owner_divisor():
+    """Mirrors test_post_rbd_non_spouse_edb_uses_the_longer_of_..._divisor
+    below -- same "longer of" rule, now also applied to a non-EDB
+    beneficiary (rp-kn5): beneficiary (50) is much younger than the
+    already-RMD-taking decedent (80) -- the beneficiary's own, longer
+    life expectancy wins, not the decedent's shorter one."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, death_year=2023, decedent_age_at_death=80,
+        decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=50,
+    )
+    assert result.divisor == 36.2  # Table I, age 50 -- not the decedent's 11.2
+    assert result.required_amount == pytest.approx(1_000_000 / 36.2)
+
+
+def test_post_rbd_non_edb_falls_back_to_owner_divisor_when_beneficiary_is_older():
+    """A beneficiary (90) older than the decedent (70) has a *shorter*
+    own life expectancy -- the owner's side wins instead, reproducing
+    012's original decedent-only result for this (uncommon) case."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, death_year=2023, decedent_age_at_death=70,
+        decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=90,
+    )
+    assert result.divisor == 18.8  # Table I, age 70 (the decedent's) -- not the beneficiary's shorter one
+
+
+def test_post_rbd_non_edb_divisor_decrements_by_one_each_subsequent_year():
+    """The beneficiary side of the "longer of" comparison uses the same
+    "look up once, decrement" method as every other divisor here -- never
+    a fresh lookup at the beneficiary's later age."""
+    kwargs = dict(
+        inherited_balance=1_000_000, death_year=2023, decedent_age_at_death=80,
+        decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+    )
+    year_1 = compute_inherited_rmd(tax_year=2024, beneficiary_current_age=50, **kwargs)
+    year_2 = compute_inherited_rmd(tax_year=2025, beneficiary_current_age=51, **kwargs)
+    assert year_1.divisor == 36.2
+    assert year_2.divisor == 35.2  # 36.2 - 1.0, not a fresh age-51 lookup (35.3)
+
+
+def test_post_rbd_non_edb_requires_beneficiary_current_age():
+    """A caller that omits beneficiary_current_age for a post-RBD non-EDB
+    account now gets a loud failure, not a silently-wrong decedent-only
+    result -- matching the EDB branches' existing discipline."""
+    with pytest.raises(AssertionError):
+        compute_inherited_rmd(
+            inherited_balance=1_000_000, tax_year=2024, death_year=2023, decedent_age_at_death=80,
+            decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        )
 
 
 # --- 013-inherited-ira-edge-cases: EDB "stretch" (rp-iju) ---

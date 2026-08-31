@@ -124,7 +124,7 @@ def test_compare_roth_conversion_strategies_no_cross_candidate_leakage_in_inheri
     inherited_accounts = [
         InheritedAccountBalance(
             account_id="traditional-1", balance=250_000.0, death_year=2023,
-            decedent_age_at_death=80, depletion_deadline_year=2033,
+            decedent_age_at_death=80, depletion_deadline_year=2033, beneficiary_person_name="you",
         )
     ]
 

@@ -434,6 +434,7 @@ def _inherited_account(**overrides):
         death_year=2023,
         decedent_age_at_death=80,
         depletion_deadline_year=2033,
+        beneficiary_person_name="you",  # rp-kn5: consulted for the "longer of" comparison now too
     )
     base.update(overrides)
     return InheritedAccountBalance(**base)
@@ -464,9 +465,13 @@ def test_inherited_account_annual_distribution_included_in_withdrawal_plan():
     )
 
     first_year = result.years[0]
-    # death_year=2023 -> initial divisor at decedent_age_at_death=80 applies
-    # to 2024; 2026 is two years later -> divisor 11.2 - 2 = 9.2.
-    assert first_year.mechanics.withdrawal_plan.inherited_distribution_drawn == pytest.approx(250_000 / 9.2)
+    # rp-kn5: household member "you" (55 in 2026) is the account's own
+    # beneficiary_person_name and much younger than the decedent
+    # (decedent_age_at_death=80) -- the "longer of" comparison picks the
+    # beneficiary's own divisor (Table I age 53 at the 2024 initial divisor
+    # year, decremented 2 years to 2026 -> 33.4 - 2 = 31.4), not the
+    # decedent's shorter one (11.2 - 2 = 9.2).
+    assert first_year.mechanics.withdrawal_plan.inherited_distribution_drawn == pytest.approx(250_000 / 31.4)
     # Pooled traditional balance is untouched by the inherited account
     # entirely (research.md §5) -- stays $0 throughout.
     assert first_year.starting_balances.traditional == 0
@@ -520,14 +525,18 @@ def test_inherited_account_balance_grows_and_divisor_reduces_year_over_year():
 
     year_1_distribution = result.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
     year_2_distribution = result.years[1].mechanics.withdrawal_plan.inherited_distribution_drawn
-    # Hand check: year 1 balance=250,000, divisor=9.2 -> distribution=27,173.91.
-    # Remaining balance 222,826.09 grows 5% -> 233,967.39; divisor drops to
-    # 8.2 -> year 2 distribution = 233,967.39 / 8.2 = 28,532.61. (With 0%
-    # growth this ratio's algebra makes consecutive distributions exactly
-    # equal -- a real property of the "reduce divisor by 1" method, not a
-    # bug -- so growth must be nonzero to observe the divisor's effect.)
-    assert year_1_distribution == pytest.approx(250_000 / 9.2)
-    assert year_2_distribution == pytest.approx((250_000 - 250_000 / 9.2) * 1.05 / 8.2)
+    # rp-kn5: beneficiary "you" (55) is younger than the decedent (80), so
+    # the beneficiary's own divisor wins the "longer of" comparison both
+    # years (31.4 in 2026, decremented to 30.4 in 2027 -- never the
+    # decedent's shorter 9.2/8.2). Hand check: year 1 balance=250,000,
+    # divisor=31.4 -> distribution=7,961.78. Remaining balance 242,038.22
+    # grows 5% -> 254,140.13; divisor drops to 30.4 -> year 2 distribution
+    # = 254,140.13 / 30.4 = 8,360.53. (With 0% growth this ratio's algebra
+    # makes consecutive distributions exactly equal -- a real property of
+    # the "reduce divisor by 1" method, not a bug -- so growth must be
+    # nonzero to observe the divisor's effect.)
+    assert year_1_distribution == pytest.approx(250_000 / 31.4)
+    assert year_2_distribution == pytest.approx((250_000 - 250_000 / 31.4) * 1.05 / 30.4)
     assert year_2_distribution != pytest.approx(year_1_distribution)
     assert year_2_distribution > 0
 
@@ -937,8 +946,11 @@ def test_inherited_account_balances_and_distributions_are_snapshotted_per_accoun
     year = result.years[0]
     # A single inherited account's own distribution is the entire
     # pooled inherited_distribution_drawn figure -- same value, now also
-    # individually addressable by account_id.
-    assert year.inherited_account_distributions == {"traditional-1": pytest.approx(250_000 / 9.2)}
+    # individually addressable by account_id. rp-kn5: 31.4, the
+    # beneficiary's own divisor -- see
+    # test_inherited_account_annual_distribution_included_in_withdrawal_plan
+    # above for the full "longer of" hand check.
+    assert year.inherited_account_distributions == {"traditional-1": pytest.approx(250_000 / 31.4)}
     assert year.inherited_account_distributions["traditional-1"] == pytest.approx(
         year.mechanics.withdrawal_plan.inherited_distribution_drawn
     )
@@ -975,4 +987,6 @@ def test_two_inherited_accounts_have_independently_keyed_snapshots():
         year.mechanics.withdrawal_plan.inherited_distribution_drawn
     )
     # account_a's own snapshot is unaffected by account_b's presence.
-    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(250_000 / 9.2)
+    # rp-kn5: 31.4, the beneficiary's own divisor (see the hand check in
+    # test_inherited_account_annual_distribution_included_in_withdrawal_plan).
+    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(250_000 / 31.4)

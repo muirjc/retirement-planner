@@ -92,21 +92,26 @@ matching well-established professional guidance; the max() only ever
 selects the owner's side in the unusual case a beneficiary is *older*
 than an already-RMD-taking decedent.
 
-**A note on the already-shipped, out-of-scope non-EDB case**: this same
-Pub. 590-B passage's "longer of" language is not qualified to "eligible"
-designated beneficiaries only — it says "a designated beneficiary." Read
-literally, the already-shipped 012 divisor logic for
-`non_eligible_designated_beneficiary` + post-RBD (`inherited_rmd.py`'s
-existing, unchanged code) — which uses *only* the decedent's own divisor,
-never comparing it against the beneficiary's own — may be missing this
-same "longer of" comparison, and in the common case (a beneficiary
-younger than the already-RMD-taking decedent) would be *overstating* the
-required annual distribution. This is a correctness question about
-already-shipped, tested code, not part of any of `rp-c8b`/`rp-iju`/
-`rp-l4d`'s own scope — filed separately as `rp-<TBD>` for a dedicated
-review, rather than silently changed as a side effect of this work
-(Constitution Principle I: never bundle an unrelated correctness change
-into a scope-boundary fix without its own review).
+**A note on the already-shipped, out-of-scope non-EDB case (resolved,
+rp-kn5)**: this same Pub. 590-B passage's "longer of" language is not
+qualified to "eligible" designated beneficiaries only — it says "a
+designated beneficiary." Read literally, the already-shipped 012 divisor
+logic for `non_eligible_designated_beneficiary` + post-RBD — which used
+*only* the decedent's own divisor, never comparing it against the
+beneficiary's own — was missing this same "longer of" comparison, and in
+the common case (a beneficiary younger than the already-RMD-taking
+decedent) was *overstating* the required annual distribution. This was a
+correctness question about already-shipped, tested code, not part of any
+of `rp-c8b`/`rp-iju`/`rp-l4d`'s own scope — filed separately as `rp-kn5`
+for a dedicated review, rather than silently changed as a side effect of
+this work (Constitution Principle I: never bundle an unrelated
+correctness change into a scope-boundary fix without its own review).
+`rp-kn5`'s dedicated review independently cross-checked this reading
+against professional secondary sources describing the post-2024-final-
+regulations "at least as rapidly" requirement (unqualified to EDBs) and
+confirmed it; `inherited_rmd.py`'s non-EDB post-RBD branch now applies
+the identical `max(beneficiary_divisor, owner_divisor)` comparison this
+section's EDB branches already used.
 
 ## 4. EDB annual "stretch" RMD, spouse-specific rules
 

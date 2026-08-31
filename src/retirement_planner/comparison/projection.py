@@ -245,9 +245,11 @@ def run_plan_projection(
         # -- no longer hardcoded to 012's own single originally-supported
         # combination, now that scenario.validation allows more (013
         # research.md §8). beneficiary_current_age is this year's own
-        # translated age for an EDB account's beneficiary (None for a
-        # non-EDB account, which never consults it -- inherited_rmd.py's
-        # own docstring). In the account's depletion_deadline_year (and,
+        # translated age for the account's beneficiary -- consulted for
+        # every account whenever an annual divisor is actually computed,
+        # not just an EDB's (rp-kn5's "longer of" fix extended this to the
+        # non-EDB post-RBD case too -- inherited_rmd.py's own docstring).
+        # In the account's depletion_deadline_year (and,
         # as a safety net, any later year a positive balance somehow
         # still remains), the ENTIRE remaining balance is force-
         # distributed instead of the divisor-computed amount (US2,

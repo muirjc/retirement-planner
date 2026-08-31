@@ -206,12 +206,16 @@ def compute_inherited_rmd(
     trusted. Defaults to "traditional", reproducing 012's own only-ever
     account type for every existing caller.
 
-    beneficiary_current_age (research.md §3-§6): the beneficiary's own
-    age, translated to tax_year -- required (raises AssertionError if
-    omitted) whenever beneficiary_classification names an eligible
-    designated beneficiary (EDB); never consulted otherwise, so existing
-    non-EDB callers are unaffected. For a non-spouse EDB, looked up once
-    at the initial divisor year (death_year + 1) then reduced by 1.0 each
+    beneficiary_current_age (research.md §3-§6; rp-kn5): the beneficiary's
+    own age, translated to tax_year -- required (raises AssertionError if
+    omitted) whenever a beneficiary's own divisor is actually needed to
+    compute this year's amount: every eligible designated beneficiary
+    (EDB) call, and also a non-EDB call when the owner died on/after RBD
+    (rp-kn5 -- the "longer of" comparison now applies there too). Never
+    consulted for a non-EDB call when the owner died before RBD or the
+    account is a Roth (no annual amount is computed at all in that case).
+    For a non-spouse EDB or a post-RBD non-EDB, looked up once at the
+    initial divisor year (death_year + 1) then reduced by 1.0 each
     subsequent year, mirroring decedent_age_at_death's own existing
     "look up once, decrement" treatment -- so beneficiary_current_age
     must be given fresh, translated to *this* call's own tax_year, on
@@ -229,24 +233,29 @@ def compute_inherited_rmd(
     it only reports is_within_ten_year_window/depletion_deadline_year
     for the caller's own use.
 
-    For beneficiary_classification="non_eligible_designated_beneficiary":
-    unchanged from 012 when the owner died on/after RBD (the decedent's
-    own divisor, decremented by 1.0/year); returns required_amount=0.0,
-    table_used=None, divisor=None for every year before the deadline
-    when the owner died before RBD or account_type="roth" (research.md
-    §1, §2 -- no annual RMD required at all in that case, only the
-    caller's own forced full-depletion draw at the deadline).
+    For beneficiary_classification="non_eligible_designated_beneficiary"
+    when the owner died on/after RBD: required_amount is based on the
+    "longer of" the beneficiary's own divisor or the decedent's own
+    divisor (rp-kn5; IRS Pub. 590-B (2025) p.9's "longer of" rule for "a
+    designated beneficiary" is not qualified to EDBs only -- 012's original
+    decedent-only divisor here undercounted the shielding a beneficiary
+    younger than the decedent is actually entitled to, overstating the
+    required distribution in the common case). Returns required_amount=0.0,
+    table_used=None, divisor=None for every year before the deadline when
+    the owner died before RBD or account_type="roth" (research.md §1, §2
+    -- no annual RMD required at all in that case, only the caller's own
+    forced full-depletion draw at the deadline).
 
-    For an EDB (spouse or other): required_amount is based on the
-    "longer of" the beneficiary's own divisor or the owner's own divisor
-    when the owner died on/after RBD (research.md §3, §4); the
-    beneficiary's own divisor alone otherwise -- with a spouse EDB's
-    distributions additionally delayed to (and required_amount=0.0
-    before) the year the owner would have reached their own RBD, when
-    the owner died before RBD (research.md §4). A minor-child EDB uses
-    exactly the non-spouse EDB divisor formula -- the majority-triggered
-    conversion to the 10-year rule lives entirely in the caller's own
-    depletion_deadline_year (research.md §5), never inside this function.
+    For an EDB (spouse or other): required_amount is based on the same
+    "longer of" comparison when the owner died on/after RBD (research.md
+    §3, §4); the beneficiary's own divisor alone otherwise -- with a
+    spouse EDB's distributions additionally delayed to (and
+    required_amount=0.0 before) the year the owner would have reached
+    their own RBD, when the owner died before RBD (research.md §4). A
+    minor-child EDB uses exactly the non-spouse EDB divisor formula -- the
+    majority-triggered conversion to the 10-year rule lives entirely in
+    the caller's own depletion_deadline_year (research.md §5), never
+    inside this function.
 
     Returns required_amount=0.0, table_used=None, divisor=None when
     inherited_balance <= 0. Raises UnsupportedTaxYearError if the Single
@@ -292,10 +301,12 @@ def compute_inherited_rmd(
         return initial - (tax_year - initial_divisor_year)
 
     def _beneficiary_decrement_divisor() -> float:
-        """research.md §3, §5: non-spouse EDB divisor -- looked up once
-        at the beneficiary's own age in the initial divisor year, then
-        reduced by 1.0/year, mirroring _owner_divisor()'s own method."""
-        assert beneficiary_current_age is not None, "beneficiary_current_age is required for an EDB"
+        """research.md §3, §5; rp-kn5: non-spouse EDB divisor, and (since
+        rp-kn5) a post-RBD non-EDB divisor's other "longer of" candidate --
+        looked up once at the beneficiary's own age in the initial divisor
+        year, then reduced by 1.0/year, mirroring _owner_divisor()'s own
+        method."""
+        assert beneficiary_current_age is not None, "beneficiary_current_age is required here"
         beneficiary_age_at_initial_year = beneficiary_current_age - (tax_year - initial_divisor_year)
         initial = SINGLE_LIFE_EXPECTANCY_TABLE.value_for_year(initial_divisor_year)[beneficiary_age_at_initial_year]
         return initial - (tax_year - initial_divisor_year)
@@ -304,20 +315,22 @@ def compute_inherited_rmd(
         """research.md §4: a spouse EDB's divisor is looked up fresh
         every year, at the spouse's own then-current age -- never
         decremented from an earlier lookup."""
-        assert beneficiary_current_age is not None, "beneficiary_current_age is required for an EDB"
+        assert beneficiary_current_age is not None, "beneficiary_current_age is required here"
         return SINGLE_LIFE_EXPECTANCY_TABLE.value_for_year(tax_year)[beneficiary_current_age]
 
     if not is_edb:
         if owner_died_before_rbd:
             return _no_annual_rmd_required()
-        # rp-kn5: deliberately still the decedent's divisor alone, not
-        # max(beneficiary, owner) the way the EDB branches below now are
-        # -- 012's own already-shipped behavior, left unchanged here on
-        # purpose (013 research.md §3's own note: this may in fact need
-        # the same "longer of" comparison per the same primary source,
-        # but that's a correctness question about already-shipped, tested
-        # code, tracked and reviewed separately rather than bundled in).
-        divisor = _owner_divisor()
+        # rp-kn5: same "longer of" comparison as the EDB branches below --
+        # confirmed via 013 research.md §3's own primary-source reading
+        # (Pub. 590-B p.9's "longer of" rule is not qualified to EDBs
+        # only) plus independent cross-check against professional
+        # secondary sources describing the post-2024-final-regulations
+        # "at least as rapidly" requirement for any designated
+        # beneficiary. 012's original decedent-only divisor here
+        # overstated the required distribution whenever the beneficiary
+        # is younger than the decedent (the common case).
+        divisor = max(_beneficiary_decrement_divisor(), _owner_divisor())
         figure_years = [initial_divisor_year]
     elif is_spouse:
         if owner_died_before_rbd:

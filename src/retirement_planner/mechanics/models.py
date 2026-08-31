@@ -116,12 +116,20 @@ class InheritedAccountBalance:
     """013-inherited-ira-edge-cases research.md §3-§6: defaults to
     012's own only-supported classification, for the same reason."""
     beneficiary_person_name: str | None = None
-    """013-inherited-ira-edge-cases research.md §3-§6: the beneficiary's
-    own household_member.person_name, used to look up their current age
-    each plan year for an EDB's own life-expectancy divisor -- never
-    consulted for beneficiary_classification="non_eligible_designated_beneficiary"
-    (012's existing, decedent-only divisor logic), so None is a safe
-    default for every existing caller."""
+    """013-inherited-ira-edge-cases research.md §3-§6, extended by rp-kn5:
+    the beneficiary's own household_member.person_name, used to look up
+    their current age each plan year for the beneficiary's own
+    life-expectancy divisor. None is only a safe default when no annual
+    divisor is ever computed for this account at all -- account_type=
+    "roth", or decedent_was_taking_rmds=False (owner died before RBD):
+    every other case, including beneficiary_classification=
+    "non_eligible_designated_beneficiary" since rp-kn5's "longer of" fix,
+    now consults this every year an annual amount is due, and
+    compute_inherited_rmd() raises AssertionError if the resulting
+    beneficiary_current_age comes back None when it's needed. The real
+    resolution path (services/bff/src/rp_bff/resolution.py) always sets
+    this to the account's owner, so this only bites a caller that builds
+    an InheritedAccountBalance directly and omits it."""
 
 
 @dataclass

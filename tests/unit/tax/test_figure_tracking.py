@@ -22,11 +22,11 @@ def test_every_figure_used_carries_citation_date_and_verified_status():
 
 def test_federal_result_figures_are_also_individually_traceable():
     income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
-    result = compute_federal_tax(income, filing_status="married_filing_jointly", tax_year=2026)
-    assert len(result.figures_used) == 2  # SS thresholds + federal brackets
-    # Both verified against their primary sources (014-figure-verification,
-    # rp-9wi.1/.6) -- unlike SC's own state-tax figures above, which remain
-    # out of scope and unverified.
+    result = compute_federal_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+    assert len(result.figures_used) == 3  # SS thresholds + federal brackets + standard deduction
+    # All verified against their primary sources (014-figure-verification,
+    # rp-9wi.1/.6; rp-7me) -- unlike SC's own state-tax figures above, which
+    # remain out of scope and unverified.
     assert all(f.verified is True for f in result.figures_used)
 
 
@@ -61,4 +61,4 @@ def test_out_of_schedule_tax_year_raises_with_actionable_detail():
 def test_out_of_schedule_year_before_earliest_documented_year_also_raises():
     income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
     with pytest.raises(UnsupportedTaxYearError):
-        compute_federal_tax(income, filing_status="married_filing_jointly", tax_year=1999)
+        compute_federal_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=1999)

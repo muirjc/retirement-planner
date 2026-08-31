@@ -1,8 +1,10 @@
 """Federal income tax calculation (FR-001, FR-003).
 
 Genuine progressive bracket math against a federal bracket table, applied to
-taxable income = ordinary income + the taxable portion of Social Security
-(social_security.compute_taxable_social_security()).
+taxable income = (ordinary income + the taxable portion of Social Security
+(social_security.compute_taxable_social_security())) minus the standard
+deduction (26 U.S.C. §63(c), including the age-65 addition under §63(f);
+rp-7me) -- floored at $0, never negative.
 
 Bracket edges are expressed in a single, explicit basis — today's real
 (inflation-adjusted) dollars, consistent with the rest of this tool's "_real"
@@ -36,10 +38,20 @@ from __future__ import annotations
 from datetime import date
 
 from .bracket_math import apply_progressive_brackets
-from .models import BracketRow, BracketTable, FederalTaxResult, FilingStatus, IncomeComponents, SourcedFigure
+from .models import (
+    BracketRow,
+    BracketTable,
+    FederalTaxResult,
+    FilingStatus,
+    IncomeComponents,
+    SourcedFigure,
+    StandardDeductionAmounts,
+)
 from .social_security import compute_taxable_social_security
 
 _DOCUMENTED_YEARS = range(2020, 2075)
+
+_AGE_65_THRESHOLD = 65
 
 _MFJ_BRACKETS: BracketTable = (
     BracketRow(rate=0.10, income_up_to=24_800.0),
@@ -78,16 +90,56 @@ _FEDERAL_BRACKETS: dict[FilingStatus, SourcedFigure[BracketTable]] = {
     ),
 }
 
+# Standard deduction (26 U.S.C. §63(c)) -- rp-7me: taxable_income below was
+# previously ordinary income + taxable Social Security with nothing
+# subtracted before bracket application, overstating federal tax owed in
+# every scenario. `base` is IRS Rev. Proc. 2025-32's tax year 2026 amount;
+# `additional_per_filer_65_plus` is added once per household member who has
+# reached age 65 that year (26 U.S.C. §63(f)) -- same "real dollars, no
+# further indexing engine" convention as _FEDERAL_BRACKETS above, held flat
+# across every documented year rather than re-indexed annually.
+_MFJ_STANDARD_DEDUCTION = StandardDeductionAmounts(base=32_200.0, additional_per_filer_65_plus=1_650.0)
+_SINGLE_STANDARD_DEDUCTION = StandardDeductionAmounts(base=16_100.0, additional_per_filer_65_plus=2_050.0)
+
+_STANDARD_DEDUCTIONS: dict[FilingStatus, SourcedFigure[StandardDeductionAmounts]] = {
+    "married_filing_jointly": SourcedFigure(
+        name="standard_deduction_mfj",
+        schedule={year: _MFJ_STANDARD_DEDUCTION for year in _DOCUMENTED_YEARS},
+        citation=(
+            "IRS Rev. Proc. 2025-32 §4.14(1), tax year 2026 standard deduction "
+            "(married filing jointly, base + aged-65 addition per filer)"
+        ),
+        last_verified=date(2026, 8, 30),
+        verified=True,
+    ),
+    "single": SourcedFigure(
+        name="standard_deduction_single",
+        schedule={year: _SINGLE_STANDARD_DEDUCTION for year in _DOCUMENTED_YEARS},
+        citation=(
+            "IRS Rev. Proc. 2025-32 §4.14(1), tax year 2026 standard deduction "
+            "(single filer, base + aged-65 addition)"
+        ),
+        last_verified=date(2026, 8, 30),
+        verified=True,
+    ),
+}
+
 
 def compute_federal_tax(
     income: IncomeComponents,
+    filer_ages: list[int],
     filing_status: FilingStatus,
     tax_year: int,
 ) -> FederalTaxResult:
-    """Computes federal tax via compute_taxable_social_security() + genuine
-    progressive bracket math against tax_year's federal brackets (FR-001).
-    Raises UnsupportedTaxYearError if any figure needed (SS thresholds or
-    federal brackets) has no entry for tax_year.
+    """Computes federal tax via compute_taxable_social_security() + the
+    standard deduction (rp-7me) + genuine progressive bracket math against
+    tax_year's federal brackets (FR-001). `filer_ages` is one age per
+    household member (length 1 for "single", 2 for "married_filing_jointly"
+    -- see data-model.md § FilerAges), used only to add the age-65 standard
+    deduction addition per qualifying filer; it does not otherwise affect
+    the computation. Raises UnsupportedTaxYearError if any figure needed
+    (SS thresholds, federal brackets, or the standard deduction) has no
+    entry for tax_year.
     """
     taxable_social_security, figures_used = compute_taxable_social_security(income, filing_status, tax_year)
 
@@ -95,7 +147,16 @@ def compute_federal_tax(
     brackets = bracket_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
     figures_used = [*figures_used, bracket_figure.usage_for_year(tax_year)]
 
-    taxable_income = income.ordinary_income + taxable_social_security
+    deduction_figure = _STANDARD_DEDUCTIONS[filing_status]
+    deduction_amounts = deduction_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
+    figures_used = [*figures_used, deduction_figure.usage_for_year(tax_year)]
+    standard_deduction = deduction_amounts.base + sum(
+        deduction_amounts.additional_per_filer_65_plus for age in filer_ages if age >= _AGE_65_THRESHOLD
+    )
+
+    # max(0, ...): the standard deduction shields income, it never turns
+    # into a negative taxable-income (let alone a refundable) figure.
+    taxable_income = max(0.0, income.ordinary_income + taxable_social_security - standard_deduction)
     federal_tax_owed = apply_progressive_brackets(taxable_income, brackets)
 
     return FederalTaxResult(

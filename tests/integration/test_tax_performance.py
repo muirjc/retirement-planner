@@ -21,7 +21,7 @@ def test_federal_and_state_computation_completes_well_under_ten_ms():
     income = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
 
     start = time.perf_counter()
-    compute_federal_tax(income, filing_status="married_filing_jointly", tax_year=2026)
+    compute_federal_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     compute_state_tax("SC", income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     compute_state_tax("DE", income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     compute_state_tax("FL", income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)

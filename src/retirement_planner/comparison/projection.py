@@ -339,8 +339,8 @@ def run_plan_projection(
             ordinary_income=mechanics_result.ordinary_income,
             social_security_gross_benefit=household_ss_benefit,
         )
-        federal_tax = compute_federal_tax(income, household.filing_status, tax_year)
         filer_ages = [ages_this_year[member.person_name] for member in household.members]
+        federal_tax = compute_federal_tax(income, filer_ages, household.filing_status, tax_year)
         state_tax = compute_state_tax(state, income, filer_ages, household.filing_status, tax_year)
 
         # IRMAA (010-advanced-tax-benefits FR-001-FR-004, research.md §§2-3):

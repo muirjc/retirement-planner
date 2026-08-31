@@ -20,15 +20,15 @@ from retirement_planner.tax.state import compute_state_tax
 def test_us1_federal_tax_across_all_three_provisional_income_tiers():
     """Acceptance Scenarios 1.1-1.4."""
     low_income = IncomeComponents(ordinary_income=10_000, social_security_gross_benefit=20_000)
-    result = compute_federal_tax(low_income, filing_status="married_filing_jointly", tax_year=2026)
+    result = compute_federal_tax(low_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     assert result.taxable_social_security == 0
 
     mid_income = IncomeComponents(ordinary_income=25_000, social_security_gross_benefit=20_000)
-    result = compute_federal_tax(mid_income, filing_status="married_filing_jointly", tax_year=2026)
+    result = compute_federal_tax(mid_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     assert 0 < result.taxable_social_security <= 20_000 * 0.50
 
     high_income = IncomeComponents(ordinary_income=150_000, social_security_gross_benefit=20_000)
-    result = compute_federal_tax(high_income, filing_status="married_filing_jointly", tax_year=2026)
+    result = compute_federal_tax(high_income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     assert result.taxable_social_security <= 20_000 * 0.85
     assert result.federal_tax_owed > 0
 
@@ -80,7 +80,7 @@ def test_us3_figure_provenance_schedule_change_and_out_of_range_year():
 
     # A tax year outside any documented schedule is refused, not guessed.
     with pytest.raises(UnsupportedTaxYearError) as exc_info:
-        compute_federal_tax(income, filing_status="married_filing_jointly", tax_year=2075)
+        compute_federal_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2075)
     assert exc_info.value.requested_year == 2075
     assert exc_info.value.available_years
 
@@ -99,7 +99,7 @@ def test_quickstart_walkthrough_end_to_end():
     filing_status = "married_filing_jointly"
 
     # Step 1: federal tax, with real Social Security taxability.
-    federal_result = compute_federal_tax(income, filing_status=filing_status, tax_year=2026)
+    federal_result = compute_federal_tax(income, filer_ages=ages, filing_status=filing_status, tax_year=2026)
     assert federal_result.federal_tax_owed > 0
     assert 0 < federal_result.taxable_social_security <= income.social_security_gross_benefit * 0.85
 

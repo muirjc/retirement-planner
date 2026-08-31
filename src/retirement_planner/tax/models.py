@@ -57,6 +57,20 @@ class IncomeComponents:
 
 
 @dataclass
+class StandardDeductionAmounts:
+    """One filing status's standard deduction figure for a tax year:
+    the base amount plus the additional amount added *per filer* who has
+    reached age 65 (26 U.S.C. §63(c)(2), (f)) -- rp-7me. Grouped as one
+    dataclass (rather than two separate SourcedFigures) because both
+    numbers come from the same citable publication for a given filing
+    status, matching SourcedFigure's "one figure = one citation"
+    convention (see SourcedFigure docstring)."""
+
+    base: float
+    additional_per_filer_65_plus: float
+
+
+@dataclass
 class BracketRow:
     """One row of a progressive bracket table. data-model.md § BracketTable."""
 

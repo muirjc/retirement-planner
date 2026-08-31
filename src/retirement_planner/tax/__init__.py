@@ -21,6 +21,7 @@ from .models import (
     IrmaaTierTable,
     NiitResult,
     SourcedFigure,
+    StandardDeductionAmounts,
     StateTaxResult,
     UnsupportedTaxYearError,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "IrmaaTierTable",
     "NiitResult",
     "SourcedFigure",
+    "StandardDeductionAmounts",
     "StateTaxResult",
     "UnsupportedTaxYearError",
     "compute_federal_tax",

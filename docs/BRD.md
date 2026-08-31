@@ -219,7 +219,10 @@ Covers the 10-year rule and its exceptions, per `mechanics/inherited_rmd.py`
   original SECURE Act): full account depletion by the 10th calendar year
   after the owner's death; an annual RMD is additionally required for
   years 1–9 if the original owner had already reached their own Required
-  Beginning Date (RBD) before death.
+  Beginning Date (RBD) before death, using the longer of the
+  beneficiary's own life expectancy or the original owner's remaining
+  life expectancy (rp-kn5) — not just the owner's, as originally shipped;
+  see the EDB bullet below for the same "longer of" mechanics.
 - **Owner died before their RBD, or the account is a Roth**: no annual
   RMD during the 10-year window at all — full depletion by year 10 is the
   only requirement.

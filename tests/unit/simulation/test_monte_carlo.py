@@ -134,6 +134,7 @@ def test_callers_own_inherited_account_balance_is_never_mutated():
             death_year=2023,
             decedent_age_at_death=80,
             depletion_deadline_year=2033,
+            beneficiary_person_name="you",
         )
     ]
 
@@ -160,6 +161,7 @@ def test_no_cross_path_leakage_in_inherited_distributions_serial():
             death_year=2023,
             decedent_age_at_death=80,
             depletion_deadline_year=2033,
+            beneficiary_person_name="you",
         )
     ]
 
@@ -199,6 +201,7 @@ def test_no_cross_path_leakage_in_inherited_distributions_forced_parallel(monkey
             death_year=2023,
             decedent_age_at_death=80,
             depletion_deadline_year=2033,
+            beneficiary_person_name="you",
         )
     ]
     return_paths = [_PATH_OK] * 20

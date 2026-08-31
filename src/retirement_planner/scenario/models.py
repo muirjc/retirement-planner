@@ -45,6 +45,16 @@ class HouseholdMember:
     since coverage is inherently individual, independent of any other
     member's coverage or Medicare status. Defaults to False, reproducing
     every existing scenario's exact current behavior."""
+    predicted_death_age: int | None = None
+    """017-ss-spousal-survivor-benefits (rp-52n): this member's
+    hypothetical age at death, for planning purposes only -- a "what if"
+    input, not a record of a past, certain event (contrast `012`'s
+    InheritedIraDetails.death_year, research.md Decision 6). None (the
+    default, and every scenario predating this feature) means no
+    hypothetical death is configured; nothing in this feature's own
+    computations consults this field -- it exists purely as the
+    data-model home a future feature (rp-g8y) will need, once mortality
+    is wired into a running projection."""
 
 
 @dataclass

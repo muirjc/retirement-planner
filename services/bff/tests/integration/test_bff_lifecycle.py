@@ -80,6 +80,30 @@ def test_full_retirement_age_round_trips_and_defaults_when_omitted(client):
     assert read_response["household"]["members"][1]["full_retirement_age"] == 67.0
 
 
+def test_predicted_death_age_round_trips_and_defaults_to_none_when_omitted(client):
+    """017-ss-spousal-survivor-benefits: an explicit predicted_death_age
+    round-trips through PUT/GET; a member that omits it entirely (like
+    _SCENARIO_BODY's own members) stays None -- no computed substitute,
+    unlike full_retirement_age above."""
+    body_with_explicit_death_age = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {**_SCENARIO_BODY["household"]["members"][0], "predicted_death_age": 85},
+                _SCENARIO_BODY["household"]["members"][1],
+            ],
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/death_age_case", json=body_with_explicit_death_age)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/death_age_case").json()
+    assert read_response["household"]["members"][0]["predicted_death_age"] == 85
+    # The second member never set it -- stays None, not resolved to anything.
+    assert read_response["household"]["members"][1]["predicted_death_age"] is None
+
+
 def test_account_owner_omitted_on_single_member_household_is_auto_filled(client):
     """011-per-owner-accounts: a single-filer household needs no owner in
     the request at all -- the response shows it auto-filled (FR-003)."""

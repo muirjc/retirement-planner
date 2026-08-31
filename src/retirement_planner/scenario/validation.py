@@ -157,6 +157,38 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                     severity="warning",
                 )
             )
+        # 017-ss-spousal-survivor-benefits: a predicted_death_age already at
+        # or before current_age is not merely implausible but incoherent --
+        # a "prediction" of a death already in the past -- so this is
+        # blocking, not a warning (data-model.md; unlike full_retirement_age
+        # above, this field has no analogous "already happened" case).
+        if member.predicted_death_age is not None and member.predicted_death_age < member.current_age:
+            flags.append(
+                ValidationFlag(
+                    field=f"household.members[{index}].predicted_death_age",
+                    message=(
+                        f"Predicted death age {member.predicted_death_age} is less than this "
+                        f"member's current age ({member.current_age}); a predicted death age "
+                        "cannot be in the past."
+                    ),
+                    severity="blocking",
+                )
+            )
+        # Plausibility warning, mirroring full_retirement_age's own pattern
+        # above -- [50, 110] reuses simulation/survival_data.py's own
+        # SURVIVAL_TABLE age range (a plausible span for an adult household
+        # member), rather than inventing a new, uncited bound.
+        if member.predicted_death_age is not None and not (50 <= member.predicted_death_age <= 110):
+            flags.append(
+                ValidationFlag(
+                    field=f"household.members[{index}].predicted_death_age",
+                    message=(
+                        f"Predicted death age {member.predicted_death_age} is outside the "
+                        "plausible range (50-110); double-check this value."
+                    ),
+                    severity="warning",
+                )
+            )
     return flags
 
 

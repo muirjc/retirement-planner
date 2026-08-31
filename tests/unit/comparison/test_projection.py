@@ -864,6 +864,208 @@ def test_omitted_full_retirement_age_defaults_to_claim_age_even_when_household_b
     assert result.years[-1].member_social_security_benefits["you"] == 32_000.0
 
 
+# --- 017-ss-spousal-survivor-benefits: spousal benefit floor (rp-52n) ---
+
+
+def test_spousal_floor_raises_a_lower_earning_members_benefit():
+    """spec.md Acceptance Scenarios 1-2: a lower earner's benefit is
+    raised to 50% of the higher earner's PIA once both have claimed; the
+    higher earner's own benefit is unaffected."""
+    household = _mfj_household(you_age=67, spouse_age=67, you_benefit=30_000, spouse_benefit=6_000)
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.member_social_security_benefits["spouse"] == pytest.approx(15_000.0)  # 50% of 30,000, not 6,000
+    assert first_year.member_social_security_benefits["you"] == pytest.approx(30_000.0)  # unaffected
+
+
+def test_spousal_floor_uses_the_spousal_specific_reduction_rate():
+    """spec.md Acceptance Scenario 3: a lower earner claiming before their
+    own FRA has their spousal amount reduced via the SSA's spousal-
+    specific rate (25/36 of 1%/month), not the worker's-own-benefit rate
+    (5/9 of 1%/month) 016 already models -- so the two reduced amounts
+    differ even though both start from the same PIA base."""
+    household = _mfj_household(
+        you_age=67, spouse_age=65, you_benefit=30_000, spouse_benefit=6_000, you_fra=67.0, spouse_fra=67.0
+    )
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 65})  # spouse claims 24 months before their own FRA
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    spousal_reduction = 24 * (25 / 36) / 100  # spousal-specific tier-1 rate
+    worker_reduction = 24 * (5 / 9) / 100  # 016's own worker-benefit tier-1 rate, for contrast
+    assert spousal_reduction != pytest.approx(worker_reduction)
+    expected_spousal_amount = 15_000.0 * (1.0 - spousal_reduction)
+    assert result.years[0].member_social_security_benefits["spouse"] == pytest.approx(expected_spousal_amount)
+
+
+def test_spousal_floor_does_not_apply_to_this_repos_own_reference_pair():
+    """research.md Decision 5 / SC-002: the ~$32k/$24k pair used across
+    this repo's own fixtures is comfortably above the 50% threshold
+    ($16,000) -- confirming the spousal floor never perturbs it."""
+    household = _mfj_household(you_age=67, spouse_age=67, you_benefit=32_000, spouse_benefit=24_000)
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.years[0].member_social_security_benefits == {"you": 32_000.0, "spouse": 24_000.0}
+
+
+def test_spousal_floor_never_applies_to_a_single_filing_status_household():
+    """spec.md Acceptance Scenario 4, FR-004: a single-member household has
+    no second member to derive a spousal floor from -- no spousal logic
+    is consulted at all."""
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(person_name="you", current_age=67, ss_claim_age=67, ss_annual_benefit=6_000, full_retirement_age=67.0),
+        ],
+    )
+    strategy = _strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.years[0].member_social_security_benefits["you"] == pytest.approx(6_000.0)
+
+
+def test_spousal_floor_does_not_apply_until_both_members_have_claimed():
+    """research.md Decision 3: the real SSA rule requires the other
+    (higher-earning) spouse to have already filed for their own benefit
+    before a spousal amount is payable off that record -- so a lower
+    earner who has already claimed, while the higher earner has not yet
+    reached their own claiming age, gets their own (unfloor) benefit
+    only, this plan year."""
+    household = _mfj_household(you_age=60, spouse_age=62, you_benefit=30_000, spouse_benefit=6_000)
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 62})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=62,  # deemed_rmd_owner is the older member (spouse, 62) -- must reach this age for a year to run
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]  # you=60 (not yet claimed), spouse=62 (has claimed)
+    assert first_year.member_social_security_benefits["you"] == 0.0
+    # spouse has claimed their own (60-months-early-reduced, 016) benefit
+    # -- 6,000 * 0.70 = 4,200 -- but the spousal floor cannot apply yet
+    # since "you" (the higher earner) hasn't filed for their own benefit.
+    # If the floor incorrectly applied here, spouse would instead see
+    # 15,000 (50% of you's $30,000 PIA).
+    expected_own_benefit = 6_000.0 * (1.0 - (36 * (5 / 9) / 100 + 24 * (5 / 12) / 100))
+    assert first_year.member_social_security_benefits["spouse"] == pytest.approx(expected_own_benefit)
+
+
+def test_predicted_death_age_has_zero_effect_on_projection_output():
+    """spec.md FR-007: this feature does not itself wire predicted_death_age
+    into a running projection -- confirmed here by asserting a scenario
+    that sets it produces byte-for-byte identical output to the same
+    scenario without it (rp-g8y's future job, not this feature's)."""
+
+    def _build(predicted_death_age):
+        return Household(
+            filing_status="married_filing_jointly",
+            members=[
+                HouseholdMember(
+                    person_name="you",
+                    current_age=67,
+                    ss_claim_age=67,
+                    ss_annual_benefit=30_000,
+                    full_retirement_age=67.0,
+                    predicted_death_age=predicted_death_age,
+                ),
+                HouseholdMember(
+                    person_name="spouse", current_age=67, ss_claim_age=67, ss_annual_benefit=24_000, full_retirement_age=67.0
+                ),
+            ],
+        )
+
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=200_000),
+        traditional_ownership_shares={"you": 0.6, "spouse": 0.4},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+    )
+
+    without_death_age = run_plan_projection(household=_build(None), **common_kwargs)
+    with_death_age = run_plan_projection(household=_build(80), **common_kwargs)
+
+    assert with_death_age == without_death_age
+
+
+def test_compute_survivor_benefit_has_no_caller_in_this_module():
+    """spec.md FR-007: compute_survivor_benefit() is implemented and
+    cited (tests/unit/mechanics/test_social_security_benefit.py) but not
+    yet consumed by any running projection -- confirmed here by
+    inspecting this module's own source, since a positive "was it ever
+    called" assertion can't otherwise be made against a function with no
+    caller at all."""
+    import inspect
+
+    from retirement_planner.comparison import projection as projection_module
+
+    assert "compute_survivor_benefit" not in inspect.getsource(projection_module)
+
+
 def test_plain_non_grid_projection_uses_the_reduced_benefit_in_income_and_tax():
     """016-ss-claiming-age-actuarial-adjustment US2 (spec.md Acceptance
     Scenario 1): a household running one fixed, non-comparison claiming

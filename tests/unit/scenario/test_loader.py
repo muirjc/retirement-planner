@@ -95,6 +95,28 @@ def test_parse_scenario_passes_through_explicit_full_retirement_age():
     assert scenario.household.members[1].full_retirement_age == 67.0
 
 
+def test_parse_scenario_defaults_predicted_death_age_to_none_when_omitted():
+    # 017-ss-spousal-survivor-benefits: FULL_SCENARIO_YAML above never sets
+    # predicted_death_age -- unlike full_retirement_age, None here is
+    # already the fully-meaningful "no hypothetical death configured"
+    # value, not a placeholder resolved to some other default.
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert scenario.household.members[0].predicted_death_age is None
+    assert scenario.household.members[1].predicted_death_age is None
+
+
+def test_parse_scenario_passes_through_explicit_predicted_death_age():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n      predicted_death_age: 85\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].predicted_death_age == 85
+    # The second member still gets the default -- explicit value is per-member.
+    assert scenario.household.members[1].predicted_death_age is None
+
+
 def test_parse_scenario_reports_missing_required_field():
     yaml_text = FULL_SCENARIO_YAML.replace(
         "spending:\n  annual_need_real: 110000\n", ""

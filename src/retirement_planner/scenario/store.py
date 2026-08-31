@@ -79,6 +79,12 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
                     # Scenario reaches here (parse_scenario() resolves it),
                     # so this round-trips the resolved default, not None.
                     "hdhp_coverage": member.hdhp_coverage,  # 010-advanced-tax-benefits
+                    "predicted_death_age": member.predicted_death_age,  # 017-ss-spousal-survivor-benefits:
+                    # same field-by-field gap as full_retirement_age/
+                    # hdhp_coverage above, caught the same way (a real BFF
+                    # save/read round-trip test) -- None round-trips as
+                    # None (this field has no resolved-default behavior to
+                    # preserve, unlike full_retirement_age).
                 }
                 for member in scenario.household.members
             ],

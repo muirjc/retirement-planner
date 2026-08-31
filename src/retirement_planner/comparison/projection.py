@@ -20,6 +20,7 @@ from retirement_planner.mechanics import (
     compute_plan_year_mechanics,
     compute_rmd,
     compute_social_security_benefit,
+    compute_spousal_benefit_floor,
     compute_withdrawal_plan,
 )
 from retirement_planner.scenario import Household, HouseholdMember
@@ -98,17 +99,30 @@ def _member_gross_social_security_benefits(
     future direct-API caller, do), gets the identical backward-compatible
     default a parsed scenario already gets, mirroring
     scenario.validation.validate()'s own "not just relied on from
-    parse_scenario()'s own auto-fill" precedent for Account.owner."""
+    parse_scenario()'s own auto-fill" precedent for Account.owner.
+
+    017-ss-spousal-survivor-benefits (rp-52n): for a married_filing_jointly
+    household of exactly two members, once BOTH members have individually
+    reached their own claiming age this plan year (research.md Decision
+    3 -- the real SSA rule requires the other spouse to have already
+    filed for their own retirement benefit before a spousal amount is
+    payable off that record at all), each member's benefit is raised to
+    compute_spousal_benefit_floor()'s result (derived from the *other*
+    member's raw PIA) whenever that exceeds their own claiming-age-
+    adjusted benefit -- never reduced, never summed with it. A
+    "single"-filing-status household, or an MFJ household where one
+    member hasn't yet claimed, is completely unaffected (FR-004)."""
+
+    def _resolved_full_retirement_age(member: HouseholdMember) -> float:
+        return member.full_retirement_age if member.full_retirement_age is not None else float(member.ss_claim_age)
+
     benefits: dict[str, float] = {}
     figures_used: list[FigureUsage] = []
     for member in household.members:
         if ages_this_year[member.person_name] >= claiming_ages[member.person_name]:
-            full_retirement_age = (
-                member.full_retirement_age if member.full_retirement_age is not None else float(member.ss_claim_age)
-            )
             result = compute_social_security_benefit(
                 primary_insurance_amount=member.ss_annual_benefit,
-                full_retirement_age=full_retirement_age,
+                full_retirement_age=_resolved_full_retirement_age(member),
                 claiming_age=claiming_ages[member.person_name],
                 tax_year=tax_year,
             )
@@ -116,6 +130,24 @@ def _member_gross_social_security_benefits(
             figures_used.extend(result.figures_used)
         else:
             benefits[member.person_name] = 0.0
+
+    if household.filing_status == "married_filing_jointly" and len(household.members) == 2:
+        member_a, member_b = household.members
+        both_have_claimed = (
+            ages_this_year[member_a.person_name] >= claiming_ages[member_a.person_name]
+            and ages_this_year[member_b.person_name] >= claiming_ages[member_b.person_name]
+        )
+        if both_have_claimed:
+            for member, other in ((member_a, member_b), (member_b, member_a)):
+                spousal_result = compute_spousal_benefit_floor(
+                    other_member_pia=other.ss_annual_benefit,
+                    full_retirement_age=_resolved_full_retirement_age(member),
+                    claiming_age=claiming_ages[member.person_name],
+                    tax_year=tax_year,
+                )
+                benefits[member.person_name] = max(benefits[member.person_name], spousal_result.spousal_amount)
+                figures_used.extend(spousal_result.figures_used)
+
     return benefits, figures_used
 
 

@@ -150,6 +150,8 @@ methodology this table's federal rows were most recently produced by.
 | Uniform Lifetime Table (RMD divisors, ages 72–120+) | IRS Pub. 590-B (2025), Appendix B, Table III | `mechanics/rmd.py` |
 | Single Life Expectancy Table (inherited-account divisors, ages 0–120+) | IRS Pub. 590-B (2025), Appendix B, Table I | `mechanics/inherited_rmd.py` |
 | Social Security claiming-age early-reduction/delayed-credit rates | 42 U.S.C. §402(q)/(w); 20 C.F.R. §404.410/§404.313 (fixed by regulation, not annually revised) | `mechanics/social_security_benefit.py` |
+| Social Security spousal-benefit early-claiming reduction rate (25/36 of 1%/month first 36 months, 5/12 of 1%/month beyond; no delayed credit) | 42 U.S.C. §402(b)/(c); 20 C.F.R. §404.410 (wife's/husband's-benefit paragraph, fixed by regulation) | `mechanics/social_security_benefit.py` |
+| Social Security survivor-benefit rule (higher of the two benefits continues, the lower stops) | 42 U.S.C. §402(e)/(f); 20 C.F.R. §404.335/§404.336 | `mechanics/social_security_benefit.py` |
 
 **Simplification, documented not hidden**: the RMD start-age step above is
 modeled as a tax-year cutoff (73 before 2033, 75 from 2033 on), not the
@@ -183,12 +185,21 @@ a nominal-dollar inflation schedule this tool has no separate model for.
 - Trust/entity inherited-account beneficiaries — blocked by a validation
   flag before reaching any computation (`013-inherited-ira-edge-cases`),
   not silently mis-computed.
-- **Social Security spousal and survivor benefits** — each member's
-  claiming-age-adjusted benefit (§6.2a) is computed entirely
-  independently; a lower-earning spouse's benefit floor derived from the
-  higher earner's PIA, and the higher-of-two-continues/lower-stops
-  survivor rule after one spouse's death, are not modeled (tracked
-  separately: rp-52n, rp-g8y).
+- **Social Security spousal/survivor benefits — remaining gaps
+  (rp-52n)**: the spousal-benefit floor (§6.2b) is now modeled and
+  applied in every married-filing-jointly projection, and the
+  survivor-benefit calculation (§6.2b) is implemented and cited but not
+  yet wired into a running projection's mid-horizon behavior (filing
+  status, spending, income) after one spouse's death — tracked
+  separately as `rp-g8y`. Also not modeled: the Social Security family
+  maximum benefit (the aggregate cap on total benefits payable on one
+  worker's record — this tool's households of at most two members are
+  the case that least often binds it), "deemed filing" mechanics (a
+  household's own-benefit and spousal-benefit filings are treated as one
+  combined application in most post-2015 cases, not a genuine free
+  choice modeled here), and the widow(er)'s-own early-claiming reduction
+  and statutory "widow's limit" cap on the survivor-benefit calculation
+  itself.
 - **Social Security earnings test** — a member who claims while still
   working before FRA is not subject to the benefit withholding the
   earnings test would impose; the tool assumes full, unwithheld payment
@@ -285,12 +296,49 @@ received the same flat PIA for a different number of years, which
 structurally could never show delaying as the better choice even when it
 genuinely was.
 
-Explicitly not modeled: spousal benefits (a lower-earning spouse's
-benefit derived from the higher earner's PIA), survivor benefits (the
-higher of two benefits continuing after one spouse's death, while the
-lower one stops), and the Social Security earnings test for a member who
-claims while still working before FRA — tracked as known gaps, not
-silently assumed away.
+Explicitly not modeled here: the Social Security earnings test for a
+member who claims while still working before FRA — tracked as a known
+gap, not silently assumed away. Spousal and survivor benefits are now
+modeled — see §6.2b.
+
+### 6.2b Social Security spousal and survivor benefits (rp-52n)
+
+Each member's own claiming-age-adjusted benefit (§6.2a) is no longer the
+final word for a married-filing-jointly household — two further SSA
+rules now apply:
+
+- **Spousal-benefit floor**: once both members have reached their own
+  claiming age, each member's Social Security income is raised to the
+  greater of their own claiming-age-adjusted benefit or a spousal amount
+  — up to 50% of the *other* member's PIA, adjusted for the claiming
+  member's own claiming age relative to their own FRA using the SSA's
+  spousal-specific early-claiming reduction rate (25/36 of 1% per month
+  for the first 36 months claimed early, 5/12 of 1% per month beyond
+  that — a different, larger tier-1 rate than the worker's-own-benefit
+  reduction in §6.2a). No delayed-retirement credit ever applies to a
+  spousal amount: it is capped at exactly 50% of the other member's PIA
+  for claiming at or after FRA, no matter how much later than FRA the
+  claiming member actually files. This is wired into every deterministic
+  and Monte Carlo projection today (42 U.S.C. §402(b)/(c); 20 C.F.R.
+  §404.410).
+- **Survivor benefit**: given both members' own currently-claimed
+  benefit amounts, the surviving member's ongoing benefit is the higher
+  of the two — the lower one stops entirely (42 U.S.C. §402(e)/(f); 20
+  C.F.R. §404.335/§404.336). This calculation is implemented and cited,
+  and `HouseholdMember` can record a member's hypothetical death
+  (`predicted_death_age`, opt-in, `None` by default) for a future
+  feature to consume — but nothing in the engine today actually applies
+  it mid-projection: a scenario's filing status, spending need, and
+  income all continue exactly as if both members remained alive for the
+  full configured horizon, regardless of `predicted_death_age`. Wiring
+  this into a running projection (the "widow's tax penalty" a household
+  would actually experience) is tracked separately as `rp-g8y`.
+
+Explicitly not modeled: the Social Security family maximum benefit,
+"deemed filing" mechanics, and — on the survivor-benefit calculation
+itself — the widow(er)'s-own early-claiming reduction and the statutory
+"widow's limit" cap (§5.3) — tracked as known gaps, not silently assumed
+away.
 
 ### 6.3 Net Investment Income Tax (NIIT)
 
@@ -385,6 +433,11 @@ until replaced with an actual, cited source.
 - Federal tax assumes every household takes the standard deduction (§5.1);
   itemizing and the temporary OBBBA senior bonus deduction are not modeled
   (§5.3).
+- A spouse's death does not yet change a running projection's filing
+  status, spending need, or income mid-horizon, even though the
+  survivor-benefit calculation itself and a per-member
+  `predicted_death_age` field both exist (§6.2b); wiring this in is
+  tracked separately as `rp-g8y`.
 
 ## 8. Non-Functional Requirements
 

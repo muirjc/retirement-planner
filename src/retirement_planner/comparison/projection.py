@@ -31,6 +31,7 @@ from retirement_planner.tax import (
     FederalTaxResult,
     FigureUsage,
     IncomeComponents,
+    compute_early_withdrawal_penalty,
     compute_federal_tax,
     compute_irmaa_surcharge,
     compute_niit,
@@ -276,6 +277,22 @@ def run_plan_projection(
     -- a flag, never a computed penalty dollar amount (FR-007). A
     household with no Roth conversion configured is completely
     unaffected (FR-008).
+
+    020-early-withdrawal-penalty (rp-8z0, comparison-api.md): each plan
+    year, this call also computes a combined taxable early-distribution
+    base -- each under-59 household member's own share (via
+    traditional_ownership_shares) of that year's voluntary (non-RMD)
+    Traditional withdrawal, plus that same year's own
+    unseasoned_roth_withdrawal amount (019's flag, consumed as-is) -- and
+    applies compute_early_withdrawal_penalty()'s 10% rate to it. Unlike
+    irmaa.surcharge_owed/niit.surtax_owed (reported but never funded, a
+    separate pre-existing gap tracked as rp-yqf), this penalty IS
+    included in tax_owed, so it genuinely reduces this year's ending
+    balances. Recorded on PlanYearProjection.early_withdrawal_penalty and
+    summed into PlanOutcome.cumulative_early_withdrawal_penalty_paid. A
+    household whose every member stays 60+ for the entire horizon and
+    never touches an unseasoned Roth conversion lot sees a penalty of
+    exactly 0.0 for every plan year (FR-010).
     """
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
@@ -571,7 +588,41 @@ def run_plan_projection(
             tax_year=tax_year,
         )
 
-        tax_owed = federal_tax.federal_tax_owed + state_tax.state_tax_owed
+        # 020-early-withdrawal-penalty (rp-8z0): 10% additional tax (26
+        # U.S.C. §72(t)(1)) on this year's combined taxable early-
+        # distribution base -- each under-59 household member's own share
+        # (via traditional_ownership_shares, 011's existing per-owner RMD
+        # attribution) of this year's voluntary (non-RMD) Traditional
+        # withdrawal, plus this year's own unseasoned Roth conversion
+        # withdrawal (019's ladder_result, consumed as-is -- no
+        # re-derivation of lot seasoning or the age condition that
+        # already gated that flag). rmd_drawn and inherited-account
+        # distributions are structurally excluded -- neither is ever part
+        # of sequence_withdrawals (research.md Decision 4).
+        traditional_sequence_draw = sum(
+            item.amount
+            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
+            if item.account_type == "traditional"
+        )
+        under_59_traditional_share = sum(
+            traditional_ownership_shares[member.person_name] * traditional_sequence_draw
+            for member in household.members
+            if ages_this_year[member.person_name] <= 59
+        )
+        taxable_early_distribution_base = under_59_traditional_share + ladder_result.unseasoned_amount_flagged
+        early_withdrawal_penalty = compute_early_withdrawal_penalty(
+            taxable_early_distribution_base=taxable_early_distribution_base,
+            tax_year=tax_year,
+        )
+
+        # Unlike irmaa.surcharge_owed/niit.surtax_owed (a separate,
+        # pre-existing gap tracked as rp-yqf, not touched by this
+        # feature), this new cost IS included in what's actually funded
+        # -- it must genuinely reduce projected account balances (FR-007,
+        # research.md Decision 6).
+        tax_owed = (
+            federal_tax.federal_tax_owed + state_tax.state_tax_owed + early_withdrawal_penalty.penalty_owed
+        )
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
             spending_need=tax_owed,
             rmd_amount=0.0,
@@ -620,6 +671,7 @@ def run_plan_projection(
             *irmaa.figures_used,
             *niit.figures_used,
             *ladder_result.figures_used,
+            *early_withdrawal_penalty.figures_used,
         ]
 
         years.append(
@@ -636,6 +688,7 @@ def run_plan_projection(
                 irmaa=irmaa,
                 niit=niit,
                 hsa_contribution=hsa_contribution,
+                early_withdrawal_penalty=early_withdrawal_penalty,
                 figures_used=figures_used,
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
@@ -677,6 +730,9 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
     )
     cumulative_irmaa_paid = sum(year.irmaa.surcharge_owed for year in years)
     cumulative_niit_paid = sum(year.niit.surtax_owed for year in years)
+    cumulative_early_withdrawal_penalty_paid = sum(
+        year.early_withdrawal_penalty.penalty_owed for year in years
+    )
 
     return PlanOutcome(
         ending_balance=ending_balance,
@@ -684,4 +740,5 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
         cumulative_tax_paid=cumulative_tax_paid,
         cumulative_irmaa_paid=cumulative_irmaa_paid,
         cumulative_niit_paid=cumulative_niit_paid,
+        cumulative_early_withdrawal_penalty_paid=cumulative_early_withdrawal_penalty_paid,
     )

@@ -41,4 +41,7 @@ class SummaryStatistics:
     itself keeps cumulative_irmaa_paid distinct from cumulative_tax_paid."""
     median_lifetime_niit_paid: float
     """010-advanced-tax-benefits: same derivation, for cumulative_niit_paid."""
+    median_lifetime_early_withdrawal_penalty_paid: float
+    """020-early-withdrawal-penalty: same derivation, for
+    cumulative_early_withdrawal_penalty_paid."""
     unverified_figure_names: list[str] = field(default_factory=list)

@@ -446,10 +446,39 @@ household member's translated age is 59 or younger that year (a
 conservative, household-level simplification — this engine pools Roth at
 the household level, with no per-member ownership, so the check applies
 until *every* member has cleared the age condition, erring toward
-over-flagging rather than missing a real violation). This flag is
-informational only: it does **not** compute or apply the actual 10%
-early-withdrawal penalty dollar amount, which remains separate, disclosed
-scope (§7).
+over-flagging rather than missing a real violation). This flag now feeds
+directly into the 10% early-withdrawal penalty described in §6.6a — it is
+no longer merely informational.
+
+### 6.6a Early-withdrawal penalty, pre-59.5 (rp-8z0)
+
+A flat 10% additional tax (26 U.S.C. §72(t)(1)) applies each plan year to
+the household's combined **taxable early-distribution base**: each
+household member's own share (via the same per-owner `traditional_ownership_shares`
+attribution §6.5's RMD calculation already uses) of that year's *voluntary*
+(non-RMD) Traditional withdrawal, for any member whose translated age is
+59 or younger, plus that same year's own unseasoned Roth
+conversion-withdrawal amount (§6.6's own conversion-ladder flag, consumed
+directly — this feature does not re-derive lot seasoning or re-check
+age for it). The two sources are combined into a single reported penalty,
+not two separate figures.
+
+Two real statutory exclusions apply automatically, by construction, not
+via an explicit check: an RMD-mandated distribution is never included
+(the RMD leg is tracked entirely separately from a voluntary withdrawal,
+and in any case this tool's RMD start age is never under 73 — always well
+past 59½); and an inherited account's own distribution to its beneficiary
+is never included, regardless of the beneficiary's own age (a distinct
+provision from a Traditional/Roth owner's own early access — this tool
+already tracks inherited-account distributions as an entirely separate
+stream, per §5.5).
+
+Unlike the IRMAA/NIIT amounts described in §6.3/§6.4 (found, during this
+feature's own specification, to be reported but never actually deducted
+from projected balances — a separate, disclosed bug, not fixed here — see
+§7), this penalty **is** included in the amount actually funded each plan
+year, so it genuinely reduces a household's projected ending balance, not
+merely its reported lifetime cost.
 
 ### 6.7 Comparison methodology (paired-draw)
 
@@ -520,17 +549,28 @@ until replaced with an actual, cited source.
   budget re-plan beyond the single configured spending percentage, and a
   second (the survivor's own, later) configured death ending the
   projection (§6.2c).
-- Roth conversion five-year seasoning tracking (§6.6) flags, but does not
-  compute or apply, the actual 10% early-withdrawal penalty dollar amount
-  for a withdrawal that touches unseasoned converted principal — that
-  remains separate, disclosed scope (tracked as rp-8z0, early-withdrawal
-  penalty / 72(t)-SEPP modeling). Also not modeled: per-member Roth
-  ownership attribution (a conservative household-level age check is used
-  instead — §6.6); a per-path probabilistic seasoning outcome in Monte
-  Carlo simulation (every path uses the same deterministic conversion
-  history a plain projection would); and the separate account-level rule
-  governing whether Roth *earnings* (growth, as distinct from converted
-  principal) are a "qualified distribution."
+- Roth conversion five-year seasoning tracking (§6.6) now feeds a real
+  10% early-withdrawal penalty (§6.6a). Still not modeled: per-member
+  Roth ownership attribution (a conservative household-level age check is
+  used instead — §6.6); a per-path probabilistic seasoning outcome in
+  Monte Carlo simulation (every path uses the same deterministic
+  conversion history a plain projection would); and the separate
+  account-level rule governing whether Roth *earnings* (growth, as
+  distinct from converted principal) are a "qualified distribution."
+- The 10% early-withdrawal penalty (§6.6a) does not model a 72(t)/SEPP
+  substantially-equal-periodic-payment alternative, nor any real IRC
+  §72(t)(2) exception beyond age 59½ (disability, medical expenses,
+  higher education, a first-time homebuyer's up to $10,000, health
+  insurance premiums while unemployed, an IRS levy, qualified reservist
+  distributions, birth/adoption up to $5,000, terminal illness, disaster
+  relief, and others) — a household actually covered by one of these in
+  reality will see this tool report a penalty it cannot yet suppress.
+- IRMAA surcharges and NIIT surtax (§6.3/§6.4) are computed and reported
+  but not currently deducted from a projection's account balances — a
+  separate, disclosed bug (tracked as `rp-yqf`), found during the
+  early-withdrawal-penalty feature's own specification but not fixed by
+  it; that feature's own new penalty cost (§6.6a) does not repeat this
+  gap.
 
 ## 8. Non-Functional Requirements
 

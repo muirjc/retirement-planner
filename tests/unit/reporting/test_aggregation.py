@@ -164,6 +164,22 @@ def test_median_lifetime_tax_paid_includes_depleted_paths():
     assert len(tax_values) > 1
 
 
+def test_median_lifetime_early_withdrawal_penalty_paid_derived_from_plan_outcome():
+    """020-early-withdrawal-penalty: median_lifetime_early_withdrawal_penalty_paid
+    is derived the same way median_lifetime_irmaa_paid/median_lifetime_niit_paid
+    already are -- the median across paths' own
+    PlanOutcome.cumulative_early_withdrawal_penalty_paid."""
+    from retirement_planner.reporting.aggregation import summarize_run
+
+    projections = [_PROJECTION_A, _PROJECTION_B, _PROJECTION_C]
+    run = _run_from_projections(projections, success_rate=2 / 3)
+
+    summary = summarize_run(run, household=_HOUSEHOLD, reference_tax_year=2026)
+
+    expected = statistics.median(p.outcome.cumulative_early_withdrawal_penalty_paid for p in projections)
+    assert summary.median_lifetime_early_withdrawal_penalty_paid == pytest.approx(expected)
+
+
 def test_summarize_run_is_repeatable():
     from retirement_planner.reporting.aggregation import summarize_run
 

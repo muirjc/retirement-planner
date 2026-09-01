@@ -60,6 +60,9 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
     median_lifetime_niit_paid = statistics.median(
         path.outcome.cumulative_niit_paid for path in run.path_results
     )
+    median_lifetime_early_withdrawal_penalty_paid = statistics.median(
+        path.outcome.cumulative_early_withdrawal_penalty_paid for path in run.path_results
+    )
 
     ending_balance = run.percentile_bands[-1].percentiles[0.50]
 
@@ -72,6 +75,7 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
         median_lifetime_tax_paid=median_lifetime_tax_paid,
         median_lifetime_irmaa_paid=median_lifetime_irmaa_paid,
         median_lifetime_niit_paid=median_lifetime_niit_paid,
+        median_lifetime_early_withdrawal_penalty_paid=median_lifetime_early_withdrawal_penalty_paid,
         unverified_figure_names=_unverified_figure_names(run.figures_used),
     )
 
@@ -106,6 +110,7 @@ def _summarize_plan_projection(
         median_lifetime_tax_paid=projection.outcome.cumulative_tax_paid,
         median_lifetime_irmaa_paid=projection.outcome.cumulative_irmaa_paid,
         median_lifetime_niit_paid=projection.outcome.cumulative_niit_paid,
+        median_lifetime_early_withdrawal_penalty_paid=projection.outcome.cumulative_early_withdrawal_penalty_paid,
         unverified_figure_names=_unverified_figure_names(figures),
     )
 

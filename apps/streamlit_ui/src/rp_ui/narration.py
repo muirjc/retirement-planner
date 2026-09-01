@@ -143,6 +143,16 @@ def narrate_metrics(summary: dict, *, path_count: int | None = None) -> list[dic
             ),
         }
     )
+    entries.append(
+        {
+            "label": "Lifetime early-withdrawal penalty paid",
+            "value": format_currency(summary.get("median_lifetime_early_withdrawal_penalty_paid")),
+            "explanation": (
+                f"{tax_qualifier} total 10% early-withdrawal penalty paid -- an additional tax on "
+                "Traditional or unseasoned Roth-conversion withdrawals taken before age 59½."
+            ),
+        }
+    )
 
     if is_monte_carlo:
         entries.append(

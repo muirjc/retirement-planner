@@ -62,6 +62,7 @@ _SUMMARY_FIELDNAMES = [
     "median_lifetime_tax_paid",
     "median_lifetime_irmaa_paid",  # 010-advanced-tax-benefits
     "median_lifetime_niit_paid",  # 010-advanced-tax-benefits
+    "median_lifetime_early_withdrawal_penalty_paid",  # 020-early-withdrawal-penalty
     "has_unverified_figure",
 ]
 
@@ -79,6 +80,7 @@ def _summary_to_row(summary: SummaryStatistics) -> dict:
         "median_lifetime_tax_paid": summary.median_lifetime_tax_paid,
         "median_lifetime_irmaa_paid": summary.median_lifetime_irmaa_paid,
         "median_lifetime_niit_paid": summary.median_lifetime_niit_paid,
+        "median_lifetime_early_withdrawal_penalty_paid": summary.median_lifetime_early_withdrawal_penalty_paid,
         "has_unverified_figure": bool(summary.unverified_figure_names),
     }
 

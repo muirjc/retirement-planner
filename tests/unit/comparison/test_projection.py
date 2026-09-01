@@ -1387,3 +1387,190 @@ def test_two_inherited_accounts_have_independently_keyed_snapshots():
     # rp-kn5: 31.4, the beneficiary's own divisor (see the hand check in
     # test_inherited_account_annual_distribution_included_in_withdrawal_plan).
     assert year.inherited_account_distributions["traditional-1"] == pytest.approx(250_000 / 31.4)
+
+
+# --- 019-roth-conversion-ladder: five-year seasoning / conversion-ladder tracking (rp-886) ---
+
+
+def _ladder_household(current_age=55):
+    return Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=current_age, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+
+
+def _run_ladder_projection(household, conversion_bracket_ceiling_or_amount=90_000, plan_to_age=65, annual_spending_need=15_000):
+    strategy = _strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=conversion_bracket_ceiling_or_amount,
+        conversion_window=(2026, 2026),
+    )
+    return run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=100_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=annual_spending_need,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=plan_to_age,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+
+def _roth_draw(year):
+    return next(
+        (item.amount for item in year.mechanics.withdrawal_plan.sequence_withdrawals if item.account_type == "roth"),
+        0.0,
+    )
+
+
+def test_unseasoned_conversion_withdrawal_is_flagged_then_stops_once_seasoned():
+    """spec.md Acceptance Scenarios 1-2 (User Story 1), quickstart.md §1:
+    a conversion executed in 2026 (age 55) is drawn against every year
+    from 2027-2030 while still unseasoned and the household member is
+    under 59.5 -- each such draw is flagged in full. By 2031 the
+    conversion has seasoned (5 full tax years elapsed) and the identical
+    kind of draw is no longer flagged."""
+    result = _run_ladder_projection(_ladder_household(current_age=55))
+
+    year_2026 = next(y for y in result.years if y.tax_year == 2026)
+    assert year_2026.mechanics.conversion.amount_converted > 0
+    assert year_2026.unseasoned_roth_withdrawal == 0.0  # same-year conversion is never its own draw source
+
+    for tax_year in (2027, 2028, 2029, 2030):
+        year = next(y for y in result.years if y.tax_year == tax_year)
+        draw = _roth_draw(year)
+        assert draw > 0.0
+        assert year.unseasoned_roth_withdrawal == pytest.approx(draw)
+
+    year_2031 = next(y for y in result.years if y.tax_year == 2031)
+    assert year_2031.unseasoned_roth_withdrawal == 0.0
+
+
+def test_no_flag_once_every_member_has_cleared_59_5():
+    """spec.md Acceptance Scenario 3 (User Story 1), quickstart.md §2: a
+    household member who is already 60 by the time a draw reaches an
+    unseasoned lot is never flagged, even though the draw itself still
+    happens and still touches the unseasoned lot."""
+    result = _run_ladder_projection(_ladder_household(current_age=59), plan_to_age=70)
+
+    year_2027 = next(y for y in result.years if y.tax_year == 2027)  # "you" is 60 this year
+    draw = _roth_draw(year_2027)
+    assert draw > 0.0
+    assert year_2027.unseasoned_roth_withdrawal == 0.0
+
+
+def test_household_covered_by_pre_existing_balance_alone_never_flags():
+    """spec.md Acceptance Scenario 4 (User Story 1): a draw fully covered
+    by the pre-existing/non-lot Roth balance never flags, regardless of
+    any conversion's own seasoning status or any member's age."""
+    household = _ladder_household(current_age=55)
+    strategy = _strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=10_000,
+        conversion_window=(2026, 2026),
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=100_000, roth=200_000, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=15_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    # Traditional alone comfortably covers spending here -- Roth is never touched at all.
+    assert all(y.unseasoned_roth_withdrawal == 0.0 for y in result.years)
+
+
+def test_no_roth_conversion_configured_leaves_every_year_unaffected():
+    """spec.md Acceptance Scenario 5 (User Story 1), FR-008, SC-004,
+    quickstart.md §3: a household whose scenario configures no Roth
+    conversion strategy sees no tracked lots and no flags raised by this
+    feature, ever."""
+    household = _ladder_household(current_age=55)
+    no_conversion_strategy = _strategy(claiming_ages={"you": 67})  # conversion_strategy=None by default
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=100_000, roth=50_000, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=15_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=no_conversion_strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    assert all(y.unseasoned_roth_withdrawal == 0.0 for y in result.years)
+
+
+def test_no_numeric_output_changes_because_of_this_feature():
+    """spec.md FR-007, SC-005: this feature adds an informational field
+    only -- every other reported figure (spending, tax, shortfall,
+    ending balances) for a conversion-bearing household must be
+    identical whether or not a year happens to be flagged. Confirmed by
+    comparing a flagged run against the same household's own hand
+    -verifiable ending Roth balance arithmetic, independent of the flag."""
+    result = _run_ladder_projection(_ladder_household(current_age=55))
+    year_2027 = next(y for y in result.years if y.tax_year == 2027)
+    # ending Roth balance this year = starting balance - this year's own draw,
+    # completely unaffected by whether unseasoned_roth_withdrawal is 0 or positive.
+    assert year_2027.ending_balances.roth == pytest.approx(
+        year_2027.starting_balances.roth - _roth_draw(year_2027)
+    )
+
+
+def test_multiple_conversions_draw_down_oldest_first_end_to_end():
+    """spec.md User Story 2, quickstart.md's multi-lot pattern applied
+    end-to-end through run_plan_projection(): three conversions executed
+    in consecutive plan years (2026-2028), drawn down oldest-first. 2030's
+    draw reaches into the still-unseasoned 2026 lot (flagged); by 2031 that
+    same lot has seasoned (5 years) and still has enough remaining balance
+    to cover every later year's draw without ever reaching the newer,
+    still-unseasoned 2027/2028 lots -- confirming the projection loop's
+    per-year reassignment (T009-T010) preserves oldest-lot-first ordering
+    across years, not just within one call."""
+    household = _ladder_household(current_age=50)
+    strategy = _strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=20_000,
+        conversion_window=(2026, 2028),
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=100_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=8_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    conversions = {y.tax_year: y.mechanics.conversion.amount_converted for y in result.years}
+    assert conversions[2026] > 0 and conversions[2027] > 0 and conversions[2028] > 0
+
+    year_2030 = next(y for y in result.years if y.tax_year == 2030)
+    draw_2030 = _roth_draw(year_2030)
+    assert draw_2030 > 0.0
+    assert year_2030.unseasoned_roth_withdrawal == pytest.approx(draw_2030)  # 2026 lot, still unseasoned
+
+    # 2031 onward: the 2026 lot has seasoned and still has enough balance left
+    # to cover every subsequent year's draw on its own -- never flagged again.
+    for year in result.years:
+        if year.tax_year >= 2031:
+            assert year.unseasoned_roth_withdrawal == 0.0

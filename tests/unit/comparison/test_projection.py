@@ -1948,3 +1948,89 @@ def test_no_roth_conversion_configured_means_roth_side_contribution_is_always_ze
     year = result.years[0]
     assert year.unseasoned_roth_withdrawal == 0.0
     assert year.early_withdrawal_penalty.penalty_owed == pytest.approx(_traditional_draw(year) * 0.10)
+
+
+# --- rp-yqf: IRMAA/NIIT are actually funded, not just reported ---
+
+
+def test_irmaa_and_niit_are_included_in_the_actually_funded_tax_withdrawal():
+    """rp-yqf: irmaa.surcharge_owed and niit.surtax_owed must be included
+    in tax_owed/tax_funding_withdrawal -- previously omitted (an
+    undocumented gap, not a design choice), so neither ever actually
+    reduced a projection's account balances despite the Streamlit UI
+    describing both as amounts "paid". A high-income household triggers
+    both simultaneously, alongside ordinary federal tax."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=66, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _strategy(
+        withdrawal_strategy="rmd_traditional_taxable_roth",
+        claiming_ages={"you": 67},
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=300_000, roth=0, taxable=1_000_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=400_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    # Sanity: this scenario actually triggers all three costs simultaneously --
+    # otherwise this test could pass vacuously.
+    assert year.federal_tax.federal_tax_owed > 0
+    assert year.niit.surtax_owed > 0
+    assert year.irmaa.surcharge_owed > 0
+
+    actually_funded = sum(item.amount for item in year.tax_funding_withdrawal.sequence_withdrawals)
+    assert actually_funded == pytest.approx(
+        year.federal_tax.federal_tax_owed
+        + year.state_tax.state_tax_owed
+        + year.irmaa.surcharge_owed
+        + year.niit.surtax_owed
+        + year.early_withdrawal_penalty.penalty_owed
+    )
+
+
+def test_cumulative_tax_paid_meaning_is_unchanged_by_the_irmaa_niit_funding_fix():
+    """rp-yqf: PlanOutcome.cumulative_tax_paid keeps its existing meaning
+    (federal + state income tax only) -- the fix changes what's actually
+    funded (tax_owed, a local variable), not this separate reporting
+    figure, matching 010's own established "keep cumulative_tax_paid
+    federal+state-only, report IRMAA/NIIT in their own separate fields"
+    precedent."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=66, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _strategy(
+        withdrawal_strategy="rmd_traditional_taxable_roth",
+        claiming_ages={"you": 67},
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=300_000, roth=0, taxable=1_000_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=400_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    expected_cumulative_tax_paid = sum(
+        year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in result.years
+    )
+    assert result.outcome.cumulative_tax_paid == pytest.approx(expected_cumulative_tax_paid)
+    assert result.outcome.cumulative_irmaa_paid == pytest.approx(
+        sum(year.irmaa.surcharge_owed for year in result.years)
+    )
+    assert result.outcome.cumulative_niit_paid == pytest.approx(sum(year.niit.surtax_owed for year in result.years))

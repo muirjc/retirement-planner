@@ -615,13 +615,30 @@ def run_plan_projection(
             tax_year=tax_year,
         )
 
-        # Unlike irmaa.surcharge_owed/niit.surtax_owed (a separate,
-        # pre-existing gap tracked as rp-yqf, not touched by this
-        # feature), this new cost IS included in what's actually funded
-        # -- it must genuinely reduce projected account balances (FR-007,
-        # research.md Decision 6).
+        # rp-yqf: irmaa.surcharge_owed and niit.surtax_owed are included
+        # here too -- both are real household costs (010-advanced-tax-
+        # benefits FR-002/FR-006: "include the resulting ... surcharge as
+        # a household cost", "report the resulting amount separately from
+        # ordinary income tax owed" -- "reported separately" governs
+        # PlanYearProjection's own field layout, e.g. irmaa/niit staying
+        # distinct from federal_tax/state_tax, not whether either is
+        # actually paid out of the household's own balances). Previously
+        # omitted here -- an undocumented gap, not a design choice (found
+        # during 020-early-withdrawal-penalty's own specification) -- so
+        # both were computed and reported (surfaced in
+        # apps/streamlit_ui/src/rp_ui/narration.py as "Lifetime Medicare
+        # IRMAA surcharge"/"Lifetime Net Investment Income Tax," both
+        # phrased as amounts "paid") without ever actually reducing a
+        # projection's account balances. cumulative_tax_paid's own
+        # existing meaning (federal + state income tax only) is
+        # unaffected -- that reporting figure is a separate computation
+        # in _derive_outcome(), untouched by this local funding variable.
         tax_owed = (
-            federal_tax.federal_tax_owed + state_tax.state_tax_owed + early_withdrawal_penalty.penalty_owed
+            federal_tax.federal_tax_owed
+            + state_tax.state_tax_owed
+            + irmaa.surcharge_owed
+            + niit.surtax_owed
+            + early_withdrawal_penalty.penalty_owed
         )
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
             spending_need=tax_owed,

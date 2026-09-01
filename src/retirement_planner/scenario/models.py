@@ -68,6 +68,18 @@ class Household:
 
     filing_status: Literal["single", "married_filing_jointly"]
     members: list[HouseholdMember]
+    survivor_spending_reduction_pct: float = 0.0
+    """018-survivor-scenario-projection (rp-g8y): the fraction (0.0-1.0) by
+    which annual_spending_need is reduced for every plan year AFTER a
+    configured member death takes effect (comparison.run_plan_projection()
+    determines the death tax year from a member's predicted_death_age,
+    017-ss-spousal-survivor-benefits). 0.0 (the default, and every scenario
+    predating this feature) is a true no-op -- spending stays at its full
+    configured value even after a death, reproducing every existing
+    scenario's exact current behavior. Consulted only when a plan year is
+    determined to be post-death; a household where no member has
+    predicted_death_age configured never reads this field at all, regardless
+    of its value (data-model.md)."""
 
 
 @dataclass

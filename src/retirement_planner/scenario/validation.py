@@ -189,6 +189,22 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                     severity="warning",
                 )
             )
+    # 018-survivor-scenario-projection: a plausibility warning, not a
+    # blocking rejection -- a household deliberately modeling spending
+    # going UP after a death (e.g. new caregiving costs) is a legitimate,
+    # if unusual, planning choice, so this is a double-check prompt, not a
+    # hard rejection (data-model.md).
+    if not (0.0 <= scenario.household.survivor_spending_reduction_pct <= 1.0):
+        flags.append(
+            ValidationFlag(
+                field="household.survivor_spending_reduction_pct",
+                message=(
+                    f"Survivor spending reduction {scenario.household.survivor_spending_reduction_pct} "
+                    "is outside the plausible range (0.0-1.0); double-check this value."
+                ),
+                severity="warning",
+            )
+        )
     return flags
 
 

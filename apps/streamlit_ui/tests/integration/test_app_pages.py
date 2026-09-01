@@ -328,6 +328,49 @@ def test_predicted_death_age_left_unset_sends_none_not_zero():
     assert store["no_death_age_case"]["household"]["members"][0]["predicted_death_age"] is None
 
 
+def test_survivor_spending_reduction_pct_defaults_zero_and_is_saved_and_reloaded():
+    """018-survivor-scenario-projection: the widget only appears for a
+    married-filing-jointly household (mirrors member2's own fields), it
+    defaults to 0.0 (no reduction), an explicit value the user enters is
+    sent in the saved payload, and loading a previously saved scenario
+    repopulates it."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="filing_status").set_value("married_filing_jointly")
+    at.run()
+
+    assert at.number_input(key="survivor_spending_reduction_pct").value == 0.0
+
+    at.text_input(key="scenario_name").set_value("survivor_reduction_case")
+    at.text_input(key="member1_person_name").set_value("you")
+    at.number_input(key="member1_current_age").set_value(67)
+    at.number_input(key="member1_ss_claim_age").set_value(67)
+    at.number_input(key="member1_ss_annual_benefit").set_value(30_000.0)
+    at.text_input(key="member2_person_name").set_value("spouse")
+    at.number_input(key="member2_current_age").set_value(67)
+    at.number_input(key="member2_ss_claim_age").set_value(67)
+    at.number_input(key="member2_ss_annual_benefit").set_value(20_000.0)
+    at.number_input(key="member2_predicted_death_age").set_value(70)
+    at.number_input(key="survivor_spending_reduction_pct").set_value(0.20)
+    at.number_input(key="annual_need_real").set_value(60_000.0)
+    at.selectbox(key="state").set_value("FL")
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["survivor_reduction_case"]["household"]["survivor_spending_reduction_pct"] == 0.20
+
+    # A fresh page load, then loading that saved scenario back, repopulates it.
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("survivor_reduction_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.number_input(key="survivor_spending_reduction_pct").value == 0.20
+
+
 def test_us2_single_member_household_never_renders_member2_account_fields():
     """A single-filer household has only one possible owner -- no second
     row is ever offered (FR-003)."""

@@ -64,6 +64,11 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
         "name": scenario.name,
         "household": {
             "filing_status": scenario.household.filing_status,
+            "survivor_spending_reduction_pct": scenario.household.survivor_spending_reduction_pct,
+            # 018-survivor-scenario-projection: same field-by-field
+            # round-trip gap class as full_retirement_age/hdhp_coverage/
+            # predicted_death_age above -- fixed proactively here rather
+            # than caught later via a save/read round-trip test.
             "members": [
                 {
                     "person_name": member.person_name,

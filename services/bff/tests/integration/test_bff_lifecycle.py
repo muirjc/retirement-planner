@@ -104,6 +104,30 @@ def test_predicted_death_age_round_trips_and_defaults_to_none_when_omitted(clien
     assert read_response["household"]["members"][1]["predicted_death_age"] is None
 
 
+def test_survivor_spending_reduction_pct_round_trips_and_defaults_to_zero_when_omitted(client):
+    """018-survivor-scenario-projection: an explicit
+    survivor_spending_reduction_pct round-trips through PUT/GET; a
+    household that omits it entirely (like _SCENARIO_BODY's own
+    household) defaults to 0.0 -- a true no-op, mirroring how
+    predicted_death_age above defaults to None with no computed
+    substitute."""
+    body_with_explicit_reduction = {
+        **_SCENARIO_BODY,
+        "household": {**_SCENARIO_BODY["household"], "survivor_spending_reduction_pct": 0.25},
+    }
+    save_response = client.put("/api/v1/scenarios/spending_reduction_case", json=body_with_explicit_reduction)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/spending_reduction_case").json()
+    assert read_response["household"]["survivor_spending_reduction_pct"] == 0.25
+
+    # _SCENARIO_BODY itself never sets it -- defaults to 0.0.
+    save_default_response = client.put("/api/v1/scenarios/base_case_default_reduction", json=_SCENARIO_BODY)
+    assert save_default_response.status_code == 200
+    read_default_response = client.get("/api/v1/scenarios/base_case_default_reduction").json()
+    assert read_default_response["household"]["survivor_spending_reduction_pct"] == 0.0
+
+
 def test_account_owner_omitted_on_single_member_household_is_auto_filled(client):
     """011-per-owner-accounts: a single-filer household needs no owner in
     the request at all -- the response shows it auto-filled (FR-003)."""

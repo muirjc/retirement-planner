@@ -127,7 +127,18 @@ def _build_household(data: object, source: str) -> Household:
             f"household.members has {len(members)} member(s) but filing_status "
             f"'{filing_status}' requires {expected}",
         )
-    return Household(filing_status=filing_status, members=members)
+    # survivor_spending_reduction_pct (018-survivor-scenario-projection):
+    # optional, defaults to 0.0 when omitted -- already this field's own
+    # fully-meaningful "no reduction" no-op value, mirroring hdhp_coverage's
+    # own defaults-to-a-no-op-value pattern (not full_retirement_age's
+    # defaults-to-a-computed-value one).
+    survivor_spending_reduction_pct = data.get("survivor_spending_reduction_pct", 0.0) if isinstance(data, dict) else 0.0
+
+    return Household(
+        filing_status=filing_status,
+        members=members,
+        survivor_spending_reduction_pct=float(survivor_spending_reduction_pct),
+    )
 
 
 def _build_inherited_ira_details(data: object, source: str, context: str) -> InheritedIraDetails | None:

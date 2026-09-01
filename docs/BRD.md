@@ -473,12 +473,13 @@ provision from a Traditional/Roth owner's own early access — this tool
 already tracks inherited-account distributions as an entirely separate
 stream, per §5.5).
 
-Unlike the IRMAA/NIIT amounts described in §6.3/§6.4 (found, during this
-feature's own specification, to be reported but never actually deducted
-from projected balances — a separate, disclosed bug, not fixed here — see
-§7), this penalty **is** included in the amount actually funded each plan
-year, so it genuinely reduces a household's projected ending balance, not
-merely its reported lifetime cost.
+This penalty is included in the amount actually funded each plan year, so
+it genuinely reduces a household's projected ending balance, not merely
+its reported lifetime cost — the same is now true of the IRMAA/NIIT
+amounts described in §6.3/§6.4 (`rp-yqf`: found, during this feature's
+own specification, to be reported but not yet actually deducted from
+projected balances at the time; fixed as a follow-on correction shortly
+after).
 
 ### 6.7 Comparison methodology (paired-draw)
 
@@ -565,12 +566,6 @@ until replaced with an actual, cited source.
   distributions, birth/adoption up to $5,000, terminal illness, disaster
   relief, and others) — a household actually covered by one of these in
   reality will see this tool report a penalty it cannot yet suppress.
-- IRMAA surcharges and NIIT surtax (§6.3/§6.4) are computed and reported
-  but not currently deducted from a projection's account balances — a
-  separate, disclosed bug (tracked as `rp-yqf`), found during the
-  early-withdrawal-penalty feature's own specification but not fixed by
-  it; that feature's own new penalty cost (§6.6a) does not repeat this
-  gap.
 
 ## 8. Non-Functional Requirements
 

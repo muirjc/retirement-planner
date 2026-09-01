@@ -15,7 +15,14 @@ from typing import Literal, Protocol
 
 from retirement_planner.mechanics import AccountBalances, HsaContributionResult, PlanYearMechanicsResult, WithdrawalPlan
 from retirement_planner.scenario import HsaContributionPlan
-from retirement_planner.tax import FederalTaxResult, FigureUsage, IrmaaResult, NiitResult, StateTaxResult
+from retirement_planner.tax import (
+    EarlyWithdrawalPenaltyResult,
+    FederalTaxResult,
+    FigureUsage,
+    IrmaaResult,
+    NiitResult,
+    StateTaxResult,
+)
 
 
 class ReturnSchedule(Protocol):
@@ -75,6 +82,13 @@ class PlanYearProjection:
     irmaa: IrmaaResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
     niit: NiitResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
     hsa_contribution: HsaContributionResult  # 010-advanced-tax-benefits data-model.md § Projection extensions
+    early_withdrawal_penalty: EarlyWithdrawalPenaltyResult
+    """020-early-withdrawal-penalty: this plan year's own 10% penalty on
+    the combined taxable early-distribution base (each under-59 household
+    member's own share of that year's voluntary Traditional withdrawal,
+    plus 019's own unseasoned_roth_withdrawal amount) -- required, no
+    default, mirroring irmaa/niit's own precedent: always computed by
+    run_plan_projection(), never opt-in (data-model.md)."""
     figures_used: list[FigureUsage] = field(default_factory=list)
     # 015-per-account-projection-detail (data-model.md § PlanYearProjection
     # extension): four additive fields, each retaining a figure the engine
@@ -137,6 +151,7 @@ class PlanOutcome:
     cumulative_tax_paid: float
     cumulative_irmaa_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
     cumulative_niit_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
+    cumulative_early_withdrawal_penalty_paid: float  # 020-early-withdrawal-penalty data-model.md
 
 
 @dataclass

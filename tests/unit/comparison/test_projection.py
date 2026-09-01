@@ -1516,19 +1516,44 @@ def test_no_roth_conversion_configured_leaves_every_year_unaffected():
 
 
 def test_no_numeric_output_changes_because_of_this_feature():
-    """spec.md FR-007, SC-005: this feature adds an informational field
-    only -- every other reported figure (spending, tax, shortfall,
-    ending balances) for a conversion-bearing household must be
-    identical whether or not a year happens to be flagged. Confirmed by
-    comparing a flagged run against the same household's own hand
-    -verifiable ending Roth balance arithmetic, independent of the flag."""
+    """spec.md FR-007, SC-005: 019's OWN ladder-tracking/flagging logic
+    adds an informational field only -- it never itself alters any
+    dollar amount. Confirmed by comparing the PRE-tax-funding ending Roth
+    balance (mechanics.ending_balances.roth, set entirely by 019's own
+    withdrawal/conversion logic) against the same household's own
+    hand-verifiable arithmetic, independent of the flag.
+
+    020-early-withdrawal-penalty correction (found via this feature's own
+    T014 regression triage, not a 019 regression): the FINAL
+    ending_balances.roth can legitimately differ from that pre-tax-funding
+    figure once 020 ships, because 020's own penalty (itself correctly
+    computed FROM 019's flag, per 020 research.md Decision 3) is funded
+    via tax_funding_withdrawal, which may draw further from Roth if
+    Traditional/taxable are already exhausted that year -- exactly what
+    020 FR-007 requires (the penalty must genuinely reduce balances). The
+    two effects are properly disentangled below: 019's own logic (asserted
+    against the pre-tax-funding balance) is unchanged; the further,
+    documented reduction is fully explained by 020's own funded penalty."""
     result = _run_ladder_projection(_ladder_household(current_age=55))
     year_2027 = next(y for y in result.years if y.tax_year == 2027)
-    # ending Roth balance this year = starting balance - this year's own draw,
-    # completely unaffected by whether unseasoned_roth_withdrawal is 0 or positive.
-    assert year_2027.ending_balances.roth == pytest.approx(
+    # 019's own logic: the withdrawal/conversion step alone (before any tax
+    # funding) reduces Roth by exactly this year's own draw -- unaffected by
+    # whether unseasoned_roth_withdrawal is 0 or positive.
+    assert year_2027.mechanics.ending_balances.roth == pytest.approx(
         year_2027.starting_balances.roth - _roth_draw(year_2027)
     )
+    # 020's own logic: any further reduction down to the FINAL ending
+    # balance is fully explained by the tax-funding withdrawal's own
+    # roth-sourced draw (federal/state tax owed is $0 in this low-income
+    # scenario, so tax_owed here is exactly the early-withdrawal penalty).
+    roth_funding_draw = next(
+        (item.amount for item in year_2027.tax_funding_withdrawal.sequence_withdrawals if item.account_type == "roth"),
+        0.0,
+    )
+    assert year_2027.ending_balances.roth == pytest.approx(
+        year_2027.mechanics.ending_balances.roth - roth_funding_draw
+    )
+    assert roth_funding_draw == pytest.approx(year_2027.early_withdrawal_penalty.penalty_owed)
 
 
 def test_multiple_conversions_draw_down_oldest_first_end_to_end():
@@ -1574,3 +1599,352 @@ def test_multiple_conversions_draw_down_oldest_first_end_to_end():
     for year in result.years:
         if year.tax_year >= 2031:
             assert year.unseasoned_roth_withdrawal == 0.0
+
+
+# --- 020-early-withdrawal-penalty: 10% penalty on pre-59.5 distributions (rp-8z0) ---
+
+
+def _penalty_strategy(**overrides):
+    base = dict(
+        label="early_withdrawal",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+    )
+    base.update(overrides)
+    return _strategy(**base)
+
+
+def _traditional_draw(year):
+    return next(
+        (item.amount for item in year.mechanics.withdrawal_plan.sequence_withdrawals if item.account_type == "traditional"),
+        0.0,
+    )
+
+
+def test_voluntary_traditional_withdrawal_under_59_5_is_penalized():
+    """spec.md Acceptance Scenario 1, quickstart.md §1: a single-member
+    household under 59.5 taking a $20,000 voluntary Traditional
+    withdrawal shows a $2,000 penalty (10%) that plan year."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=20_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    assert _traditional_draw(year) == pytest.approx(20_000.0)
+    assert year.early_withdrawal_penalty.penalty_owed == pytest.approx(2_000.0)
+
+
+def test_rmd_mandated_distribution_is_never_penalized():
+    """spec.md Acceptance Scenario 2 (FR-003, SC-004): a plan year fully
+    satisfied by the RMD leg alone (no additional voluntary draw) shows a
+    $0 penalty, even though real RMD dollars flowed that year. This is
+    also always true by construction in this engine (research.md
+    Decision 4 -- RMD_START_AGE is never under 73, always well past
+    59.5), so this test also incidentally exercises the age exemption --
+    documented honestly, not claimed as an isolated RMD-only case."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=74, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=1_000,  # small enough to be fully covered by the RMD leg alone
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    assert year.mechanics.withdrawal_plan.rmd_drawn > 0  # real RMD money flowed
+    assert year.mechanics.withdrawal_plan.sequence_withdrawals == []  # no additional voluntary draw
+    assert year.early_withdrawal_penalty.penalty_owed == 0.0
+
+
+def test_per_member_attribution_only_penalizes_the_under_59_5_members_own_share():
+    """spec.md Acceptance Scenario 3: an MFJ household where "you" (62)
+    and "spouse" (55) own distinct shares of the Traditional balance --
+    only spouse's own 30% share of the voluntary withdrawal is
+    penalized, not the combined household total."""
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="you", current_age=62, ss_claim_age=67, ss_annual_benefit=0),
+            HouseholdMember(person_name="spouse", current_age=55, ss_claim_age=67, ss_annual_benefit=0),
+        ],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67, "spouse": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 0.7, "spouse": 0.3},
+        annual_spending_need=20_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    draw = _traditional_draw(year)
+    assert draw == pytest.approx(20_000.0)
+    assert year.early_withdrawal_penalty.penalty_owed == pytest.approx(draw * 0.3 * 0.10)
+
+
+def test_member_at_translated_age_60_is_never_penalized():
+    """spec.md Acceptance Scenario 4 (Edge Cases age-precision rule): a
+    member whose translated age is exactly 60 contributes $0 to the
+    penalty base regardless of their own withdrawal amount."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=60, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=20_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    assert _traditional_draw(year) > 0
+    assert year.early_withdrawal_penalty.penalty_owed == 0.0
+
+
+def test_inherited_account_distribution_is_never_penalized_regardless_of_beneficiary_age():
+    """spec.md Acceptance Scenario 5 (FR-004, SC-004): a 50-year-old
+    beneficiary's own inherited-account distribution is never subject to
+    this penalty -- an entirely separate distribution stream from the
+    household's pooled Traditional balance (research.md Decision 4)."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=50, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    account = InheritedAccountBalance(
+        account_id="traditional-1",
+        balance=250_000.0,
+        death_year=2023,
+        decedent_age_at_death=80,
+        depletion_deadline_year=2033,
+        beneficiary_person_name="you",
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[account],
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=55,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    assert year.mechanics.withdrawal_plan.inherited_distribution_drawn > 0
+    assert year.early_withdrawal_penalty.penalty_owed == 0.0
+
+
+def test_penalty_actually_reduces_ending_balance_versus_an_unaffected_household():
+    """spec.md SC-001: a household with a member under 59.5 taking a
+    voluntary Traditional withdrawal ends the plan year with a strictly
+    lower balance than an otherwise-identical household whose only
+    difference is having already cleared 59.5 -- confirms the penalty is
+    genuinely funded (FR-007), not merely reported."""
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=20_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    younger_household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    older_household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=60, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    younger_result = run_plan_projection(household=younger_household, **common_kwargs)
+    older_result = run_plan_projection(household=older_household, **common_kwargs)
+
+    younger_year = younger_result.years[0]
+    older_year = older_result.years[0]
+    assert younger_year.early_withdrawal_penalty.penalty_owed > 0
+    assert older_year.early_withdrawal_penalty.penalty_owed == 0.0
+
+    younger_total = (
+        younger_year.ending_balances.traditional + younger_year.ending_balances.roth + younger_year.ending_balances.taxable
+    )
+    older_total = (
+        older_year.ending_balances.traditional + older_year.ending_balances.roth + older_year.ending_balances.taxable
+    )
+    assert younger_total < older_total
+
+
+def test_unaffected_household_sees_zero_penalty_every_year():
+    """spec.md FR-010, SC-002: a household whose every member stays 60+
+    for the entire horizon and never touches an unseasoned Roth
+    conversion shows a penalty of exactly 0.0 for every plan year -- no
+    regression to households this feature doesn't affect."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=65, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=100_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=40_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=90,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    assert all(year.early_withdrawal_penalty.penalty_owed == 0.0 for year in result.years)
+
+
+# --- 020-early-withdrawal-penalty: combining with 019's Roth-ladder flag (User Story 2) ---
+
+
+def test_unseasoned_roth_withdrawal_alone_is_penalized_at_ten_percent():
+    """spec.md Acceptance Scenario US2.1: a plan year where 019's own
+    unseasoned_roth_withdrawal is the only early-distribution exposure
+    that year shows a penalty of exactly 10% of that amount."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=90_000,
+        conversion_window=(2026, 2026),
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=100_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=15_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year_2027 = next(y for y in result.years if y.tax_year == 2027)
+    assert _traditional_draw(year_2027) == 0.0
+    assert year_2027.unseasoned_roth_withdrawal == pytest.approx(15_000.0)
+    assert year_2027.early_withdrawal_penalty.penalty_owed == pytest.approx(1_500.0)
+
+
+def test_combined_traditional_and_roth_exposure_in_the_same_year_is_one_penalty():
+    """spec.md Acceptance Scenario US2.2: a plan year with both a
+    qualifying Traditional withdrawal ($6,110) and an unseasoned Roth
+    withdrawal ($8,890) shows a single combined penalty equal to 10% of
+    their sum ($15,000 -> $1,500), not two separately-reported amounts."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=10_000,
+        conversion_window=(2026, 2026),
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=50_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=15_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year_2028 = next(y for y in result.years if y.tax_year == 2028)
+    traditional_draw = _traditional_draw(year_2028)
+    assert traditional_draw == pytest.approx(6_110.0)
+    assert year_2028.unseasoned_roth_withdrawal == pytest.approx(8_890.0)
+    assert year_2028.early_withdrawal_penalty.penalty_owed == pytest.approx(
+        (traditional_draw + year_2028.unseasoned_roth_withdrawal) * 0.10
+    )
+    assert year_2028.early_withdrawal_penalty.penalty_owed == pytest.approx(1_500.0)
+
+
+def test_no_roth_conversion_configured_means_roth_side_contribution_is_always_zero():
+    """spec.md Acceptance Scenario US2.3: a household with no Roth
+    conversion configured at all still shows a Traditional-side penalty
+    (it's under 59.5, drawing Traditional funds), but the Roth-side
+    contribution is always $0.0 -- there is no lot to ever flag."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    strategy = _penalty_strategy(claiming_ages={"you": 67})  # no conversion configured
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=20_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    year = result.years[0]
+    assert year.unseasoned_roth_withdrawal == 0.0
+    assert year.early_withdrawal_penalty.penalty_owed == pytest.approx(_traditional_draw(year) * 0.10)

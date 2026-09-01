@@ -202,7 +202,11 @@ def test_comparison_exports_include_irmaa_and_niit_columns():
     for header in sim_text.splitlines()[0], det_text.splitlines()[0]:
         assert "median_lifetime_irmaa_paid" in header
         assert "median_lifetime_niit_paid" in header
+        assert "median_lifetime_early_withdrawal_penalty_paid" in header  # 020-early-withdrawal-penalty
 
     det_rows = _rows(det_text)
     assert det_rows[0]["median_lifetime_irmaa_paid"] == str(_PROJECTION_A.outcome.cumulative_irmaa_paid)
     assert det_rows[0]["median_lifetime_niit_paid"] == str(_PROJECTION_A.outcome.cumulative_niit_paid)
+    assert det_rows[0]["median_lifetime_early_withdrawal_penalty_paid"] == str(
+        _PROJECTION_A.outcome.cumulative_early_withdrawal_penalty_paid
+    )

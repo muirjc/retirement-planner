@@ -190,3 +190,18 @@ class NiitResult:
     threshold_exceeded: bool
     surtax_owed: float
     figures_used: list[FigureUsage]
+
+
+@dataclass
+class EarlyWithdrawalPenaltyResult:
+    """020-early-withdrawal-penalty data-model.md § EarlyWithdrawalPenaltyResult.
+    One plan year's 10% early-withdrawal penalty (26 U.S.C. §72(t)(1)),
+    applied to a combined taxable early-distribution base the caller
+    (comparison.run_plan_projection()) has already computed -- this
+    module has no opinion about how that base was derived, only how the
+    flat rate applies to it once given (mirrors NiitResult's own
+    caller-computed-base precedent)."""
+
+    taxable_early_distribution_base: float
+    penalty_owed: float
+    figures_used: list[FigureUsage]

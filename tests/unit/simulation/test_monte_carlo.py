@@ -450,3 +450,74 @@ def test_death_switch_matches_deterministic_projection_exactly():
     # Sanity: the switch actually occurred somewhere in this horizon.
     assert any(year.filing_status == "single" for year in deterministic.years)
     assert any(year.filing_status == "married_filing_jointly" for year in deterministic.years)
+
+
+def test_roth_ladder_flag_matches_deterministic_projection_exactly():
+    """019-roth-conversion-ladder (rp-886) FR-007/SC-005, research.md
+    Decision 2: the Roth conversion-lot tracking lives entirely inside
+    comparison.run_plan_projection() as PURELY LOCAL state (never a
+    parameter) -- every Monte Carlo path already calls that function
+    internally, so a path's own per-year unseasoned_roth_withdrawal flag
+    must match a direct run_plan_projection() call exactly, for every
+    year, with zero cross-path leakage (there is no shared list to leak
+    in the first place, unlike inherited_accounts). This is a regression
+    guard against that shared call site ever drifting apart, mirroring
+    016's/017's/018's own test_monte_carlo.py consistency-check
+    precedent -- not a re-test of the ladder logic itself (covered by
+    tests/unit/mechanics/test_roth_conversion_ladder.py and
+    tests/unit/comparison/test_projection.py)."""
+    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="you", current_age=55, ss_claim_age=67, ss_annual_benefit=0)],
+    )
+    accounts = AccountBalances(traditional=100_000, roth=0, taxable=0)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy="fixed_amount",
+        conversion_bracket_ceiling_or_amount=90_000,
+        conversion_window=(2026, 2026),
+        claiming_ages={"you": 67},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=15_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,  # spans both the unseasoned-draw years and the seasoned year (2031+)
+        strategy=strategy,
+    )
+
+    deterministic = run_plan_projection(
+        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+    )
+    simulated = run_simulation(
+        **common_kwargs,
+        return_paths=[
+            ReturnPath(
+                start_plan_year=1,
+                annual_returns=[0.0] * len(deterministic.years),
+                generation_mode="parametric",
+                figures_used=[],
+            )
+        ],
+        candidate_label="test",
+    )
+
+    simulated_years = simulated.path_results[0].years
+    assert len(simulated_years) == len(deterministic.years)
+    for simulated_year, deterministic_year in zip(simulated_years, deterministic.years):
+        assert simulated_year.unseasoned_roth_withdrawal == deterministic_year.unseasoned_roth_withdrawal
+
+    # Sanity: the flag actually fired somewhere, and stopped firing once seasoned.
+    assert any(year.unseasoned_roth_withdrawal > 0 for year in deterministic.years)
+    assert any(
+        year.tax_year >= 2031 and year.unseasoned_roth_withdrawal == 0.0 for year in deterministic.years
+    )

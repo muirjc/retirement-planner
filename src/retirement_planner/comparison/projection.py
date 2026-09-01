@@ -13,12 +13,14 @@ from __future__ import annotations
 from retirement_planner.mechanics import (
     AccountBalances,
     InheritedAccountBalance,
+    RothConversionLot,
     WithdrawalPlan,
     compute_hsa_contribution,
     compute_hsa_eligibility,
     compute_inherited_rmd,
     compute_plan_year_mechanics,
     compute_rmd,
+    compute_roth_ladder_consumption,
     compute_social_security_benefit,
     compute_spousal_benefit_floor,
     compute_survivor_benefit,
@@ -259,6 +261,21 @@ def run_plan_projection(
     scoring -- every Monte Carlo path already calls this function
     internally, so the same deterministic switch applies per path, but no
     per-path probabilistic death-year draw is introduced (FR-007).
+
+    019-roth-conversion-ladder (rp-886, comparison-api.md): this call
+    maintains its own purely local list of RothConversionLot instances
+    (never a parameter -- research.md Decision 2) tracking every Roth
+    conversion this call itself executes, each with its own 5-tax-year
+    seasoning clock. Each plan year, once that year's withdrawal and
+    conversion are known, compute_roth_ladder_consumption() attributes
+    that year's own Roth draw across the assumed-already-seasoned
+    pre-existing balance first, then across open lots oldest-conversion-
+    year-first; the portion sourced from a not-yet-seasoned lot while at
+    least one household member's translated age is 59 or younger is
+    recorded on that year's PlanYearProjection.unseasoned_roth_withdrawal
+    -- a flag, never a computed penalty dollar amount (FR-007). A
+    household with no Roth conversion configured is completely
+    unaffected (FR-008).
     """
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
@@ -272,6 +289,17 @@ def run_plan_projection(
     death = _household_death_tax_year(household, reference_tax_year)
     dying_member = death[0] if death is not None else None
     death_tax_year = death[1] if death is not None else None
+
+    # 019-roth-conversion-ladder: purely local state, never a function
+    # parameter (research.md Decision 2) -- there is no scenario input
+    # representing a pre-existing lot (FR-002's "pre-existing balance is
+    # always already-seasoned" assumption stands in for that), so every
+    # lot this call ever tracks is one this exact call itself created via
+    # its own compute_roth_conversion() calls below. Because this list
+    # never crosses a call boundary, no comparison/compare.py or
+    # simulation/monte_carlo.py threading is needed -- unlike
+    # inherited_accounts, nothing can ever leak between candidates/paths.
+    roth_conversion_lots: list[RothConversionLot] = []
 
     years: list[PlanYearProjection] = []
     current_balances = accounts
@@ -461,6 +489,39 @@ def run_plan_projection(
             inherited_rmd_figures_used=inherited_rmd_figures_used,
         )
 
+        # 019-roth-conversion-ladder (rp-886): attribute this year's own
+        # Roth draw (if any) across the assumed-already-seasoned/pre-
+        # existing balance first, then across tracked conversion lots
+        # oldest-conversion-year-first, flagging the portion sourced from
+        # a not-yet-seasoned lot while at least one household member is
+        # 59 or younger (FR-003-FR-006). Must run BEFORE this year's own
+        # conversion (below) is turned into a new lot -- a same-year
+        # conversion is never its own year's draw source, mirroring
+        # compute_plan_year_mechanics()'s own "withdrawal before
+        # conversion" sequencing one level up (contracts/comparison-
+        # api.md).
+        roth_draw_amount = sum(
+            item.amount
+            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
+            if item.account_type == "roth"
+        )
+        non_lot_roth_balance = max(
+            0.0, current_balances.roth - sum(lot.balance for lot in roth_conversion_lots)
+        )
+        age_condition_active = any(age <= 59 for age in ages_this_year.values())
+        ladder_result = compute_roth_ladder_consumption(
+            roth_conversion_lots, non_lot_roth_balance, roth_draw_amount, tax_year, age_condition_active
+        )
+        roth_conversion_lots = ladder_result.updated_lots
+
+        if mechanics_result.conversion.amount_converted > 0:
+            roth_conversion_lots = [
+                *roth_conversion_lots,
+                RothConversionLot(
+                    conversion_tax_year=tax_year, balance=mechanics_result.conversion.amount_converted
+                ),
+            ]
+
         income = IncomeComponents(
             ordinary_income=mechanics_result.ordinary_income,
             social_security_gross_benefit=household_ss_benefit,
@@ -558,6 +619,7 @@ def run_plan_projection(
             *state_tax.figures_used,
             *irmaa.figures_used,
             *niit.figures_used,
+            *ladder_result.figures_used,
         ]
 
         years.append(
@@ -581,6 +643,7 @@ def run_plan_projection(
                 inherited_account_distributions=inherited_account_distributions,
                 filing_status=effective_filing_status,
                 effective_spending_need=effective_spending_need,
+                unseasoned_roth_withdrawal=ladder_result.unseasoned_amount_flagged,
             )
         )
 

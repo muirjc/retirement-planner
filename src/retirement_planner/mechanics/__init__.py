@@ -19,6 +19,8 @@ from .models import (
     InheritedRmdResult,
     PlanYearMechanicsResult,
     RmdResult,
+    RothConversionLot,
+    RothLadderConsumptionResult,
     SocialSecurityBenefitResult,
     SpousalBenefitResult,
     SurvivorBenefitResult,
@@ -35,6 +37,7 @@ from .roth_conversion import (
     fill_to_bracket_ceiling,
     fixed_dollar_amount,
 )
+from .roth_conversion_ladder import ROTH_CONVERSION_SEASONING_YEARS, compute_roth_ladder_consumption
 from .social_security_benefit import (
     compute_social_security_benefit,
     compute_spousal_benefit_floor,
@@ -53,10 +56,13 @@ __all__ = [
     "InheritedRmdResult",
     "JOINT_LIFE_TABLE",
     "PlanYearMechanicsResult",
+    "ROTH_CONVERSION_SEASONING_YEARS",
     "SINGLE_LIFE_EXPECTANCY_TABLE",
     "RMD_START_AGE",
     "RmdResult",
     "RothConversionFunction",
+    "RothConversionLot",
+    "RothLadderConsumptionResult",
     "SocialSecurityBenefitResult",
     "SpousalBenefitResult",
     "SurvivorBenefitResult",
@@ -70,6 +76,7 @@ __all__ = [
     "compute_plan_year_mechanics",
     "compute_rmd",
     "compute_roth_conversion",
+    "compute_roth_ladder_consumption",
     "compute_social_security_benefit",
     "compute_spousal_benefit_floor",
     "compute_survivor_benefit",

@@ -144,6 +144,36 @@ class ConversionResult:
 
 
 @dataclass
+class RothConversionLot:
+    """One Roth conversion actually executed during a projection --
+    tracked independently of the household's pooled AccountBalances.roth
+    total, never folded into that pooled arithmetic itself.
+    compute_roth_ladder_consumption() (roth_conversion_ladder.py, pure)
+    never mutates an instance of this type -- it returns a fresh, updated
+    list; run_plan_projection() (comparison package) reassigns its own
+    local list to that result, mirroring how compute_inherited_rmd()
+    never mutates InheritedAccountBalance.balance itself either (012
+    contracts/mechanics-api.md's package-wide purity guarantee).
+    019-roth-conversion-ladder data-model.md § RothConversionLot."""
+
+    conversion_tax_year: int
+    balance: float
+
+
+@dataclass
+class RothLadderConsumptionResult:
+    """One plan year's attribution of a Roth withdrawal across the
+    assumed-already-seasoned portion and any tracked conversion lots --
+    a pure function's result; compute_roth_ladder_consumption() itself
+    never mutates the lots list it was called with.
+    019-roth-conversion-ladder data-model.md § RothLadderConsumptionResult."""
+
+    updated_lots: list[RothConversionLot]
+    unseasoned_amount_flagged: float
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
 class HsaEligibility:
     """010-advanced-tax-benefits data-model.md § Mechanics result
     extensions.

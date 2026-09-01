@@ -116,6 +116,16 @@ class PlanYearProjection:
     its own spending_need input, so this is recorded here instead. Always
     populated by run_plan_projection(); 0.0 only if some other caller
     constructs a PlanYearProjection directly without setting it."""
+    unseasoned_roth_withdrawal: float = 0.0
+    """019-roth-conversion-ladder: the portion of this year's Roth
+    withdrawal, if any, sourced from a not-yet-seasoned (< 5 tax years
+    since conversion) Roth conversion lot while at least one household
+    member's translated age was 59 or younger (data-model.md) -- a flag,
+    never a computed penalty dollar amount (FR-007). 0.0 for every plan
+    year this feature doesn't flag, which is every plan year for a
+    household with no Roth conversion configured at all. Always populated
+    by run_plan_projection(); 0.0 only if some other caller constructs a
+    PlanYearProjection directly without setting it."""
 
 
 @dataclass

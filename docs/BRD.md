@@ -427,6 +427,30 @@ types (e.g., taxable → traditional → Roth) rather than one hardcoded
 order, so comparing sequencing strategies means comparing two data
 values, not two code paths.
 
+**Roth conversion five-year (conversion-ladder) tracking (rp-886)**: each
+conversion a projection actually executes is tracked as its own "lot,"
+carrying its own individual five-tax-year seasoning clock (26 U.S.C.
+§408A(d)(3)(F); Treas. Reg. §1.408A-6, Q&A-5) — a converted dollar is not
+treated as if it had always been a regular contribution (for
+early-distribution purposes) until 5 full tax years have elapsed from its
+own conversion year, independent of any other conversion's own clock. A
+household's pre-existing Roth balance as of a projection's start is
+always treated as already-seasoned/fully accessible (this tool has no
+input describing that starting balance's own composition or age — a
+documented simplification). When a plan year's withdrawal needs to draw
+past that pre-existing balance into one or more tracked conversion lots
+(drawn oldest-conversion-year-first, matching real IRS Roth distribution
+ordering), the amount actually sourced from a lot that hasn't yet cleared
+5 years is **flagged** on that plan year's output whenever at least one
+household member's translated age is 59 or younger that year (a
+conservative, household-level simplification — this engine pools Roth at
+the household level, with no per-member ownership, so the check applies
+until *every* member has cleared the age condition, erring toward
+over-flagging rather than missing a real violation). This flag is
+informational only: it does **not** compute or apply the actual 10%
+early-withdrawal penalty dollar amount, which remains separate, disclosed
+scope (§7).
+
 ### 6.7 Comparison methodology (paired-draw)
 
 Every comparison — across states, withdrawal strategies, Roth conversion
@@ -496,6 +520,17 @@ until replaced with an actual, cited source.
   budget re-plan beyond the single configured spending percentage, and a
   second (the survivor's own, later) configured death ending the
   projection (§6.2c).
+- Roth conversion five-year seasoning tracking (§6.6) flags, but does not
+  compute or apply, the actual 10% early-withdrawal penalty dollar amount
+  for a withdrawal that touches unseasoned converted principal — that
+  remains separate, disclosed scope (tracked as rp-8z0, early-withdrawal
+  penalty / 72(t)-SEPP modeling). Also not modeled: per-member Roth
+  ownership attribution (a conservative household-level age check is used
+  instead — §6.6); a per-path probabilistic seasoning outcome in Monte
+  Carlo simulation (every path uses the same deterministic conversion
+  history a plain projection would); and the separate account-level rule
+  governing whether Roth *earnings* (growth, as distinct from converted
+  principal) are a "qualified distribution."
 
 ## 8. Non-Functional Requirements
 

@@ -1008,11 +1008,18 @@ def test_spousal_floor_does_not_apply_until_both_members_have_claimed():
     assert first_year.member_social_security_benefits["spouse"] == pytest.approx(expected_own_benefit)
 
 
-def test_predicted_death_age_has_zero_effect_on_projection_output():
-    """spec.md FR-007: this feature does not itself wire predicted_death_age
-    into a running projection -- confirmed here by asserting a scenario
-    that sets it produces byte-for-byte identical output to the same
-    scenario without it (rp-g8y's future job, not this feature's)."""
+def test_predicted_death_age_beyond_the_horizon_has_zero_effect_on_projection_output():
+    """018-survivor-scenario-projection (rp-g8y) spec.md Edge Cases: a
+    predicted_death_age that translates to a tax year AFTER the
+    projection's last plan year never takes effect. Here death age 80
+    (=> death tax year 2039) is well beyond plan_to_age=75's own last
+    plan year (tax year 2034 below) -- confirmed here by asserting a
+    scenario that sets it produces byte-for-byte identical output to the
+    same scenario without it. (Originally written under
+    017-ss-spousal-survivor-benefits, when predicted_death_age had no
+    effect on ANY projection by design -- this test's own age/horizon
+    values happen to still exercise 018's own "beyond horizon" no-op
+    case, so it was updated in place rather than replaced.)"""
 
     def _build(predicted_death_age):
         return Household(
@@ -1052,18 +1059,206 @@ def test_predicted_death_age_has_zero_effect_on_projection_output():
     assert with_death_age == without_death_age
 
 
-def test_compute_survivor_benefit_has_no_caller_in_this_module():
-    """spec.md FR-007: compute_survivor_benefit() is implemented and
-    cited (tests/unit/mechanics/test_social_security_benefit.py) but not
-    yet consumed by any running projection -- confirmed here by
-    inspecting this module's own source, since a positive "was it ever
-    called" assertion can't otherwise be made against a function with no
-    caller at all."""
+def test_compute_survivor_benefit_now_has_a_caller_in_this_module():
+    """018-survivor-scenario-projection (rp-g8y) supersedes
+    017-ss-spousal-survivor-benefits' own FR-007 (which this test used to
+    assert the *opposite* of -- compute_survivor_benefit() had no caller
+    yet, by design, since 017 explicitly deferred projection wiring to
+    this feature). compute_survivor_benefit() is now called from this
+    module's run_plan_projection() for every post-death plan year -- see
+    test_death_switches_filing_status_ss_and_spending_after_the_death_year
+    below for the actual behavioral coverage; this test only confirms the
+    historical "not yet wired" assertion no longer holds."""
     import inspect
 
     from retirement_planner.comparison import projection as projection_module
 
-    assert "compute_survivor_benefit" not in inspect.getsource(projection_module)
+    assert "compute_survivor_benefit" in inspect.getsource(projection_module)
+
+
+# --- 018-survivor-scenario-projection: mid-horizon death wiring (rp-g8y) ---
+
+
+def _death_household(you_death_age=None, spouse_death_age=None, survivor_spending_reduction_pct=0.0):
+    return Household(
+        filing_status="married_filing_jointly",
+        survivor_spending_reduction_pct=survivor_spending_reduction_pct,
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=67,
+                ss_claim_age=67,
+                ss_annual_benefit=30_000,
+                full_retirement_age=67.0,
+                predicted_death_age=you_death_age,
+            ),
+            HouseholdMember(
+                person_name="spouse",
+                current_age=67,
+                ss_claim_age=67,
+                ss_annual_benefit=20_000,
+                full_retirement_age=67.0,
+                predicted_death_age=spouse_death_age,
+            ),
+        ],
+    )
+
+
+def _run_death_projection(household, plan_to_age=80):
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    return run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=800_000, roth=200_000, taxable=100_000),
+        traditional_ownership_shares={"you": 0.7, "spouse": 0.3},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=plan_to_age,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+    )
+
+
+def test_death_switches_filing_status_ss_and_spending_after_the_death_year():
+    """spec.md Acceptance Scenarios 1-4: spouse dies at age 70 (tax year
+    2029, 3 years into the horizon; "you" and "spouse" both start at 67).
+    The death year itself (2029) stays married_filing_jointly with the
+    full combined benefit and full spending; every year after (2030+)
+    switches to single, the survivor-benefit amount, and reduced
+    spending."""
+    household = _death_household(spouse_death_age=70, survivor_spending_reduction_pct=0.20)
+    result = _run_death_projection(household)
+
+    death_year = next(y for y in result.years if y.tax_year == 2029)
+    assert death_year.filing_status == "married_filing_jointly"
+    assert death_year.member_social_security_benefits == {"you": 30_000.0, "spouse": 20_000.0}
+    assert death_year.effective_spending_need == 60_000.0
+
+    first_post_death_year = next(y for y in result.years if y.tax_year == 2030)
+    assert first_post_death_year.filing_status == "single"
+    # Acceptance Scenario 2: higher of the two ($30,000) survives; the
+    # deceased member's own entry is 0.0, not omitted (015 precedent).
+    assert first_post_death_year.member_social_security_benefits == {"you": 30_000.0, "spouse": 0.0}
+    # Acceptance Scenario 4: 20% reduction applied.
+    assert first_post_death_year.effective_spending_need == pytest.approx(60_000.0 * 0.80)
+
+    later_year = next(y for y in result.years if y.tax_year == 2035)
+    assert later_year.filing_status == "single"
+    assert later_year.effective_spending_need == pytest.approx(60_000.0 * 0.80)
+
+
+def test_death_with_no_spending_reduction_configured_leaves_spending_unchanged():
+    """spec.md Acceptance Scenario 3: omitting survivor_spending_reduction_pct
+    (default 0.0) leaves annual_spending_need unchanged even after death --
+    only filing status and Social Security income switch."""
+    household = _death_household(spouse_death_age=70)  # survivor_spending_reduction_pct defaults to 0.0
+    result = _run_death_projection(household)
+
+    first_post_death_year = next(y for y in result.years if y.tax_year == 2030)
+    assert first_post_death_year.filing_status == "single"
+    assert first_post_death_year.effective_spending_need == 60_000.0
+
+
+def test_no_configured_death_leaves_every_year_unchanged():
+    """spec.md Acceptance Scenario 5, SC-002: a household with no member's
+    predicted_death_age configured is completely unaffected -- every
+    year's filing_status equals household.filing_status and
+    effective_spending_need equals annual_spending_need, unchanged."""
+    household = _death_household()  # no predicted_death_age on either member
+    result = _run_death_projection(household)
+
+    assert all(year.filing_status == "married_filing_jointly" for year in result.years)
+    assert all(year.effective_spending_need == 60_000.0 for year in result.years)
+    assert result.years[0].member_social_security_benefits == {"you": 30_000.0, "spouse": 20_000.0}
+
+
+def test_single_filing_status_household_never_affected_by_predicted_death_age():
+    """spec.md Acceptance Scenario 6: a "single"-filing-status household
+    (one member) is never affected by this feature's logic, regardless of
+    any predicted_death_age value present -- there is no second member to
+    derive a switch from (_household_death_tax_year() returns None)."""
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=67,
+                ss_claim_age=67,
+                ss_annual_benefit=30_000,
+                full_retirement_age=67.0,
+                predicted_death_age=70,
+            ),
+        ],
+    )
+    strategy = _strategy(claiming_ages={"you": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=100_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=40_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=80,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+    )
+    assert all(year.filing_status == "single" for year in result.years)
+    assert all(year.effective_spending_need == 40_000.0 for year in result.years)
+
+
+def test_death_before_start_tax_year_makes_the_entire_horizon_post_death():
+    """spec.md Edge Cases: a predicted_death_age that translates to a tax
+    year before start_tax_year means the household is single (survivor
+    benefit, reduced spending) for the ENTIRE horizon -- there is no year
+    in the projection where the deceased member is still alive. Spouse's
+    current_age=67 with predicted_death_age=68 => death tax year 2027,
+    one year before start_tax_year=2028 below."""
+    household = _death_household(spouse_death_age=68, survivor_spending_reduction_pct=0.10)
+    strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=800_000, roth=200_000, taxable=100_000),
+        traditional_ownership_shares={"you": 0.7, "spouse": 0.3},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2028,  # after the death tax year (2027)
+        plan_to_age=75,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+    )
+    assert all(year.filing_status == "single" for year in result.years)
+    assert all(year.effective_spending_need == pytest.approx(60_000.0 * 0.90) for year in result.years)
+    assert all(year.member_social_security_benefits["spouse"] == 0.0 for year in result.years)
+
+
+def test_both_members_configured_the_earlier_death_year_drives_the_switch():
+    """spec.md Edge Cases: when both members have predicted_death_age
+    configured within the horizon, the EARLIER death year drives the
+    switch; the survivor's own later configured death has no further
+    modeled effect (no second switch, no early termination)."""
+    # spouse dies at 70 (tax year 2029); you dies at 75 (tax year 2034) --
+    # spouse's death is earlier and should be the one that takes effect.
+    household = _death_household(you_death_age=75, spouse_death_age=70)
+    result = _run_death_projection(household, plan_to_age=85)
+
+    year_2029 = next(y for y in result.years if y.tax_year == 2029)
+    assert year_2029.filing_status == "married_filing_jointly"
+
+    year_2030 = next(y for y in result.years if y.tax_year == 2030)
+    assert year_2030.filing_status == "single"
+    assert year_2030.member_social_security_benefits == {"you": 30_000.0, "spouse": 0.0}
+
+    # "you"'s own later configured death (2034) has no further effect --
+    # still single, still the same survivor benefit, no second switch.
+    year_2040 = next(y for y in result.years if y.tax_year == 2040)
+    assert year_2040.filing_status == "single"
+    assert year_2040.member_social_security_benefits["spouse"] == 0.0
 
 
 def test_plain_non_grid_projection_uses_the_reduced_benefit_in_income_and_tax():

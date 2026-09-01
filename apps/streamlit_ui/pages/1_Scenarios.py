@@ -48,6 +48,7 @@ DEFAULTS = {
     "member2_ss_annual_benefit": 0.0,
     "member2_full_retirement_age": 67.0,
     "member2_predicted_death_age": 0,
+    "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
     "member1_taxable_balance": 0.0,
@@ -91,6 +92,13 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     module docstring)."""
     st.session_state["scenario_name"] = scenario["name"]
     st.session_state["filing_status"] = scenario["household"]["filing_status"]
+    # 018-survivor-scenario-projection: the real backend always resolves
+    # this to a concrete float (default 0.0), but `.get(..., 0.0)` guards
+    # against a hand-built fixture (e.g. a test seeding the fake store
+    # directly, bypassing a real PUT round-trip) that predates this field.
+    st.session_state["survivor_spending_reduction_pct"] = scenario["household"].get(
+        "survivor_spending_reduction_pct", 0.0
+    )
     members = scenario["household"]["members"]
     m1 = members[0]
     st.session_state["member1_person_name"] = m1["person_name"]
@@ -288,9 +296,15 @@ _FRA_HELP = (
     "the benefit above the PIA."
 )
 _PREDICTED_DEATH_AGE_HELP = (
-    "Optional: a hypothetical age at death, for planning purposes only. Leave at 0 for 'not set' -- "
-    "this input does not yet change any projection (017-ss-spousal-survivor-benefits); it exists for "
-    "a future feature to consume."
+    "Optional: a hypothetical age at death, for planning purposes only. Leave at 0 for 'not set'. "
+    "When set on one member of a married-filing-jointly household, every projection year after the "
+    "resulting death year switches to single filing status and the survivor's Social Security "
+    "benefit (018-survivor-scenario-projection)."
+)
+_SURVIVOR_SPENDING_REDUCTION_HELP = (
+    "Optional: fraction (0 to 1) by which annual spending need is reduced for every year after a "
+    "configured member's death above (e.g. 0.2 = 20% less spending). 0 (the default) means spending "
+    "stays unchanged even after a death (018-survivor-scenario-projection)."
 )
 
 st.markdown("**Member 1**")
@@ -322,6 +336,13 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     )
     c6.number_input(
         "Predicted death age", min_value=0, step=1, key="member2_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
+    )
+    st.number_input(
+        "Survivor spending reduction",
+        min_value=0.0,
+        max_value=1.0,
+        key="survivor_spending_reduction_pct",
+        help=_SURVIVOR_SPENDING_REDUCTION_HELP,
     )
 
 st.subheader("Accounts")
@@ -638,6 +659,7 @@ def _build_body() -> dict:
     body = {
         "household": {
             "filing_status": st.session_state["filing_status"],
+            "survivor_spending_reduction_pct": st.session_state["survivor_spending_reduction_pct"],
             "members": [
                 {
                     "person_name": st.session_state["member1_person_name"],

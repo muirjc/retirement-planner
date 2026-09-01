@@ -21,6 +21,7 @@ from retirement_planner.mechanics import (
     compute_rmd,
     compute_social_security_benefit,
     compute_spousal_benefit_floor,
+    compute_survivor_benefit,
     compute_withdrawal_plan,
 )
 from retirement_planner.scenario import Household, HouseholdMember
@@ -56,6 +57,34 @@ def deemed_rmd_owner(household: Household) -> HouseholdMember:
     purposes (research.md §4). Renamed from private to public in
     006-reporting-aggregation (research.md §1) -- behavior unchanged."""
     return max(household.members, key=lambda member: member.current_age)
+
+
+def _household_death_tax_year(
+    household: Household, reference_tax_year: int
+) -> tuple[HouseholdMember, int] | None:
+    """018-survivor-scenario-projection (rp-g8y): for a married_filing_jointly
+    household of exactly two members where at least one has predicted_death_age
+    configured (017-ss-spousal-survivor-benefits), returns (dying_member,
+    death_tax_year) -- the first tax year that member's translated age
+    (member_age_in_tax_year()'s own formula, inverted) reaches
+    predicted_death_age. When both members have it configured, returns the
+    pair for the EARLIER of the two tax years (spec.md Edge Cases) -- the
+    survivor's own later configured death has no further modeled effect.
+    Returns None for a "single"-filing-status household, or an MFJ household
+    where no member has predicted_death_age configured (data-model.md §
+    Derived, research.md Decision 1).
+    """
+    if household.filing_status != "married_filing_jointly" or len(household.members) != 2:
+        return None
+
+    candidates = [
+        (member, reference_tax_year + (member.predicted_death_age - member.current_age))
+        for member in household.members
+        if member.predicted_death_age is not None
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda pair: pair[1])
 
 
 def _approximate_magi(income: IncomeComponents, federal_tax: FederalTaxResult) -> float:
@@ -209,11 +238,40 @@ def run_plan_projection(
     empty list across calls is safe (data-model.md § Consumption).
     Defaults to [], reproducing every existing caller's exact prior
     output unchanged.
+
+    018-survivor-scenario-projection (rp-g8y, comparison-api.md): for a
+    married_filing_jointly household where exactly one member's
+    predicted_death_age (017) falls within the horizon, every plan year
+    strictly after that member's death tax year (_household_death_tax_year())
+    uses "single" filing status (federal/state tax, IRMAA, NIIT, and the
+    conversion-bracket filing status compute_plan_year_mechanics() itself
+    consumes) and 017's compute_survivor_benefit() (the higher of the two
+    members' own already-computed benefit amounts that year) as the
+    household's Social Security income, replacing the sum of both members'
+    benefits; annual_spending_need is also multiplied by
+    (1 - household.survivor_spending_reduction_pct) for those years. The
+    death year itself, and every year before it, is unaffected. Each
+    resulting PlanYearProjection carries the effective filing_status and
+    effective_spending_need actually used that year. A household with no
+    member's predicted_death_age configured, or a "single"-filing-status
+    household, is completely unaffected by this behavior (FR-005). This
+    feature does NOT change simulation.monte_carlo's own survival_curves-based
+    scoring -- every Monte Carlo path already calls this function
+    internally, so the same deterministic switch applies per path, but no
+    per-path probabilistic death-year draw is introduced (FR-007).
     """
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
 
     deemed_owner = deemed_rmd_owner(household)
+
+    # 018-survivor-scenario-projection: computed once, not re-derived every
+    # plan year -- None for a household with no configured death (the
+    # overwhelming majority of households, and every existing scenario
+    # predating this feature).
+    death = _household_death_tax_year(household, reference_tax_year)
+    dying_member = death[0] if death is not None else None
+    death_tax_year = death[1] if death is not None else None
 
     years: list[PlanYearProjection] = []
     current_balances = accounts
@@ -241,6 +299,40 @@ def run_plan_projection(
             household, ages_this_year, strategy.claiming_ages, tax_year
         )
         household_ss_benefit = sum(member_ss_benefits.values())
+
+        # 018-survivor-scenario-projection (rp-g8y): a plan year strictly
+        # after the household's configured death tax year is "post-death" --
+        # the death year itself, and every year before it, is unaffected
+        # (spec.md Edge Cases, mirroring real income-tax law's allowance of
+        # a joint return for the year a spouse actually dies). For a
+        # post-death year, member_ss_benefits/household_ss_benefit are
+        # replaced with 017's survivor-benefit rule (the higher of the two
+        # members' own already-computed amounts this year -- which, for an
+        # MFJ household, already reflects 017's spousal-benefit floor when
+        # it applied, research.md Decision 2), and the effective filing
+        # status/spending need used for the rest of this plan year switch
+        # too.
+        is_post_death = death_tax_year is not None and tax_year > death_tax_year
+        if is_post_death:
+            survivor = next(member for member in household.members if member is not dying_member)
+            survivor_result = compute_survivor_benefit(
+                member_ss_benefits[dying_member.person_name],
+                member_ss_benefits[survivor.person_name],
+                tax_year,
+            )
+            member_ss_benefits = {
+                dying_member.person_name: 0.0,
+                survivor.person_name: survivor_result.survivor_benefit,
+            }
+            household_ss_benefit = survivor_result.survivor_benefit
+            ss_benefit_figures_used = [*ss_benefit_figures_used, *survivor_result.figures_used]
+
+        effective_filing_status = "single" if is_post_death else household.filing_status
+        effective_spending_need = (
+            annual_spending_need * (1.0 - household.survivor_spending_reduction_pct)
+            if is_post_death
+            else annual_spending_need
+        )
 
         # 011-per-owner-accounts: one compute_rmd() call per member with a
         # positive traditional share, replacing the single deemed-owner-
@@ -354,11 +446,11 @@ def run_plan_projection(
             # align with the scenario data it's checked against.
             plan_year=tax_year,
             tax_year=tax_year,
-            spending_need=annual_spending_need,
+            spending_need=effective_spending_need,
             starting_balances=current_balances,
             rmd_amount=rmd_amount,
             social_security_gross_benefit=household_ss_benefit,
-            filing_status=household.filing_status,
+            filing_status=effective_filing_status,
             conversion_window=strategy.conversion_window,
             conversion_strategy=strategy.conversion_strategy,
             conversion_bracket_ceiling_or_amount=strategy.conversion_bracket_ceiling_or_amount,
@@ -374,8 +466,8 @@ def run_plan_projection(
             social_security_gross_benefit=household_ss_benefit,
         )
         filer_ages = [ages_this_year[member.person_name] for member in household.members]
-        federal_tax = compute_federal_tax(income, filer_ages, household.filing_status, tax_year)
-        state_tax = compute_state_tax(state, income, filer_ages, household.filing_status, tax_year)
+        federal_tax = compute_federal_tax(income, filer_ages, effective_filing_status, tax_year)
+        state_tax = compute_state_tax(state, income, filer_ages, effective_filing_status, tax_year)
 
         # IRMAA (010-advanced-tax-benefits FR-001-FR-004, research.md §§2-3):
         # a true two-year look-back when this projection has already computed
@@ -394,7 +486,7 @@ def run_plan_projection(
         irmaa = compute_irmaa_surcharge(
             magi=irmaa_magi,
             income_basis=income_basis,
-            filing_status=household.filing_status,
+            filing_status=effective_filing_status,
             tax_year=tax_year,
             enrolled_member_count=enrolled_member_count,
         )
@@ -414,7 +506,7 @@ def run_plan_projection(
         niit = compute_niit(
             magi=_approximate_magi(income, federal_tax),
             investment_income=investment_income,
-            filing_status=household.filing_status,
+            filing_status=effective_filing_status,
             tax_year=tax_year,
         )
 
@@ -487,6 +579,8 @@ def run_plan_projection(
                 member_social_security_benefits=member_ss_benefits,
                 inherited_account_balances=inherited_account_balances,
                 inherited_account_distributions=inherited_account_distributions,
+                filing_status=effective_filing_status,
+                effective_spending_need=effective_spending_need,
             )
         )
 

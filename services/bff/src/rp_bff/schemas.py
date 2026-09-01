@@ -29,8 +29,10 @@ class HouseholdMemberRequest(BaseModel):
     """010-advanced-tax-benefits."""
     predicted_death_age: int | None = None
     """017-ss-spousal-survivor-benefits: defaults to None (no hypothetical
-    death configured) -- consulted by nothing in this feature; exists for
-    a future feature (rp-g8y) to consume. See scenario/models.py."""
+    death configured). 018-survivor-scenario-projection now consumes this
+    to switch a projection's mid-horizon filing status/Social Security
+    income/spending need -- see scenario/models.py and
+    comparison/projection.py."""
 
 
 class HouseholdRequest(BaseModel):
@@ -38,6 +40,9 @@ class HouseholdRequest(BaseModel):
 
     filing_status: Literal["single", "married_filing_jointly"]
     members: list[HouseholdMemberRequest]
+    survivor_spending_reduction_pct: float = 0.0
+    """018-survivor-scenario-projection: defaults to 0.0 (no reduction --
+    a true no-op). See scenario/models.py."""
 
 
 class InheritedIraDetailsRequest(BaseModel):

@@ -4,6 +4,15 @@ every other input — including the market return assumption — identical
 across every candidate (FR-009). See
 specs/004-strategy-comparison-layer/research.md and
 contracts/comparison-api.md.
+
+018-survivor-scenario-projection (rp-g8y, research.md Decision 6): the
+mid-horizon death switch (filing status / Social Security / spending, see
+projection.py's own module docstring and run_plan_projection()'s
+docstring) needed NO change to this module — every function below already
+forwards `household` unmodified into each candidate's own
+run_plan_projection() call, so every candidate independently reflects the
+identical switch a plain projection of that candidate would show
+(tests/unit/comparison/test_compare.py's own coverage for this feature).
 """
 
 from __future__ import annotations

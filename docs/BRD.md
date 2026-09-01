@@ -186,20 +186,31 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   flag before reaching any computation (`013-inherited-ira-edge-cases`),
   not silently mis-computed.
 - **Social Security spousal/survivor benefits — remaining gaps
-  (rp-52n)**: the spousal-benefit floor (§6.2b) is now modeled and
-  applied in every married-filing-jointly projection, and the
-  survivor-benefit calculation (§6.2b) is implemented and cited but not
-  yet wired into a running projection's mid-horizon behavior (filing
-  status, spending, income) after one spouse's death — tracked
-  separately as `rp-g8y`. Also not modeled: the Social Security family
-  maximum benefit (the aggregate cap on total benefits payable on one
-  worker's record — this tool's households of at most two members are
-  the case that least often binds it), "deemed filing" mechanics (a
-  household's own-benefit and spousal-benefit filings are treated as one
-  combined application in most post-2015 cases, not a genuine free
-  choice modeled here), and the widow(er)'s-own early-claiming reduction
-  and statutory "widow's limit" cap on the survivor-benefit calculation
-  itself.
+  (rp-52n, rp-g8y)**: the spousal-benefit floor (§6.2b) is modeled and
+  applied in every married-filing-jointly projection. The
+  survivor-benefit calculation and its mid-horizon projection wiring
+  (§6.2b/§6.2c) — filing status switching to single, Social Security
+  income switching to the survivor amount, and spending need reduced by
+  a household-configured percentage, all from the year after a
+  configured death forward — are now modeled for deterministic and
+  strategy-comparison projections. Still not modeled: a per-path
+  probabilistic death draw inside Monte Carlo simulation (every path
+  uses the same deterministic, household-configured death year — §6.2c);
+  Qualifying Surviving Spouse status or a joint return specifically for
+  the year of death (this engine switches straight from
+  married-filing-jointly through the death year to single the year
+  after, which may overstate the survivor's near-term tax burden
+  relative to real law); remarriage; a detailed post-death budget
+  re-plan beyond the single configured spending percentage; and a second
+  (the survivor's own, later) configured death ending the projection.
+  Also not modeled: the Social Security family maximum benefit (the
+  aggregate cap on total benefits payable on one worker's record — this
+  tool's households of at most two members are the case that least often
+  binds it), "deemed filing" mechanics (a household's own-benefit and
+  spousal-benefit filings are treated as one combined application in
+  most post-2015 cases, not a genuine free choice modeled here), and the
+  widow(er)'s-own early-claiming reduction and statutory "widow's limit"
+  cap on the survivor-benefit calculation itself.
 - **Social Security earnings test** — a member who claims while still
   working before FRA is not subject to the benefit withholding the
   earnings test would impose; the tool assumes full, unwithheld payment
@@ -324,21 +335,63 @@ rules now apply:
 - **Survivor benefit**: given both members' own currently-claimed
   benefit amounts, the surviving member's ongoing benefit is the higher
   of the two — the lower one stops entirely (42 U.S.C. §402(e)/(f); 20
-  C.F.R. §404.335/§404.336). This calculation is implemented and cited,
-  and `HouseholdMember` can record a member's hypothetical death
-  (`predicted_death_age`, opt-in, `None` by default) for a future
-  feature to consume — but nothing in the engine today actually applies
-  it mid-projection: a scenario's filing status, spending need, and
-  income all continue exactly as if both members remained alive for the
-  full configured horizon, regardless of `predicted_death_age`. Wiring
-  this into a running projection (the "widow's tax penalty" a household
-  would actually experience) is tracked separately as `rp-g8y`.
+  C.F.R. §404.335/§404.336). `HouseholdMember` can record a member's
+  hypothetical death (`predicted_death_age`, opt-in, `None` by default);
+  §6.2c describes how a running projection now actually applies it.
 
 Explicitly not modeled: the Social Security family maximum benefit,
 "deemed filing" mechanics, and — on the survivor-benefit calculation
 itself — the widow(er)'s-own early-claiming reduction and the statutory
 "widow's limit" cap (§5.3) — tracked as known gaps, not silently assumed
 away.
+
+### 6.2c Survivor scenario projection wiring (rp-g8y)
+
+For a married-filing-jointly household where one member has
+`predicted_death_age` configured, `run_plan_projection()` — the single
+per-plan-year loop every deterministic projection, strategy comparison,
+and Monte Carlo path already shares — now changes behavior mid-horizon.
+The death *tax year* is the first year that member's translated age
+reaches `predicted_death_age`; the death year itself, and every year
+before it, is unaffected (mirroring real income-tax law's allowance of a
+joint return for the year a spouse actually dies, without this engine
+modeling Qualifying Surviving Spouse status for the years after). From
+the following tax year through the end of the horizon:
+
+- **Filing status** switches to `single` for every computation that
+  consumes it (federal tax, state tax, IRMAA, NIIT, and the Roth
+  conversion bracket-ceiling logic).
+- **Social Security income** switches from the sum of both members'
+  benefits to the survivor-benefit amount (§6.2b) — computed from each
+  member's own already-claiming-age-adjusted (and, if applicable,
+  spousal-floor-adjusted) benefit for that year, so the number used is
+  whatever was actually being paid immediately before the death, not a
+  synthetic recomputation.
+- **Spending need** is multiplied by `(1 - Household.survivor_spending_reduction_pct)`
+  — a new, opt-in household-level field (fraction 0.0–1.0, default 0.0 —
+  a true no-op, so a household that omits it keeps its full pre-death
+  spending). This is a single flat assumption, not a detailed re-planned
+  budget.
+
+Each plan year's *effective* filing status and spending need (not just
+the household's static configured values) are retained on that year's
+own result, so a report or chart can show exactly when the switch
+occurred — this is what makes the "widow's tax penalty" (narrower single
+brackets, lower Social Security-taxability/NIIT/IRMAA thresholds, one
+Social Security check instead of two, near-full household expenses)
+visible in this tool's output for the first time.
+
+A household where no member has `predicted_death_age` configured — the
+overwhelming majority of scenarios — is completely unaffected; every
+year's effective filing status and spending need simply equal the
+household's configured values, unchanged.
+
+**Not modeled** (see §5.3 for the full list): Monte Carlo simulation
+does not draw a per-path probabilistic death year — every path uses the
+same deterministic, household-configured death year a plain projection
+would; Qualifying Surviving Spouse status; remarriage; a detailed
+post-death budget re-plan; and a second (the survivor's own, later)
+configured death ending the projection early.
 
 ### 6.3 Net Investment Income Tax (NIIT)
 
@@ -433,11 +486,16 @@ until replaced with an actual, cited source.
 - Federal tax assumes every household takes the standard deduction (§5.1);
   itemizing and the temporary OBBBA senior bonus deduction are not modeled
   (§5.3).
-- A spouse's death does not yet change a running projection's filing
-  status, spending need, or income mid-horizon, even though the
-  survivor-benefit calculation itself and a per-member
-  `predicted_death_age` field both exist (§6.2b); wiring this in is
-  tracked separately as `rp-g8y`.
+- A configured spouse's death changes a deterministic or
+  strategy-comparison projection's filing status, Social Security income,
+  and spending need mid-horizon (§6.2c), but Monte Carlo simulation does
+  not draw its own per-path probabilistic death year — every path uses
+  the same deterministic, household-configured death year. Also not
+  modeled: Qualifying Surviving Spouse status / a joint return
+  specifically for the year of death, remarriage, a detailed post-death
+  budget re-plan beyond the single configured spending percentage, and a
+  second (the survivor's own, later) configured death ending the
+  projection (§6.2c).
 
 ## 8. Non-Functional Requirements
 

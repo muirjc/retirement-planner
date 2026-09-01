@@ -96,6 +96,26 @@ class PlanYearProjection:
     inherited_account_distributions: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own distribution amount
     this year."""
+    filing_status: Literal["single", "married_filing_jointly"] | None = None
+    """018-survivor-scenario-projection: the EFFECTIVE filing status this
+    year's federal_tax/state_tax/irmaa/niit were actually computed with --
+    household.filing_status unchanged through a configured death year
+    (inclusive) and every year before it; forced to "single" for every plan
+    year after (data-model.md). Always populated by run_plan_projection();
+    None only if some other caller constructs a PlanYearProjection directly
+    without setting it. For a household with no configured death, every
+    year's value equals household.filing_status unchanged -- an informative
+    addition, not a behavior change."""
+    effective_spending_need: float = 0.0
+    """018-survivor-scenario-projection: the actual spending_need value
+    passed into compute_plan_year_mechanics() this year --
+    annual_spending_need unchanged through a configured death year
+    (inclusive) and every year before it; annual_spending_need * (1 -
+    household.survivor_spending_reduction_pct) for every plan year after
+    (data-model.md). No existing mechanics-package result type echoes back
+    its own spending_need input, so this is recorded here instead. Always
+    populated by run_plan_projection(); 0.0 only if some other caller
+    constructs a PlanYearProjection directly without setting it."""
 
 
 @dataclass

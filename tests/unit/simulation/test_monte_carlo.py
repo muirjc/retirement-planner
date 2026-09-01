@@ -367,3 +367,86 @@ def test_spousal_floor_matches_deterministic_projection_exactly():
     )
     # Sanity: this is actually the spousal-floor amount (50% of 30,000), not spouse's own $6,000 PIA.
     assert deterministic.years[0].member_social_security_benefits["spouse"] == pytest.approx(15_000.0)
+
+
+def test_death_switch_matches_deterministic_projection_exactly():
+    """018-survivor-scenario-projection (rp-g8y) FR-007, SC-005: the
+    mid-horizon death switch (filing status, survivor Social Security
+    income, spending reduction) lives entirely inside
+    comparison.run_plan_projection() -- every Monte Carlo path already
+    calls that function internally, so a path's own per-year results must
+    match a direct run_plan_projection() call exactly, for every year,
+    with no per-path probabilistic death draw of any kind (every path
+    uses the identical, deterministic, household-configured death year).
+    This is a regression guard against that shared call site ever
+    drifting apart, mirroring 016's and 017's own test_monte_carlo.py
+    consistency-check precedent -- not a re-test of the switch itself
+    (covered by tests/unit/comparison/test_projection.py)."""
+    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household = Household(
+        filing_status="married_filing_jointly",
+        survivor_spending_reduction_pct=0.20,
+        members=[
+            HouseholdMember(
+                person_name="you", current_age=67, ss_claim_age=67, ss_annual_benefit=30_000, full_retirement_age=67.0
+            ),
+            HouseholdMember(
+                person_name="spouse",
+                current_age=67,
+                ss_claim_age=67,
+                ss_annual_benefit=20_000,
+                full_retirement_age=67.0,
+                predicted_death_age=70,  # death tax year 2029, mid-horizon below
+            ),
+        ],
+    )
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        claiming_ages={"you": 67, "spouse": 67},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=72,  # spans both pre- and post-death plan years (death at 70)
+        strategy=strategy,
+    )
+
+    deterministic = run_plan_projection(
+        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+    )
+    simulated = run_simulation(
+        **common_kwargs,
+        return_paths=[
+            ReturnPath(
+                start_plan_year=1,
+                annual_returns=[0.0] * len(deterministic.years),
+                generation_mode="parametric",
+                figures_used=[],
+            )
+        ],
+        candidate_label="test",
+    )
+
+    simulated_years = simulated.path_results[0].years
+    assert len(simulated_years) == len(deterministic.years)
+    for simulated_year, deterministic_year in zip(simulated_years, deterministic.years):
+        assert simulated_year.filing_status == deterministic_year.filing_status
+        assert simulated_year.effective_spending_need == deterministic_year.effective_spending_need
+        assert simulated_year.member_social_security_benefits == deterministic_year.member_social_security_benefits
+
+    # Sanity: the switch actually occurred somewhere in this horizon.
+    assert any(year.filing_status == "single" for year in deterministic.years)
+    assert any(year.filing_status == "married_filing_jointly" for year in deterministic.years)

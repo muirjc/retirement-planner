@@ -764,19 +764,6 @@ survival-adjusted scoring already was.
   most single households won't need on a first run) and the third as a
   simple checkbox (survival-adjusted scoring needs no new user-entered
   data, since a default synthetic survival table already exists).
-- **HSA eligibility/contribution inputs are configurable via the BFF API
-  but not via the Streamlit Scenarios page, and are silently dropped by
-  it** (rp-xxp full-surface audit): `HouseholdMember.hdhp_coverage` and
-  `Scenario.hsa_contribution` (§2.1, `mechanics/hsa.py`) round-trip fully
-  through `services/bff`'s scenario schema and feed IRMAA/NIIT-affecting
-  MAGI in every downstream calculation, but
-  `apps/streamlit_ui/pages/1_Scenarios.py` has no widget for either field
-  — and, because its save payload omits both, **loading an
-  HSA-configured scenario into the Scenarios page and clicking Save
-  deletes that scenario's HSA configuration** rather than merely leaving
-  it un-editable. This is a data-loss risk on ordinary UI use, not just a
-  missing display, and is scheduled as follow-on work ahead of the three
-  Monte Carlo gaps above.
 
 ## 8. Non-Functional Requirements
 

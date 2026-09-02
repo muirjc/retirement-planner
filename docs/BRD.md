@@ -87,6 +87,17 @@ first draft:
   working document"); a dollar figure this tool needs from that side
   (e.g., an actual insurance quote) is a manual scenario input, never
   something the tool derives on its own.
+- **Healthcare premium dollar costs — a distinct case from the
+  qualitative factors above, called out explicitly (rp-1pp)**: baseline
+  Medicare Part B/D premiums (age 65+) and pre-Medicare ACA marketplace
+  premiums/subsidies (the multi-year bridge between an early retirement —
+  the reference use case starts household members at 58-60 — and Medicare
+  eligibility at 65) are real, load-bearing financial-plan inputs, not
+  qualitative judgment calls. Neither is modeled by this engine (§6.4)
+  — a household is expected to estimate its own baseline Medicare and/or
+  ACA bridge premiums and fold them into `annual_need_real`, the same way
+  it would fold in any other recurring expense this tool doesn't itemize
+  on its own.
 
 ### 2.3 Reference use case
 
@@ -407,6 +418,16 @@ determines a flat annual per-person surcharge (`surcharge_owed =
 annual_surcharge_per_person × enrolled_member_count`); a tier's lower
 bound is inclusive.
 
+**What this covers, and what it doesn't (rp-1pp)**: this is the
+income-related *surcharge* only — the incremental amount a
+higher-income household pays *above* the standard Medicare Part B/D
+premium. This engine does not model the standard baseline premium
+itself (the amount every enrollee pays regardless of income), nor any
+pre-Medicare ACA marketplace premium or subsidy for the bridge years
+before age 65 (§2.2). Both are real dollar costs a household must
+estimate on its own and fold into `annual_need_real` — this tool has no
+separate line item for either today.
+
 ### 6.5 Required Minimum Distributions
 
 `required_amount = traditional_balance ÷ divisor`, where the divisor
@@ -566,6 +587,11 @@ until replaced with an actual, cited source.
   distributions, birth/adoption up to $5,000, terminal illness, disaster
   relief, and others) — a household actually covered by one of these in
   reality will see this tool report a penalty it cannot yet suppress.
+- Baseline Medicare Part B/D premiums and pre-Medicare ACA marketplace
+  premiums/subsidies are not modeled (§2.2, §6.4) — only the IRMAA
+  surcharge above the standard Medicare premium is. A household must
+  estimate and fold both into `annual_need_real` itself; a follow-up
+  feature may model either directly in the future (rp-1pp).
 
 ## 8. Non-Functional Requirements
 

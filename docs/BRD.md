@@ -467,14 +467,16 @@ same way Social Security already is. This keeps the two income sources
 internally consistent rather than introducing a different cash-flow rule
 for one and not the other.
 
+Streams round-trip through the scenario YAML and the BFF API, and the
+Streamlit Scenarios page now offers real per-member add/edit/remove
+widgets for them (`rp-5cq`) — not just silent preservation of an
+already-configured stream on save, the gap this section originally
+flagged.
+
 **Not modeled**: payroll/self-employment tax on `earned_income` streams
 (§5.3); any automatic survivor/joint-and-survivor continuation of a
 pension or annuity after the owning member's death (model a second,
-independent stream instead); regulatory payout caps (e.g. IRC §415(b));
-and editing these streams through the Streamlit UI — they round-trip
-through the scenario YAML and the BFF API today, but the UI form
-currently only preserves an already-configured stream on save rather than
-offering widgets to add or change one (a follow-on issue tracks this).
+independent stream instead); regulatory payout caps (e.g. IRC §415(b)).
 
 ### 6.2e FICA payroll tax on earned-income streams (rp-elp)
 

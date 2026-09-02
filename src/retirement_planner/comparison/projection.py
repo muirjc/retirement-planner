@@ -10,6 +10,8 @@ specs/004-strategy-comparison-layer/research.md and contracts/comparison-api.md.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from retirement_planner.mechanics import (
     AccountBalances,
     InheritedAccountBalance,
@@ -434,6 +436,11 @@ def run_plan_projection(
         # too.
         is_post_death = death_tax_year is not None and tax_year > death_tax_year
         if is_post_death:
+            # rp-cgj: dying_member and death_tax_year are set together from
+            # the same `death` tuple above -- always both None or both set
+            # -- but mypy can't track that correlation through two separate
+            # ternary assignments; this documents the invariant.
+            assert dying_member is not None
             survivor = next(member for member in household.members if member is not dying_member)
             survivor_result = compute_survivor_benefit(
                 member_ss_benefits[dying_member.person_name],
@@ -536,7 +543,19 @@ def run_plan_projection(
                     decedent_was_taking_rmds=inherited_account.decedent_was_taking_rmds,
                     beneficiary_classification=inherited_account.beneficiary_classification,
                     account_type=inherited_account.account_type,
-                    beneficiary_current_age=ages_this_year.get(inherited_account.beneficiary_person_name),
+                    # rp-cgj: beneficiary_person_name is itself optionally
+                    # None (InheritedAccountBalance's own docstring) --
+                    # ages_this_year is keyed by real person_names only, so
+                    # a None name has nothing to look up; keeps the same
+                    # "None in, None out" behavior compute_inherited_rmd()
+                    # already expects (it asserts a real age when one is
+                    # actually needed) without passing a non-str key into
+                    # a dict[str, int].get() call.
+                    beneficiary_current_age=(
+                        ages_this_year.get(inherited_account.beneficiary_person_name)
+                        if inherited_account.beneficiary_person_name is not None
+                        else None
+                    ),
                     depletion_deadline_year=inherited_account.depletion_deadline_year,
                 )
                 distribution = min(inherited_result.required_amount, inherited_account.balance)
@@ -638,6 +657,7 @@ def run_plan_projection(
         # a true two-year look-back when this projection has already computed
         # that far back, else this year's own MAGI as an explicitly flagged
         # proxy -- never fabricated pre-scenario history.
+        income_basis: Literal["two_year_lookback", "current_year_proxy"]
         if len(years) >= 2:
             lookback_year = years[-2]
             irmaa_magi = lookback_year.mechanics.ordinary_income + lookback_year.federal_tax.taxable_social_security

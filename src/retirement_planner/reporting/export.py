@@ -45,7 +45,12 @@ def run_to_csv_text(run: SimulationRun) -> str:
     rows = []
     for index, band in enumerate(run.percentile_bands):
         year_figures = run.path_results[0].years[index].figures_used
-        row = {"plan_year": band.plan_year}
+        # rp-cgj: explicit dict[str, object] -- this row genuinely holds a
+        # mix of int (plan_year), float (each percentile column), and bool
+        # (has_unverified_figure); mypy would otherwise infer dict[str,
+        # int] from this first key-value pair alone and reject the float/
+        # bool assignments below.
+        row: dict[str, object] = {"plan_year": band.plan_year}
         for level, column in zip(percentile_levels, percentile_columns):
             row[column] = band.percentiles[level]
         row["has_unverified_figure"] = any(not figure.verified for figure in year_figures)

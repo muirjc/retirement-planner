@@ -121,14 +121,23 @@ def compute_roth_conversion(
     roth_balance: float,
 ) -> ConversionResult:
     """Returns a zeroed ConversionResult (amount_converted=0,
-    figures_used=[]) without calling any strategy if window or strategy is
-    None, or if plan_year is outside [window[0], window[1]] inclusive
-    (FR-008). Otherwise looks up CONVERSION_STRATEGIES[strategy] and calls
-    it with roth_balance and bracket_ceiling_or_amount as the final
-    positional arguments. Raises KeyError if strategy has no registered
-    function.
+    figures_used=[]) without calling any strategy if window, strategy, or
+    bracket_ceiling_or_amount is None, or if plan_year is outside
+    [window[0], window[1]] inclusive (FR-008) -- rp-cgj: bracket_ceiling_or_amount
+    joins this same "not fully configured" no-op set as window/strategy
+    already were, rather than reaching CONVERSION_STRATEGIES[strategy]
+    with None and crashing on arithmetic inside it (fill_to_bracket_ceiling/
+    fixed_dollar_amount both require a real float there). Otherwise looks
+    up CONVERSION_STRATEGIES[strategy] and calls it with roth_balance and
+    bracket_ceiling_or_amount as the final positional arguments. Raises
+    KeyError if strategy has no registered function.
     """
-    if window is None or strategy is None or not (window[0] <= plan_year <= window[1]):
+    if (
+        window is None
+        or strategy is None
+        or bracket_ceiling_or_amount is None
+        or not (window[0] <= plan_year <= window[1])
+    ):
         return ConversionResult(
             amount_converted=0.0,
             ordinary_income_added=0.0,

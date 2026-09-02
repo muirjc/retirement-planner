@@ -103,6 +103,15 @@ def compute_account_shares(accounts: list[Account]) -> list[AccountShare]:
             # and 011 research.md §2's "can only ever stay zero"
             # reasoning, generalized to every account type here).
             fixed_share = (account.balance / pool) if pool > 0 else 0.0
+        # rp-cgj: both are documented (Account's own field docstrings) as
+        # never None for an account this function actually sees --
+        # account_id is always auto-filled by parse_scenario(), and owner
+        # is only ever None transiently, before validation, or for a
+        # Scenario built directly rather than parsed; this function's own
+        # docstring says it's called once per request against an
+        # already-resolved scenario's accounts.
+        assert account.account_id is not None
+        assert account.owner is not None
         shares.append(
             AccountShare(
                 account_id=account.account_id,

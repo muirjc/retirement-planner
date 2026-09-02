@@ -103,9 +103,9 @@ Each of the three packages also has its own lint (`ruff`), type-check (`mypy`), 
 ruff check src/ tests/                          # lint -- core
 ruff check services/bff/                        # lint -- BFF
 ruff check apps/streamlit_ui/                    # lint -- Streamlit UI
-mypy --config-file pyproject.toml src/retirement_planner                                   # type check -- core (report-only in CI, see rp-cgj)
-mypy --config-file services/bff/pyproject.toml services/bff/src/rp_bff                      # type check -- BFF (report-only in CI, see rp-cgj)
-mypy --config-file apps/streamlit_ui/pyproject.toml apps/streamlit_ui/src/rp_ui             # type check -- Streamlit UI (report-only in CI, see rp-cgj)
+mypy --config-file pyproject.toml src/retirement_planner                                   # type check -- core
+mypy --config-file services/bff/pyproject.toml services/bff/src/rp_bff                      # type check -- BFF
+mypy --config-file apps/streamlit_ui/pyproject.toml apps/streamlit_ui/src/rp_ui             # type check -- Streamlit UI
 bandit -r src/retirement_planner -ll             # security scan -- core
 bandit -r services/bff/src/rp_bff -ll            # security scan -- BFF
 bandit -r apps/streamlit_ui/src/rp_ui -ll        # security scan -- Streamlit UI
@@ -114,7 +114,7 @@ pip-audit --skip-editable                        # dependency CVE scan, all thre
 
 ### CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and every PR to `main`: the quality gates above plus all four test suites, then (needing that job to pass first) the e2e suite and an [OWASP ZAP](https://www.zaproxy.org/) API security scan (a DAST pen test, not just static analysis) against a live BFF instance, driven by its own OpenAPI spec and thresholded by [`.zap/rules.tsv`](.zap/rules.tsv) — its report is uploaded as a build artifact regardless of pass/fail. mypy runs report-only (`continue-on-error`) pending rp-cgj's triage of its initial findings; the ZAP job itself also runs report-only pending its first few real-runner calibration passes (its own comment in `ci.yml` explains why — it could not be executed end-to-end in the environment this pipeline was authored in).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and every PR to `main`: the quality gates above plus all four test suites, then (needing that job to pass first) the e2e suite and an [OWASP ZAP](https://www.zaproxy.org/) API security scan (a DAST pen test, not just static analysis) against a live BFF instance, driven by its own OpenAPI spec and thresholded by [`.zap/rules.tsv`](.zap/rules.tsv) — its report is uploaded as a build artifact regardless of pass/fail. The ZAP job runs report-only (`continue-on-error`) pending its first few real-runner calibration passes (its own comment in `ci.yml` explains why — it could not be executed end-to-end in the environment this pipeline was authored in); every other check, including mypy (rp-cgj triaged and fixed its initial 28-finding baseline), is blocking.
 
 ## Project layout
 

@@ -17,6 +17,7 @@ from retirement_planner.mechanics import (
     WithdrawalPlan,
     compute_hsa_contribution,
     compute_hsa_eligibility,
+    compute_income_stream_amount,
     compute_inherited_rmd,
     compute_plan_year_mechanics,
     compute_rmd,
@@ -194,6 +195,36 @@ def _household_gross_social_security_benefit(
     directly, as run_plan_projection() does below."""
     benefits, _ = _member_gross_social_security_benefits(household, ages_this_year, claiming_ages, tax_year)
     return sum(benefits.values())
+
+
+def _member_income_stream_amounts(
+    household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int
+) -> tuple[dict[str, float], list[FigureUsage]]:
+    """021-pension-annuity-income (rp-pid): each member's own summed gross
+    income-stream amount this year, across every pension/annuity/earned-
+    income stream that member has configured -- 0.0 for a member with
+    none configured, or none active this year, never omitted (mirrors
+    _member_gross_social_security_benefits()'s own shape). Summing the
+    dict's values is this year's income_stream_total, passed into
+    compute_plan_year_mechanics() (contracts/mechanics-api.md)."""
+    amounts: dict[str, float] = {}
+    figures_used: list[FigureUsage] = []
+    for member in household.members:
+        member_total = 0.0
+        for stream in member.income_streams:
+            result = compute_income_stream_amount(
+                annual_amount=stream.annual_amount,
+                inflation_adjustment=stream.inflation_adjustment,
+                start_age=stream.start_age,
+                end_age=stream.end_age,
+                member_age_this_year=ages_this_year[member.person_name],
+                tax_year=tax_year,
+                reference_tax_year=reference_tax_year,
+            )
+            member_total += result.amount
+            figures_used.extend(result.figures_used)
+        amounts[member.person_name] = member_total
+    return amounts, figures_used
 
 
 def run_plan_projection(
@@ -379,6 +410,16 @@ def run_plan_projection(
             else annual_spending_need
         )
 
+        # 021-pension-annuity-income (rp-pid): each member's own pension/
+        # annuity/earned-income streams, summed into this year's
+        # income_stream_total (passed into compute_plan_year_mechanics()
+        # below) and retained per-member (like member_ss_benefits above)
+        # for PlanYearProjection.member_income_stream_amounts.
+        member_income_streams, income_stream_figures_used = _member_income_stream_amounts(
+            household, ages_this_year, tax_year, reference_tax_year
+        )
+        household_income_stream_total = sum(member_income_streams.values())
+
         # 011-per-owner-accounts: one compute_rmd() call per member with a
         # positive traditional share, replacing the single deemed-owner-
         # attributed call (research.md §1). spouse_is_sole_beneficiary is
@@ -504,6 +545,8 @@ def run_plan_projection(
             hsa_contribution=hsa_contribution,
             inherited_distribution_amount=inherited_distribution_total,
             inherited_rmd_figures_used=inherited_rmd_figures_used,
+            income_stream_total=household_income_stream_total,
+            income_stream_figures_used=income_stream_figures_used,
         )
 
         # 019-roth-conversion-ladder (rp-886): attribute this year's own
@@ -709,6 +752,7 @@ def run_plan_projection(
                 figures_used=figures_used,
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
+                member_income_stream_amounts=member_income_streams,
                 inherited_account_balances=inherited_account_balances,
                 inherited_account_distributions=inherited_account_distributions,
                 filing_status=effective_filing_status,

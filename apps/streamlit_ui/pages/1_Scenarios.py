@@ -42,12 +42,14 @@ DEFAULTS = {
     "member1_ss_annual_benefit": 0.0,
     "member1_full_retirement_age": 67.0,
     "member1_predicted_death_age": 0,  # 0 = not set (maps to None) -- see _build_body()
+    "member1_income_streams": [],  # 021-pension-annuity-income: opaque pass-through, no editing widgets yet
     "member2_person_name": "",
     "member2_current_age": 60,
     "member2_ss_claim_age": 67,
     "member2_ss_annual_benefit": 0.0,
     "member2_full_retirement_age": 67.0,
     "member2_predicted_death_age": 0,
+    "member2_income_streams": [],
     "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
@@ -117,6 +119,12 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     # "not set" sentinel (DEFAULTS above), never a KeyError for a scenario
     # saved before this feature existed.
     st.session_state["member1_predicted_death_age"] = m1.get("predicted_death_age") or 0
+    # 021-pension-annuity-income (rp-pid): no editing widgets exist for
+    # this yet (plan.md Scope Boundaries) -- stashed as an opaque
+    # pass-through so a household that configured income streams via YAML
+    # or the API doesn't have them silently deleted the next time they
+    # save via this form (see _build_body() below).
+    st.session_state["member1_income_streams"] = m1.get("income_streams") or []
     if len(members) > 1:
         m2 = members[1]
         st.session_state["member2_person_name"] = m2["person_name"]
@@ -125,6 +133,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
         st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
         st.session_state["member2_predicted_death_age"] = m2.get("predicted_death_age") or 0
+        st.session_state["member2_income_streams"] = m2.get("income_streams") or []
     # 011-per-owner-accounts: match each account to a member row by
     # (account_type, owner) against the members just loaded above. An
     # account whose owner is None or doesn't match either member (a
@@ -321,6 +330,14 @@ c5.number_input(
 c6.number_input(
     "Predicted death age", min_value=0, step=1, key="member1_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
 )
+if st.session_state["member1_income_streams"]:
+    # 021-pension-annuity-income (rp-pid): no editing widgets yet
+    # (plan.md Scope Boundaries) -- just confirm nothing was lost.
+    st.caption(
+        f"ℹ️ {len(st.session_state['member1_income_streams'])} income stream(s) configured "
+        "(pension/annuity/earned income) -- preserved on save, not yet editable here. "
+        "Edit the scenario file or use the API to change them."
+    )
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
@@ -337,6 +354,12 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     c6.number_input(
         "Predicted death age", min_value=0, step=1, key="member2_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
     )
+    if st.session_state["member2_income_streams"]:
+        st.caption(
+            f"ℹ️ {len(st.session_state['member2_income_streams'])} income stream(s) configured "
+            "(pension/annuity/earned income) -- preserved on save, not yet editable here. "
+            "Edit the scenario file or use the API to change them."
+        )
     st.number_input(
         "Survivor spending reduction",
         min_value=0.0,
@@ -668,6 +691,10 @@ def _build_body() -> dict:
                     "ss_annual_benefit": st.session_state["member1_ss_annual_benefit"],
                     "full_retirement_age": st.session_state["member1_full_retirement_age"],
                     "predicted_death_age": st.session_state["member1_predicted_death_age"] or None,
+                    # 021-pension-annuity-income (rp-pid): pass-through
+                    # only -- resubmitted unchanged, never edited by this
+                    # form (plan.md Scope Boundaries).
+                    "income_streams": st.session_state["member1_income_streams"],
                 }
             ],
         },
@@ -715,6 +742,7 @@ def _build_body() -> dict:
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
                 "full_retirement_age": st.session_state["member2_full_retirement_age"],
                 "predicted_death_age": st.session_state["member2_predicted_death_age"] or None,
+                "income_streams": st.session_state["member2_income_streams"],
             }
         )
         body["accounts"].extend(

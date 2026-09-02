@@ -17,7 +17,7 @@ from retirement_planner.comparison import (
 )
 from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
 from retirement_planner.tax import FederalTaxResult, IncomeComponents, compute_taxable_social_security
 
 
@@ -801,6 +801,137 @@ def test_member_social_security_benefits_present_even_before_claiming_never_omit
     assert last_year.member_social_security_benefits["you"] == 32_000.0
     assert last_year.member_social_security_benefits["spouse"] == 0.0
     assert sum(last_year.member_social_security_benefits.values()) == 32_000.0
+
+
+def test_income_stream_appears_only_within_active_window():
+    """021-pension-annuity-income (rp-pid), US1/US2: a lifetime
+    cola_adjusted pension appears at its full flat amount from start_age
+    on; a windowed fixed_nominal annuity appears only inside
+    [start_age, end_age] inclusive, mirrors
+    test_member_social_security_benefits_present_even_before_claiming_never_omitted's
+    own isolate-with-zero-spending-need pattern."""
+    household = _single_member_household(current_age=60)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="State Pension",
+            stream_type="pension",
+            start_age=62,
+            annual_amount=18_000.0,
+            inflation_adjustment="cola_adjusted",
+        ),
+        IncomeStream(
+            label="Old annuity",
+            stream_type="annuity",
+            start_age=65,
+            end_age=65,
+            annual_amount=6_000.0,
+            inflation_adjustment="fixed_nominal",
+        ),
+    ]
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    by_age = {60 + i: year for i, year in enumerate(result.years)}
+    assert by_age[61].member_income_stream_amounts["you"] == 0.0
+    assert by_age[61].mechanics.ordinary_income == 0.0
+    assert by_age[62].member_income_stream_amounts["you"] == pytest.approx(18_000.0)
+    assert by_age[62].mechanics.ordinary_income == pytest.approx(18_000.0)
+    # 65 is the annuity's own single-year window (end_age == start_age).
+    assert by_age[65].member_income_stream_amounts["you"] > 18_000.0
+    assert by_age[66].member_income_stream_amounts["you"] == pytest.approx(18_000.0)
+
+
+def test_income_streams_are_independent_per_member():
+    """021-pension-annuity-income (rp-pid), US2: two members' own
+    independently-windowed streams don't cross-contaminate each other's
+    member_income_stream_amounts entry."""
+    household = _mfj_household(you_age=62, spouse_age=62)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Your pension", stream_type="pension", start_age=62,
+            annual_amount=10_000.0, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    household.members[1].income_streams = [
+        IncomeStream(
+            label="Spouse annuity", stream_type="annuity", start_age=65,
+            annual_amount=4_000.0, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=66,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]  # both age 62
+    assert first_year.member_income_stream_amounts == {"you": 10_000.0, "spouse": 0.0}
+    last_year = result.years[-1]  # both age 66
+    assert last_year.member_income_stream_amounts == {"you": 10_000.0, "spouse": 4_000.0}
+    assert last_year.mechanics.ordinary_income == pytest.approx(14_000.0)
+
+
+def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
+    """021-pension-annuity-income (rp-pid), US3: stream_type is purely
+    informational -- an earned_income stream flows through the exact same
+    code path as pension/annuity (data-model.md). No payroll/FICA figure
+    is modeled or appears anywhere in this result (spec.md Assumptions)."""
+    household = _single_member_household(current_age=63)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Part-time consulting", stream_type="earned_income", start_age=63, end_age=65,
+            annual_amount=25_000.0, inflation_adjustment="fixed_nominal",
+        )
+    ]
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=67,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    by_age = {63 + i: year for i, year in enumerate(result.years)}
+    assert by_age[63].member_income_stream_amounts["you"] > 0.0
+    assert by_age[63].mechanics.ordinary_income == by_age[63].member_income_stream_amounts["you"]
+    assert by_age[66].member_income_stream_amounts["you"] == 0.0  # window ended after 65
+
+    figure_names = {figure.name for year in result.years for figure in year.figures_used}
+    assert not any("fica" in name.lower() or "payroll" in name.lower() for name in figure_names)
 
 
 def test_full_retirement_age_equal_to_claim_age_reproduces_pre_feature_flat_benefit():

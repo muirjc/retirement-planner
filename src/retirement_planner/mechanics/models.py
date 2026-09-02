@@ -267,3 +267,21 @@ class SurvivorBenefitResult:
     survivor_benefit: float
     """max(member_a_benefit, member_b_benefit)."""
     figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
+class IncomeStreamAmountResult:
+    """021-pension-annuity-income (rp-pid) data-model.md §
+    IncomeStreamAmountResult. One IncomeStream's own gross amount for one
+    plan year -- mirrors SocialSecurityBenefitResult's own shape (a
+    derived dollar amount plus figures_used)."""
+
+    amount: float
+    """0.0 when member_age_this_year falls outside the stream's active
+    window. Otherwise the stream's annual_amount unchanged (cola_adjusted)
+    or eroded against mechanics.income_streams.INFLATION_RATE
+    (fixed_nominal)."""
+    figures_used: list[FigureUsage] = field(default_factory=list)
+    """Empty for cola_adjusted (a flat pass-through cites nothing) or an
+    inactive year; carries exactly [INFLATION_RATE.usage_for_year(tax_year)]
+    for an active fixed_nominal stream."""

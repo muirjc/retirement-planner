@@ -45,6 +45,8 @@ def compute_plan_year_mechanics(
     hsa_contribution: HsaContributionResult | None = None,
     inherited_distribution_amount: float = 0.0,
     inherited_rmd_figures_used: list[FigureUsage] | None = None,
+    income_stream_total: float = 0.0,
+    income_stream_figures_used: list[FigureUsage] | None = None,
 ) -> PlanYearMechanicsResult:
     """Orchestrates one plan year: calls compute_withdrawal_plan() first
     (rmd_amount is caller-supplied — typically the sum of one or more
@@ -71,6 +73,19 @@ def compute_plan_year_mechanics(
     only). figures_used gains (inherited_rmd_figures_used or []) as a
     fourth unioned source. Both default such that omitting them reproduces
     this function's exact prior behavior unchanged.
+
+    income_stream_total/income_stream_figures_used
+    (021-pension-annuity-income, rp-pid, research.md §3): a caller-summed
+    total across every configured pension/annuity/earned-income stream
+    active this plan year (mechanics.income_streams.compute_income_stream_amount()),
+    added into ordinary_income_established BEFORE compute_roth_conversion()
+    runs -- unlike social_security_gross_benefit, which stays a separate,
+    partially-excluded income component, this income is fully taxable
+    ordinary income and must reduce that year's remaining bracket-fill
+    headroom the same way a traditional withdrawal already does.
+    figures_used gains (income_stream_figures_used or []) as a fifth
+    unioned source. Both default such that omitting them reproduces this
+    function's exact prior behavior unchanged.
     """
     withdrawal_plan = compute_withdrawal_plan(
         spending_need=spending_need,
@@ -84,7 +99,10 @@ def compute_plan_year_mechanics(
         item.amount for item in withdrawal_plan.sequence_withdrawals if item.account_type == "traditional"
     )
     ordinary_income_established = (
-        withdrawal_plan.rmd_drawn + traditional_draws + withdrawal_plan.inherited_distribution_drawn
+        withdrawal_plan.rmd_drawn
+        + traditional_draws
+        + withdrawal_plan.inherited_distribution_drawn
+        + income_stream_total
     )
 
     conversion = compute_roth_conversion(
@@ -115,6 +133,7 @@ def compute_plan_year_mechanics(
         *conversion.figures_used,
         *(hsa_contribution.figures_used if hsa_contribution is not None else []),
         *(inherited_rmd_figures_used or []),
+        *(income_stream_figures_used or []),
     ]
 
     return PlanYearMechanicsResult(

@@ -91,7 +91,7 @@ C4Component
     Container_Boundary(core, "src/retirement_planner") {
         Component(scenario, "scenario", "Household/account/scenario config — YAML parse, validate, save/load. InheritedIraDetails, per-owner Account.account_id.")
         Component(tax, "tax", "Federal + state (SC/DE/FL) income tax, Social Security taxability, NIIT, IRMAA. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
-        Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits — one plan-year at a time.")
+        Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring. Wraps comparison's projection loop per path.")
         Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) — depends on all five other subpackages, none of them depend on it.")
@@ -108,7 +108,7 @@ C4Component
 |---|---|---|
 | `scenario` | Household/account/scenario config — YAML parse, validate, save/load | `Scenario`, `Household`, `parse_scenario()`, `validate()` |
 | `tax` | Federal + state tax, Social Security taxability, NIIT, IRMAA | `compute_federal_tax()`, `compute_state_tax()`, `SourcedFigure` |
-| `mechanics` | RMDs (own + inherited), Roth conversion, withdrawal sequencing, HSA | `compute_rmd()`, `compute_inherited_rmd()`, `compute_roth_conversion()` |
+| `mechanics` | RMDs (own + inherited), Roth conversion, withdrawal sequencing, HSA, pension/annuity/earned-income streams | `compute_rmd()`, `compute_inherited_rmd()`, `compute_roth_conversion()`, `compute_income_stream_amount()` |
 | `comparison` | One-plan-year-at-a-time full-horizon projection; deterministic comparisons | `run_plan_projection()`, `compare_states()`, `compare_withdrawal_strategies()`, `compare_claiming_ages()` |
 | `simulation` | Monte Carlo core over `comparison`'s projection loop | `run_simulation()`, `run_simulation_comparison()`, `generate_return_paths()` |
 | `reporting` | Summary stats + CSV export + per-account attribution, shared by the BFF's JSON and CSV responses | `summarize_run()`, `run_to_csv_text()`, `compute_account_shares()`, `attribute_plan_projection()` |
@@ -215,9 +215,10 @@ into `comparison`/`simulation`.
 
 ## 7. Data model at a glance
 
-- **Input**: `Scenario` (`scenario/models.py`) — household members,
-  accounts (with optional `InheritedIraDetails`), spending need, state,
-  market assumptions, simulation settings. Persisted as one YAML file per
+- **Input**: `Scenario` (`scenario/models.py`) — household members (each
+  with optional pension/annuity/earned-income `IncomeStream`s), accounts
+  (with optional `InheritedIraDetails`), spending need, state, market
+  assumptions, simulation settings. Persisted as one YAML file per
   scenario under `config/scenarios/`.
 - **Cross-cutting primitive**: `SourcedFigure[T]` (`tax/models.py`) — a
   `schedule: dict[year, T]`, `citation`, `last_verified` date, and

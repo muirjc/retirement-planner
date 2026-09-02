@@ -22,6 +22,7 @@ from .models import (
     Household,
     HouseholdMember,
     HsaContributionPlan,
+    IncomeStream,
     InheritedIraDetails,
     MarketAssumptions,
     RothConversionPlan,
@@ -74,6 +75,23 @@ def _require(data: object, field_name: str, source: str, context: str = ""):
     return data[field_name]
 
 
+def _build_income_stream(data: object, source: str, context: str) -> IncomeStream:
+    """021-pension-annuity-income (rp-pid): stream_type, start_age,
+    annual_amount, and inflation_adjustment are required (ScenarioParseError
+    via _require() if any is missing, same discipline as every other
+    required field); label and end_age are optional -- label defaults to
+    ""  (display-only, never validated), end_age defaults to None (a
+    lifetime stream, data-model.md)."""
+    return IncomeStream(
+        label=data.get("label", "") if isinstance(data, dict) else "",
+        stream_type=_require(data, "stream_type", source, context),
+        start_age=_require(data, "start_age", source, context),
+        annual_amount=_require(data, "annual_amount", source, context),
+        inflation_adjustment=_require(data, "inflation_adjustment", source, context),
+        end_age=data.get("end_age") if isinstance(data, dict) else None,
+    )
+
+
 def _build_household_member(data: object, source: str, context: str) -> HouseholdMember:
     ss_claim_age = _require(data, "ss_claim_age", source, context)
     # full_retirement_age (016-ss-claiming-age-actuarial-adjustment):
@@ -105,6 +123,13 @@ def _build_household_member(data: object, source: str, context: str) -> Househol
             if isinstance(data, dict) and data.get("predicted_death_age") is not None
             else None
         ),
+        # income_streams (021-pension-annuity-income, rp-pid): optional,
+        # defaults to [] when omitted -- every scenario predating this
+        # feature round-trips unchanged.
+        income_streams=[
+            _build_income_stream(stream, source, f"{context}.income_streams[{i}]")
+            for i, stream in enumerate(data.get("income_streams", []) if isinstance(data, dict) else [])
+        ],
     )
 
 

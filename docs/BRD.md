@@ -55,6 +55,10 @@ the analysis from scratch each time.
   the grid varies the actual benefit *amount* paid at each candidate age
   (the standard early-reduction/delayed-retirement-credit adjustment,
   §6.2a), not just when payments start
+- Pension, annuity, and phased-retirement earned-income streams —
+  per-member, fixed or COLA-adjusted fixed income, feeding the same
+  ordinary-income pipeline account withdrawals and Social Security already
+  do (§6.2d)
 - HSA contribution eligibility and annual limit tracking
 - Monte Carlo simulation (parametric and historical-bootstrap return
   generation, sequence-of-returns stress overlay, optional
@@ -163,6 +167,7 @@ methodology this table's federal rows were most recently produced by.
 | Social Security claiming-age early-reduction/delayed-credit rates | 42 U.S.C. §402(q)/(w); 20 C.F.R. §404.410/§404.313 (fixed by regulation, not annually revised) | `mechanics/social_security_benefit.py` |
 | Social Security spousal-benefit early-claiming reduction rate (25/36 of 1%/month first 36 months, 5/12 of 1%/month beyond; no delayed credit) | 42 U.S.C. §402(b)/(c); 20 C.F.R. §404.410 (wife's/husband's-benefit paragraph, fixed by regulation) | `mechanics/social_security_benefit.py` |
 | Social Security survivor-benefit rule (higher of the two benefits continues, the lower stops) | 42 U.S.C. §402(e)/(f); 20 C.F.R. §404.335/§404.336 | `mechanics/social_security_benefit.py` |
+| Non-COLA'd ("fixed-nominal") income-stream real-dollar erosion rate (2.40%/year) | SSA, *2025 Annual Report of the Boards of Trustees of the OASI and DI Trust Funds*, "Long-Range Economic Assumptions," intermediate assumption, ultimate CPI increase — a planning assumption, not binding law, unlike every other row above | `mechanics/income_streams.py` |
 
 **Simplification, documented not hidden**: the RMD start-age step above is
 modeled as a tax-year cutoff (73 before 2033, 75 from 2033 on), not the
@@ -232,6 +237,13 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   taking the standard deduction (§5.1); a household that would itemize, or
   that qualifies for the senior bonus deduction, has its federal tax
   overstated relative to that household's actual liability.
+- **Payroll/self-employment tax (FICA/SECA) on `earned_income` income
+  streams** (rp-pid, §6.2d) — an earned-income stream is modeled purely as
+  ordinary taxable income, with no Social Security (6.2%) or Medicare
+  (1.45%, plus the 0.9% Additional Medicare Tax above threshold) payroll
+  tax computed on it. A household modeling meaningful phased-retirement
+  wages will see its true after-tax cash flow overstated relative to this
+  tool's output. Named follow-on work, not silently absorbed.
 
 ### 5.4 State — South Carolina, Delaware, Florida
 
@@ -403,6 +415,55 @@ same deterministic, household-configured death year a plain projection
 would; Qualifying Surviving Spouse status; remarriage; a detailed
 post-death budget re-plan; and a second (the survivor's own, later)
 configured death ending the projection early.
+
+### 6.2d Pension, annuity & phased-retirement income streams (rp-pid)
+
+Beyond Social Security and account withdrawals, a household member can now
+be configured with zero or more generic fixed **income streams** —
+pensions, annuity payouts, or phased-retirement earned income — each with
+a label, a type (`pension`/`annuity`/`earned_income`, informational only),
+a start age, an optional end age (inclusive; omitted means the stream
+pays for the rest of the plan, like Social Security once claimed), an
+annual amount (today's dollars), and an inflation-adjustment mode.
+
+**Tax treatment**: unlike Social Security, a stream's full amount is
+included in ordinary taxable income — none of it is excluded via the
+provisional-income test (§6.2). It is folded into the same
+`ordinary_income_established` total a traditional withdrawal already
+contributes, *before* Roth-conversion bracket-fill sizing runs, so a
+configured pension correctly reduces that year's remaining
+bracket-fill headroom the same way a traditional withdrawal does.
+
+**COLA-adjusted vs. fixed-nominal, in a real-dollar engine**: this tool
+already works entirely in real (inflation-adjusted) dollars, with no
+separate nominal-dollar projection (§5.2) — so a cost-of-living-adjusted
+income source, in that convention, is simply held flat at its configured
+amount, the same treatment Social Security's own PIA already gets. A
+*non*-COLA'd ("fixed-nominal") stream is the opposite: its real
+purchasing power genuinely erodes every year, so it is discounted against
+a new, explicitly cited inflation-rate figure — the Social Security
+Trustees Report's own intermediate-assumption ultimate CPI rate (2.40%),
+compounded from the scenario's start year (not from the stream's own
+start age, so a not-yet-started stream still loses the same real value
+while waiting). This is this tool's first inflation-rate figure, and the
+one figure in this feature that is a planning assumption rather than
+settled law (§5.1's verified-figures table flags it accordingly).
+
+**Cash-flow treatment**: mirrors Social Security exactly — a configured
+stream does **not** reduce the amount withdrawn from accounts to meet
+`annual_need_real`; it is additional taxable income layered on top, the
+same way Social Security already is. This keeps the two income sources
+internally consistent rather than introducing a different cash-flow rule
+for one and not the other.
+
+**Not modeled**: payroll/self-employment tax on `earned_income` streams
+(§5.3); any automatic survivor/joint-and-survivor continuation of a
+pension or annuity after the owning member's death (model a second,
+independent stream instead); regulatory payout caps (e.g. IRC §415(b));
+and editing these streams through the Streamlit UI — they round-trip
+through the scenario YAML and the BFF API today, but the UI form
+currently only preserves an already-configured stream on save rather than
+offering widgets to add or change one (a follow-on issue tracks this).
 
 ### 6.3 Net Investment Income Tax (NIIT)
 

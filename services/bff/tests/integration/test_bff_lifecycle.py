@@ -104,6 +104,52 @@ def test_predicted_death_age_round_trips_and_defaults_to_none_when_omitted(clien
     assert read_response["household"]["members"][1]["predicted_death_age"] is None
 
 
+def test_income_streams_round_trip_and_default_to_empty_list_when_omitted(client):
+    """021-pension-annuity-income (rp-pid): explicit income_streams
+    round-trip through PUT/GET; a member that omits them entirely (like
+    _SCENARIO_BODY's own members) stays an empty list."""
+    body_with_income_streams = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {
+                    **_SCENARIO_BODY["household"]["members"][0],
+                    "income_streams": [
+                        {
+                            "label": "State Pension",
+                            "stream_type": "pension",
+                            "start_age": 62,
+                            "annual_amount": 18_000,
+                            "inflation_adjustment": "cola_adjusted",
+                        },
+                        {
+                            "label": "Old annuity",
+                            "stream_type": "annuity",
+                            "start_age": 65,
+                            "end_age": 74,
+                            "annual_amount": 6_000,
+                            "inflation_adjustment": "fixed_nominal",
+                        },
+                    ],
+                },
+                _SCENARIO_BODY["household"]["members"][1],
+            ],
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/pension_case", json=body_with_income_streams)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/pension_case").json()
+    streams = read_response["household"]["members"][0]["income_streams"]
+    assert len(streams) == 2
+    assert streams[0]["label"] == "State Pension"
+    assert streams[0]["end_age"] is None
+    assert streams[1]["end_age"] == 74
+    # The second member never set it -- stays an empty list.
+    assert read_response["household"]["members"][1]["income_streams"] == []
+
+
 def test_survivor_spending_reduction_pct_round_trips_and_defaults_to_zero_when_omitted(client):
     """018-survivor-scenario-projection: an explicit
     survivor_spending_reduction_pct round-trips through PUT/GET; a
@@ -333,13 +379,18 @@ def test_run_simulation_response_includes_account_detail_shaped_per_account(clie
     assert "account_detail" in payload
     assert len(payload["account_detail"]) == len(payload["run"]["path_results"][0]["years"])
     first_year_detail = payload["account_detail"][0]
-    assert set(first_year_detail.keys()) == {"plan_year", "tax_year", "accounts", "member_social_security_benefits"}
+    assert set(first_year_detail.keys()) == {
+        "plan_year", "tax_year", "accounts", "member_social_security_benefits",
+        "member_income_stream_amounts",  # 021-pension-annuity-income (rp-pid)
+    }
     account_ids = {row["account_id"] for row in first_year_detail["accounts"]}
     # _SCENARIO_BODY's 3 accounts (auto-filled account_ids, per the CRUD test above).
     assert account_ids == {"traditional-0", "roth-1", "taxable-2"}
     for row in first_year_detail["accounts"]:
         assert row["attribution"] in ("independently_tracked", "fixed_share_of_pooled_total")
     assert first_year_detail["member_social_security_benefits"].keys() == {"you", "spouse"}
+    # _SCENARIO_BODY's members configure no income_streams -- present but empty.
+    assert first_year_detail["member_income_stream_amounts"] == {"you": 0.0, "spouse": 0.0}
 
 
 def test_run_simulation_detail_path_index_defaults_to_path_zero(client):

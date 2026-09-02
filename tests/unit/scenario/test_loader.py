@@ -117,6 +117,79 @@ def test_parse_scenario_passes_through_explicit_predicted_death_age():
     assert scenario.household.members[1].predicted_death_age is None
 
 
+def test_parse_scenario_defaults_income_streams_to_empty_list_when_omitted():
+    # 021-pension-annuity-income (rp-pid): FULL_SCENARIO_YAML above never
+    # sets income_streams -- every scenario predating this feature should
+    # round-trip to an empty list, not None or a missing attribute.
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert scenario.household.members[0].income_streams == []
+    assert scenario.household.members[1].income_streams == []
+
+
+def test_parse_scenario_passes_through_income_streams():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      income_streams:\n"
+        "        - label: State Pension\n"
+        "          stream_type: pension\n"
+        "          start_age: 62\n"
+        "          annual_amount: 18000\n"
+        "          inflation_adjustment: cola_adjusted\n"
+        "        - label: Old annuity\n"
+        "          stream_type: annuity\n"
+        "          start_age: 65\n"
+        "          end_age: 74\n"
+        "          annual_amount: 6000\n"
+        "          inflation_adjustment: fixed_nominal\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    streams = scenario.household.members[0].income_streams
+    assert len(streams) == 2
+    assert streams[0].label == "State Pension"
+    assert streams[0].stream_type == "pension"
+    assert streams[0].start_age == 62
+    assert streams[0].end_age is None
+    assert streams[0].annual_amount == 18000
+    assert streams[0].inflation_adjustment == "cola_adjusted"
+    assert streams[1].end_age == 74
+    assert streams[1].inflation_adjustment == "fixed_nominal"
+    # The second member still gets the default -- income_streams is per-member.
+    assert scenario.household.members[1].income_streams == []
+
+
+def test_parse_scenario_income_stream_missing_required_field_raises():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      income_streams:\n"
+        "        - label: Missing start_age\n"
+        "          stream_type: pension\n"
+        "          annual_amount: 18000\n"
+        "          inflation_adjustment: cola_adjusted\n",
+        1,
+    )
+    with pytest.raises(ScenarioParseError) as excinfo:
+        parse_scenario(yaml_text)
+    assert "start_age" in str(excinfo.value)
+
+
+def test_parse_scenario_income_stream_label_defaults_to_empty_string():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      income_streams:\n"
+        "        - stream_type: earned_income\n"
+        "          start_age: 63\n"
+        "          annual_amount: 25000\n"
+        "          inflation_adjustment: fixed_nominal\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].income_streams[0].label == ""
+
+
 def test_parse_scenario_reports_missing_required_field():
     yaml_text = FULL_SCENARIO_YAML.replace(
         "spending:\n  annual_need_real: 110000\n", ""

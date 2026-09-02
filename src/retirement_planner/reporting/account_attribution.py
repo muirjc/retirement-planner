@@ -72,6 +72,10 @@ class PlanYearAccountDetail:
     tax_year: int
     accounts: list[AccountYearDetail] = field(default_factory=list)
     member_social_security_benefits: dict[str, float] = field(default_factory=dict)
+    member_income_stream_amounts: dict[str, float] = field(default_factory=dict)
+    """021-pension-annuity-income (rp-pid): mirrors
+    member_social_security_benefits, copied from the corresponding
+    comparison.PlanYearProjection."""
 
 
 def compute_account_shares(accounts: list[Account]) -> list[AccountShare]:
@@ -223,6 +227,7 @@ def attribute_plan_projection(
                 tax_year=year.tax_year,
                 accounts=rows,
                 member_social_security_benefits=dict(year.member_social_security_benefits),
+                member_income_stream_amounts=dict(year.member_income_stream_amounts),
             )
         )
 

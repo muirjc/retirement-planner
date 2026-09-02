@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from .loader import ScenarioParseError, parse_scenario
-from .models import Account, Scenario
+from .models import Account, IncomeStream, Scenario
 from .validation import validate
 
 DEFAULT_SCENARIOS_DIR = Path("config/scenarios")
@@ -59,6 +59,19 @@ def _account_to_dict(account: Account) -> dict:
     return data
 
 
+def _income_stream_to_dict(stream: IncomeStream) -> dict:
+    """021-pension-annuity-income (rp-pid): every IncomeStream field
+    round-trips like every other Account/HouseholdMember field."""
+    return {
+        "label": stream.label,
+        "stream_type": stream.stream_type,
+        "start_age": stream.start_age,
+        "annual_amount": stream.annual_amount,
+        "inflation_adjustment": stream.inflation_adjustment,
+        "end_age": stream.end_age,
+    }
+
+
 def _scenario_to_dict(scenario: Scenario) -> dict:
     data: dict = {
         "name": scenario.name,
@@ -90,6 +103,12 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
                     # save/read round-trip test) -- None round-trips as
                     # None (this field has no resolved-default behavior to
                     # preserve, unlike full_retirement_age).
+                    "income_streams": [  # 021-pension-annuity-income (rp-pid):
+                        # same field-by-field round-trip discipline, via
+                        # _income_stream_to_dict() since each stream is
+                        # itself a nested block (mirrors _account_to_dict()).
+                        _income_stream_to_dict(stream) for stream in member.income_streams
+                    ],
                 }
                 for member in scenario.household.members
             ],

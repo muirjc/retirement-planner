@@ -14,6 +14,17 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class IncomeStreamRequest(BaseModel):
+    """Mirrors 021-pension-annuity-income's IncomeStream fields exactly."""
+
+    label: str
+    stream_type: Literal["pension", "annuity", "earned_income"]
+    start_age: int
+    annual_amount: float
+    inflation_adjustment: Literal["cola_adjusted", "fixed_nominal"]
+    end_age: int | None = None
+
+
 class HouseholdMemberRequest(BaseModel):
     """Mirrors 001's HouseholdMember fields exactly."""
 
@@ -33,6 +44,13 @@ class HouseholdMemberRequest(BaseModel):
     to switch a projection's mid-horizon filing status/Social Security
     income/spending need -- see scenario/models.py and
     comparison/projection.py."""
+    income_streams: list[IncomeStreamRequest] = []
+    """021-pension-annuity-income (rp-pid): defaults to [] (no streams
+    configured), reproducing every existing request's exact current
+    behavior. No resolution.py change needed -- routes/scenarios.py
+    converts every ScenarioRequest to YAML via
+    body.model_dump(mode="json") before calling parse_scenario(), so this
+    field-name-matching addition round-trips automatically."""
 
 
 class HouseholdRequest(BaseModel):

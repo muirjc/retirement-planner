@@ -25,6 +25,7 @@ from .compare import (
 )
 from .historical_data import HISTORICAL_RETURNS
 from .monte_carlo import run_simulation
+from .mortality import generate_death_age_draws
 from .returns import apply_stress_scenario, generate_historical_bootstrap_paths, generate_return_paths
 from .survival_data import SURVIVAL_TABLE
 
@@ -44,6 +45,7 @@ __all__ = [
     "compare_roth_conversion_strategies",
     "compare_states",
     "compare_withdrawal_sequencing_strategies",
+    "generate_death_age_draws",
     "generate_historical_bootstrap_paths",
     "generate_return_paths",
     "run_simulation",

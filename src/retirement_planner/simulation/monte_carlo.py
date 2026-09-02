@@ -5,6 +5,18 @@ success rate. Path-level work is dispatched across worker processes once
 path_count exceeds a threshold (research.md §7). See
 specs/005-simulation-engine/contracts/simulation-api.md.
 
+death_year_draws (023-probabilistic-death-draws rp-vgv,
+specs/023-probabilistic-death-draws/contracts/simulation-api.md): a second,
+independent, opt-in capability alongside the survival_curves-driven
+survival_adjusted_success_rate above -- that older metric is a post-hoc
+threshold check that never touches what a path actually funds, run
+identically for every path. This one instead lets each path draw its own
+probabilistic death age per household member (simulation.mortality) and
+fund/score that path AS that death, via a per-path Household override
+(_household_for_path()) -- reusing 018's existing survivor-scenario
+projection logic completely unchanged. The two coexist without changing
+each other's own computation; neither is a replacement for the other.
+
 inherited_accounts (012-inherited-ira-rmd rp-mt7, research.md §10 addendum):
 run_plan_projection() mutates each InheritedAccountBalance's balance in
 place, year by year, exactly like 004's compare.py already has to guard
@@ -39,6 +51,31 @@ def _fresh_inherited_accounts(inherited_accounts: list[InheritedAccountBalance])
     instances) must be built per run_plan_projection() call, since that
     function mutates each InheritedAccountBalance's balance in place."""
     return [replace(account) for account in inherited_accounts]
+
+
+def _household_for_path(household: Household, death_year_draw: dict[str, int | None] | None) -> Household:
+    """023-probabilistic-death-draws (rp-vgv), research.md §6: when
+    death_year_draw is None (this capability unused, or this specific
+    path has no draw), returns household unchanged -- the same object,
+    no copy, so nothing downstream can differ from before this feature
+    (FR-007). Otherwise returns a new Household whose members' own
+    predicted_death_age is REPLACED (never merged with) that path's own
+    drawn value for each member -- household.members[*].predicted_death_age
+    itself is never mutated, exactly like household.filing_status is
+    never mutated by 018's own per-year survivor-scenario switch.
+    run_plan_projection() (018) needs no change at all: its existing
+    _household_death_tax_year() helper already derives every downstream
+    effect (filing status, survivor Social Security, spending reduction)
+    purely from whatever Household it's given."""
+    if death_year_draw is None:
+        return household
+    return replace(
+        household,
+        members=[
+            replace(member, predicted_death_age=death_year_draw[member.person_name])
+            for member in household.members
+        ],
+    )
 
 # Below this path count, per-path work runs serially -- ProcessPoolExecutor
 # start-up/IPC overhead outweighs the benefit for small runs, and (per the
@@ -96,18 +133,24 @@ def _init_worker(
     )
 
 
-def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
+def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) -> PlanProjection:
     """Module-level (picklable) worker used under parallel dispatch: reads
     the shared, per-worker-process arguments _init_worker() set once, and
     runs run_plan_projection() for just this one path (research.md §7) --
     with its own fresh copy of inherited_accounts (module docstring),
     since this same worker process runs many paths in sequence and
-    run_plan_projection() mutates each InheritedAccountBalance in place."""
+    run_plan_projection() mutates each InheritedAccountBalance in place.
+
+    task pairs this path's own ReturnPath with its own death-year draw
+    (023-probabilistic-death-draws, rp-vgv, research.md §7) -- None when
+    this capability is unused, in which case _household_for_path() is a
+    complete no-op (FR-007)."""
     assert _worker_shared_args is not None
+    return_path, death_year_draw = task
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
      start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts) = _worker_shared_args
     return run_plan_projection(
-        household=household,
+        household=_household_for_path(household, death_year_draw),
         accounts=accounts,
         traditional_ownership_shares=traditional_ownership_shares,
         annual_spending_need=annual_spending_need,
@@ -125,16 +168,21 @@ def _run_one_path_shared(return_path: ReturnPath) -> PlanProjection:
 def _run_one_path(
     args: tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
-        ReturnPath, list[InheritedAccountBalance],
+        ReturnPath, list[InheritedAccountBalance], dict[str, int | None] | None,
     ],
 ) -> PlanProjection:
     """Module-level (picklable) worker used under serial dispatch: unpacks
     one path's call arguments and runs run_plan_projection() for it, with
-    its own fresh copy of inherited_accounts (module docstring)."""
+    its own fresh copy of inherited_accounts (module docstring).
+
+    The trailing death_year_draw element (023-probabilistic-death-draws,
+    rp-vgv, research.md §7) is None when this capability is unused, in
+    which case _household_for_path() is a complete no-op (FR-007)."""
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy, return_path, inherited_accounts) = args
+     start_plan_year, start_tax_year, plan_to_age, strategy, return_path, inherited_accounts,
+     death_year_draw) = args
     return run_plan_projection(
-        household=household,
+        household=_household_for_path(household, death_year_draw),
         accounts=accounts,
         traditional_ownership_shares=traditional_ownership_shares,
         annual_spending_need=annual_spending_need,
@@ -211,6 +259,7 @@ def run_simulation(
     return_paths: list[ReturnPath],
     candidate_label: str,
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
 ) -> SimulationRun:
     """Calls run_plan_projection() once per entry in return_paths, each
@@ -232,6 +281,25 @@ def run_simulation(
     may safely be reused across multiple run_simulation() calls (e.g. one
     per candidate in simulation/compare.py). Defaults to [], reproducing
     every existing caller's exact prior behavior.
+
+    death_year_draws (023-probabilistic-death-draws, rp-vgv): optional,
+    caller-pre-generated (simulation.mortality.generate_death_age_draws())
+    per-path death-age draws -- None (the default) reproduces every
+    existing caller's exact current behavior byte-for-byte (FR-007). When
+    given, path i's own run_plan_projection() call runs against a
+    Household whose members' predicted_death_age is REPLACED by
+    death_year_draws[i]'s own values (_household_for_path()), reusing
+    018's existing survivor-scenario mechanics unchanged -- no change to
+    comparison/projection.py. Requires survival_curves also be given
+    (ValueError otherwise) so this feature's own FigureUsage citation
+    reuses the existing survival_curves-driven citation-attachment code
+    below, rather than needing a second one (research.md §3). Raises
+    ValueError if len(death_year_draws) != len(return_paths). Validated
+    eagerly, before any path is scored, alongside every other check above.
+    survival_adjusted_success_rate (if survival_curves is given) is
+    computed exactly as it is today, unconditional on death_year_draws --
+    the two capabilities coexist without changing each other's own
+    computation (FR-008).
     """
     if len(return_paths) == 0:
         raise ValueError("return_paths must contain at least one path")
@@ -241,8 +309,25 @@ def run_simulation(
             if member.person_name not in survival_curves:
                 raise KeyError(member.person_name)
 
+    if death_year_draws is not None:
+        if survival_curves is None:
+            raise ValueError("death_year_draws requires survival_curves to also be given")
+        if len(death_year_draws) != len(return_paths):
+            raise ValueError(
+                f"death_year_draws has {len(death_year_draws)} entries, expected {len(return_paths)} "
+                "(one per entry in return_paths)"
+            )
+
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
+
+    # 023-probabilistic-death-draws: a same-length list of Nones when this
+    # capability is unused, so both dispatch modes below run through one
+    # code path uniformly regardless of whether it's in use -- see
+    # _household_for_path()'s own docstring for why None is a true no-op.
+    death_year_draws_by_path: list[dict[str, int | None] | None] = (
+        list(death_year_draws) if death_year_draws is not None else [None] * len(return_paths)
+    )
 
     if len(return_paths) >= _PARALLEL_DISPATCH_THRESHOLD:
         worker_count = os.cpu_count() or 4
@@ -257,12 +342,13 @@ def run_simulation(
                       reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy,
                       inherited_accounts),
         ) as executor:
-            path_results = list(executor.map(_run_one_path_shared, return_paths, chunksize=chunk_size))
+            tasks = list(zip(return_paths, death_year_draws_by_path))
+            path_results = list(executor.map(_run_one_path_shared, tasks, chunksize=chunk_size))
     else:
         call_args = [
             (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts)
-            for path in return_paths
+             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts, draw)
+            for path, draw in zip(return_paths, death_year_draws_by_path)
         ]
         path_results = [_run_one_path(args) for args in call_args]
 

@@ -20,7 +20,13 @@ import time
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
-from retirement_planner.simulation import compare_states, generate_return_paths, run_simulation
+from retirement_planner.simulation import (
+    SURVIVAL_TABLE,
+    compare_states,
+    generate_death_age_draws,
+    generate_return_paths,
+    run_simulation,
+)
 
 _HOUSEHOLD = Household(
     filing_status="married_filing_jointly",
@@ -99,4 +105,35 @@ def test_state_comparison_reference_scale_completes_well_under_a_minute():
     assert elapsed < _BUDGET_SECONDS, (
         f"{_REFERENCE_PATH_COUNT}-path x 3-state comparison took {elapsed:.1f}s, "
         f"exceeding the {_BUDGET_SECONDS:.0f}s budget (SC-003, Constitution Principle VI)"
+    )
+
+
+def test_reference_scale_with_probabilistic_death_draws_completes_well_under_a_minute():
+    """023-probabilistic-death-draws (rp-vgv) FR-012/SC-006: confirms the
+    constitution's Performance Budget gate empirically for this new
+    capability, rather than assuming it away (research.md §8) -- same
+    reference-scale single-configuration profile as
+    test_single_configuration_reference_scale_completes_well_under_a_minute
+    above, with survival_curves and death_year_draws both supplied."""
+    return_paths = generate_return_paths(
+        market_assumptions=_MARKET, path_count=_REFERENCE_PATH_COUNT, horizon_years=_HORIZON_YEARS,
+        start_plan_year=1, seed=42,
+    )
+    survival_curves = {"you": SURVIVAL_TABLE["primary"], "spouse": SURVIVAL_TABLE["spouse"]}
+    death_year_draws = generate_death_age_draws(
+        household=_HOUSEHOLD, survival_curves=survival_curves, path_count=_REFERENCE_PATH_COUNT, seed=99,
+    )
+
+    start = time.perf_counter()
+    run = run_simulation(
+        **_COMMON_KWARGS, state="FL", return_paths=return_paths, candidate_label="base_case",
+        survival_curves=survival_curves, death_year_draws=death_year_draws,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert len(run.path_results) == _REFERENCE_PATH_COUNT
+    assert elapsed < _BUDGET_SECONDS, (
+        f"{_REFERENCE_PATH_COUNT}-path single-configuration simulation with probabilistic death draws "
+        f"took {elapsed:.1f}s, exceeding the {_BUDGET_SECONDS:.0f}s budget (FR-012, SC-006, "
+        "Constitution Principle VI)"
     )

@@ -93,7 +93,7 @@ C4Component
         Component(tax, "tax", "Federal + state (SC/DE/FL) income tax, Social Security taxability, NIIT, IRMAA, FICA payroll tax on earned income. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
-        Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring. Wraps comparison's projection loop per path.")
+        Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring, opt-in per-path probabilistic death draws (mortality.py). Wraps comparison's projection loop per path.")
         Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) — depends on all five other subpackages, none of them depend on it.")
     }
 
@@ -267,7 +267,7 @@ graph TD
     E2E["e2e/ — 16 tests<br/>real BFF + real UI subprocesses, real headless Chromium"]
     UI["apps/streamlit_ui/tests/ — 110 tests<br/>Streamlit-script-level UI logic, mocked BFF client"]
     BFF["services/bff/tests/ — 76 tests<br/>HTTP contract, route/resolution logic"]
-    CORE["tests/ — 493 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
+    CORE["tests/ — 514 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
 
     E2E --> UI
     E2E --> BFF

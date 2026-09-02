@@ -264,3 +264,71 @@ def test_all_four_compare_functions_accept_a_single_candidate():
         return_paths=_RETURN_PATHS, claiming_age_grid=[{"you": 67}],
     )
     assert len(grid_result.runs) == 1
+
+
+# --- death_year_draws (023-probabilistic-death-draws rp-vgv, User Story 2) ---
+
+
+def test_compare_states_reuses_the_identical_death_year_draws_across_every_candidate():
+    """Acceptance Scenario 3, SC-004: every candidate's path i must
+    reflect the identical drawn death year(s) as every other candidate's
+    path i -- confirmed structurally, by comparing each candidate's own
+    per-path filing-status sequence (018's own per-year audit field)
+    rather than merely by coincidentally-equal aggregate outcomes."""
+    from datetime import date
+
+    from retirement_planner.simulation.compare import compare_states
+    from retirement_planner.simulation.models import SurvivalCurve
+
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="you", current_age=67, ss_claim_age=67, ss_annual_benefit=30_000),
+            HouseholdMember(person_name="spouse", current_age=65, ss_claim_age=67, ss_annual_benefit=20_000),
+        ],
+    )
+    accounts = AccountBalances(traditional=800_000, roth=0, taxable=0)
+    strategy = StrategyConfiguration(
+        label="test", withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None, conversion_bracket_ceiling_or_amount=None, conversion_window=None,
+        claiming_ages={"you": 67, "spouse": 67},
+    )
+    # 2-year horizon (tax years 2026-2027 only) -- stays within SC's own
+    # currently-documented bracket-table years (002's own scope), unlike
+    # the longer horizons other fixtures in this file use for FL (which
+    # has no bracket table to run out of years on).
+    return_paths = [
+        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
+        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
+    ]
+    # One path with no death, one with "spouse" drawn to die at exactly
+    # their own current_age (65) -- 2026 (the death year itself) stays
+    # MFJ, 2027 switches to single (018's own "death year itself is still
+    # MFJ" convention). A hand-crafted draw set (not
+    # generate_death_age_draws()'s own output) is enough to isolate
+    # compare_states()'s own passthrough behavior.
+    death_year_draws = [{"you": None, "spouse": None}, {"you": None, "spouse": 65}]
+    always_alive_curve = SurvivalCurve(
+        person_name="placeholder", probabilities_by_age={age: 1.0 for age in range(50, 111)},
+        citation="test fixture", last_verified=date(2026, 8, 28), verified=False,
+    )
+    survival_curves = {"you": always_alive_curve, "spouse": always_alive_curve}
+
+    comparison = compare_states(
+        household=household, accounts=accounts, traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=60_000, states=["FL", "SC"],
+        reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
+        strategy=strategy, return_paths=return_paths,
+        survival_curves=survival_curves, death_year_draws=death_year_draws,
+    )
+
+    fl_run, sc_run = comparison.runs
+    for path_index in range(2):
+        fl_statuses = [year.filing_status for year in fl_run.path_results[path_index].years]
+        sc_statuses = [year.filing_status for year in sc_run.path_results[path_index].years]
+        assert fl_statuses == sc_statuses
+    # Sanity: the two paths actually differ from each other (the draws
+    # varied path to path, not just candidate to candidate).
+    assert [year.filing_status for year in fl_run.path_results[0].years] != [
+        year.filing_status for year in fl_run.path_results[1].years
+    ]

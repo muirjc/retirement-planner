@@ -328,12 +328,11 @@ def test_predicted_death_age_left_unset_sends_none_not_zero():
     assert store["no_death_age_case"]["household"]["members"][0]["predicted_death_age"] is None
 
 
-def test_income_streams_survive_a_load_then_save_round_trip_without_editing():
-    """021-pension-annuity-income (rp-pid): this form has no editing
-    widgets for income streams yet (plan.md Scope Boundaries), but must
-    not silently delete a member's already-configured streams the next
-    time the scenario is saved -- the non-lossy pass-through this feature
-    requires, stricter than this form's own pre-existing hdhp_coverage gap."""
+def test_income_stream_loads_into_editing_widgets_and_round_trips_unedited():
+    """rp-5cq: loading a scenario with an already-configured income stream
+    populates real per-field editing widgets (label/type/start age/end
+    age/amount/inflation mode), not just an informational caption, and
+    saving without touching them round-trips the same values."""
     handler, store = make_fake_bff()
     _install(handler)
     store["pension_case"] = {
@@ -379,9 +378,13 @@ def test_income_streams_survive_a_load_then_save_round_trip_without_editing():
     at.button(key="load_button").click().run()
     assert not at.exception
 
-    # No income-stream editing widget exists -- confirm the informational
-    # caption appeared instead, then save without touching anything else.
-    assert any("1 income stream(s) configured" in block.value for block in at.caption)
+    (stream_id,) = at.session_state["member1_stream_ids"]
+    assert at.text_input(key=f"member1_stream_{stream_id}_label").value == "State Pension"
+    assert at.selectbox(key=f"member1_stream_{stream_id}_type").value == "pension"
+    assert at.number_input(key=f"member1_stream_{stream_id}_start_age").value == 62
+    assert at.number_input(key=f"member1_stream_{stream_id}_end_age").value == 0
+    assert at.number_input(key=f"member1_stream_{stream_id}_amount").value == 18_000
+    assert at.selectbox(key=f"member1_stream_{stream_id}_inflation").value == "cola_adjusted"
 
     at.button(key="save_button").click().run()
     assert not at.exception
@@ -390,6 +393,85 @@ def test_income_streams_survive_a_load_then_save_round_trip_without_editing():
     assert len(streams) == 1
     assert streams[0]["label"] == "State Pension"
     assert streams[0]["annual_amount"] == 18_000
+    assert streams[0]["end_age"] is None
+
+
+def test_income_stream_can_be_added_edited_and_saved():
+    """rp-5cq: "+ Add income stream" reveals a blank row, every field of
+    which is independently editable and is what gets saved."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="new_pension_case")
+
+    at.button(key="member1_add_stream").click().run()
+    assert not at.exception
+    (stream_id,) = at.session_state["member1_stream_ids"]
+
+    at.text_input(key=f"member1_stream_{stream_id}_label").set_value("Company Pension")
+    at.selectbox(key=f"member1_stream_{stream_id}_type").set_value("annuity")
+    at.number_input(key=f"member1_stream_{stream_id}_start_age").set_value(65)
+    at.number_input(key=f"member1_stream_{stream_id}_end_age").set_value(80)
+    at.number_input(key=f"member1_stream_{stream_id}_amount").set_value(12_000.0)
+    at.selectbox(key=f"member1_stream_{stream_id}_inflation").set_value("fixed_nominal")
+    at.run()
+    assert not at.exception
+
+    at.button(key="save_button").click().run()
+    assert not at.exception
+
+    streams = store["new_pension_case"]["household"]["members"][0]["income_streams"]
+    assert streams == [
+        {
+            "label": "Company Pension",
+            "stream_type": "annuity",
+            "start_age": 65,
+            "annual_amount": 12_000.0,
+            "inflation_adjustment": "fixed_nominal",
+            "end_age": 80,
+        }
+    ]
+
+
+def test_income_stream_can_be_removed_without_disturbing_another_streams_row():
+    """rp-5cq: removing one row deletes only that stream -- a second row's
+    already-entered values are unaffected, confirming rows are identified
+    by a stable id rather than a list index that would shift on removal."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="remove_case")
+
+    at.button(key="member1_add_stream").click().run()
+    at.button(key="member1_add_stream").click().run()
+    first_id, second_id = at.session_state["member1_stream_ids"]
+
+    at.text_input(key=f"member1_stream_{first_id}_label").set_value("First Pension")
+    at.text_input(key=f"member1_stream_{second_id}_label").set_value("Second Pension")
+    at.number_input(key=f"member1_stream_{second_id}_amount").set_value(5_000.0)
+    at.run()
+
+    at.button(key=f"member1_stream_{first_id}_remove").click().run()
+    assert not at.exception
+    assert at.session_state["member1_stream_ids"] == [second_id]
+    assert at.text_input(key=f"member1_stream_{second_id}_label").value == "Second Pension"
+
+    at.button(key="save_button").click().run()
+    assert not at.exception
+
+    streams = store["remove_case"]["household"]["members"][0]["income_streams"]
+    assert streams == [
+        {
+            "label": "Second Pension",
+            "stream_type": "pension",
+            "start_age": 60,
+            "annual_amount": 5_000.0,
+            "inflation_adjustment": "cola_adjusted",
+            "end_age": None,
+        }
+    ]
 
 
 def test_survivor_spending_reduction_pct_defaults_zero_and_is_saved_and_reloaded():

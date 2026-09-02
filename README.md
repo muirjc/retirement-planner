@@ -89,7 +89,7 @@ Four independent suites, one per layer of the test pyramid (each package's own s
 ```bash
 pytest tests/                        # core library       -- 493 tests
 pytest services/bff/tests/           # BFF API service     --  76 tests
-pytest apps/streamlit_ui/tests/      # Streamlit UI         -- 108 tests
+pytest apps/streamlit_ui/tests/      # Streamlit UI         -- 110 tests
 cd e2e && ../.venv/bin/python3.12 -m pytest -q   # browser-driven e2e -- 16 tests
 ```
 

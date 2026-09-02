@@ -205,3 +205,33 @@ class EarlyWithdrawalPenaltyResult:
     taxable_early_distribution_base: float
     penalty_owed: float
     figures_used: list[FigureUsage]
+
+
+@dataclass
+class FicaTaxResult:
+    """022-fica-payroll-tax (rp-elp) data-model.md § FicaTaxResult. One
+    plan year's employee-side FICA payroll tax on earned_income-type
+    income streams (021-pension-annuity-income) -- never pension/annuity
+    amounts, which are not wages. Mirrors EarlyWithdrawalPenaltyResult's
+    own shape (a derived amount plus figures_used), extended per-member
+    for the two per-worker components."""
+
+    member_oasdi_tax: dict[str, float]
+    """person_name -> that member's own 6.2% Social Security (OASDI) tax,
+    computed on that member's own combined earned_income amount for the
+    year, capped at OASDI_WAGE_BASE. 0.0 for a member with no earned
+    income this year, never omitted."""
+    member_medicare_tax: dict[str, float]
+    """person_name -> that member's own 1.45% regular Medicare (HI) tax,
+    uncapped."""
+    additional_medicare_tax: float
+    """0.9% of the household's combined earned income (summed across
+    every member) that exceeds the filing-status threshold -- computed
+    once per household, never per member (research.md §3)."""
+    total_fica_tax: float
+    """sum(member_oasdi_tax.values()) + sum(member_medicare_tax.values())
+    + additional_medicare_tax."""
+    figures_used: list[FigureUsage]
+    """Always carries all five figures' usages for the tax year, even
+    when total_fica_tax == 0.0 (mirrors compute_niit()'s/
+    compute_early_withdrawal_penalty()'s own "always cited" precedent)."""

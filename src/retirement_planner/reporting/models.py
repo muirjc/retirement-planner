@@ -44,4 +44,6 @@ class SummaryStatistics:
     median_lifetime_early_withdrawal_penalty_paid: float
     """020-early-withdrawal-penalty: same derivation, for
     cumulative_early_withdrawal_penalty_paid."""
+    median_lifetime_fica_tax_paid: float
+    """022-fica-payroll-tax: same derivation, for cumulative_fica_tax_paid."""
     unverified_figure_names: list[str] = field(default_factory=list)

@@ -90,7 +90,7 @@ C4Component
 
     Container_Boundary(core, "src/retirement_planner") {
         Component(scenario, "scenario", "Household/account/scenario config — YAML parse, validate, save/load. InheritedIraDetails, per-owner Account.account_id.")
-        Component(tax, "tax", "Federal + state (SC/DE/FL) income tax, Social Security taxability, NIIT, IRMAA. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
+        Component(tax, "tax", "Federal + state (SC/DE/FL) income tax, Social Security taxability, NIIT, IRMAA, FICA payroll tax on earned income. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring. Wraps comparison's projection loop per path.")
@@ -107,7 +107,7 @@ C4Component
 | Subpackage | Responsibility | Key public surface |
 |---|---|---|
 | `scenario` | Household/account/scenario config — YAML parse, validate, save/load | `Scenario`, `Household`, `parse_scenario()`, `validate()` |
-| `tax` | Federal + state tax, Social Security taxability, NIIT, IRMAA | `compute_federal_tax()`, `compute_state_tax()`, `SourcedFigure` |
+| `tax` | Federal + state tax, Social Security taxability, NIIT, IRMAA, FICA payroll tax | `compute_federal_tax()`, `compute_state_tax()`, `compute_fica_tax()`, `SourcedFigure` |
 | `mechanics` | RMDs (own + inherited), Roth conversion, withdrawal sequencing, HSA, pension/annuity/earned-income streams | `compute_rmd()`, `compute_inherited_rmd()`, `compute_roth_conversion()`, `compute_income_stream_amount()` |
 | `comparison` | One-plan-year-at-a-time full-horizon projection; deterministic comparisons | `run_plan_projection()`, `compare_states()`, `compare_withdrawal_strategies()`, `compare_claiming_ages()` |
 | `simulation` | Monte Carlo core over `comparison`'s projection loop | `run_simulation()`, `run_simulation_comparison()`, `generate_return_paths()` |

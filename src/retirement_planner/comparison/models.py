@@ -18,6 +18,7 @@ from retirement_planner.scenario import HsaContributionPlan
 from retirement_planner.tax import (
     EarlyWithdrawalPenaltyResult,
     FederalTaxResult,
+    FicaTaxResult,
     FigureUsage,
     IrmaaResult,
     NiitResult,
@@ -89,6 +90,12 @@ class PlanYearProjection:
     plus 019's own unseasoned_roth_withdrawal amount) -- required, no
     default, mirroring irmaa/niit's own precedent: always computed by
     run_plan_projection(), never opt-in (data-model.md)."""
+    fica_tax: FicaTaxResult
+    """022-fica-payroll-tax (rp-elp): this plan year's own employee-side
+    FICA payroll tax on earned_income-type income-stream amounts only
+    (021-pension-annuity-income) -- never pension/annuity. Required, no
+    default, mirroring irmaa/niit/early_withdrawal_penalty's own
+    precedent: always computed by run_plan_projection(), never opt-in."""
     figures_used: list[FigureUsage] = field(default_factory=list)
     # 015-per-account-projection-detail (data-model.md § PlanYearProjection
     # extension): four additive fields, each retaining a figure the engine
@@ -158,6 +165,7 @@ class PlanOutcome:
     cumulative_irmaa_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
     cumulative_niit_paid: float  # 010-advanced-tax-benefits data-model.md § Projection extensions
     cumulative_early_withdrawal_penalty_paid: float  # 020-early-withdrawal-penalty data-model.md
+    cumulative_fica_tax_paid: float  # 022-fica-payroll-tax data-model.md
 
 
 @dataclass

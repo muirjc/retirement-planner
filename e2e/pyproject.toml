@@ -12,6 +12,23 @@ dev = [
     "httpx>=0.27",
 ]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# rp-xwm: this "package" has no importable code of its own -- conftest.py,
+# helpers.py, and test_*.py sit flat here and are discovered/run by pytest
+# directly (testpaths = ["."] below), never imported by name from outside
+# this directory. Without this, setuptools' default auto-discovery sees
+# multiple flat top-level modules (helpers, test_scenarios_page, ...) and
+# refuses to guess which one(s) to package, failing
+# `pip install -e ".[dev]"` outright ("Multiple top-level modules
+# discovered in a flat-layout"). py-modules = [] tells it explicitly:
+# there's nothing to package here, only dependencies (dev, above) to
+# install -- sidesteps the ambiguity instead of resolving it.
+py-modules = []
+
 [tool.pytest.ini_options]
 testpaths = ["."]
 # A real Streamlit rerun's own frontend paint can trail its

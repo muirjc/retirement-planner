@@ -191,3 +191,7 @@ cython_debug/
 # repo is public. Keeps the directory itself tracked via .gitkeep.
 config/scenarios/*
 !config/scenarios/.gitkeep
+
+# run-retirement-planner skill's driver.py smoke-test screenshots --
+# regenerated on every run, not meaningful to diff/commit.
+.claude/skills/run-retirement-planner/screenshots/

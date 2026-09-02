@@ -18,6 +18,21 @@ from .aggregation import summarize_deterministic_comparison, summarize_simulatio
 from .models import SummaryStatistics
 
 
+_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: str) -> str:
+    """Neutralizes a leading formula-trigger character (CWE-1236) by
+    prefixing a single quote, matching Excel/LibreOffice's own "treat as
+    text" escape convention -- candidate_label (below) is free text that
+    round-trips through the BFF's unvalidated ComparisonRequest.candidates
+    with no character restriction, so it must not reach a spreadsheet
+    application as an evaluable formula."""
+    if value and value[0] in _FORMULA_TRIGGER_CHARS:
+        return "'" + value
+    return value
+
+
 def _rows_to_csv_text(fieldnames: list[str], rows: list[dict]) -> str:
     """Writes rows (each a dict matching fieldnames) through
     csv.DictWriter into an io.StringIO, returning the resulting text
@@ -78,7 +93,7 @@ def _summary_to_row(summary: SummaryStatistics) -> dict:
     unverified_figure_names collapses to a single has_unverified_figure
     boolean (true iff non-empty) (FR-009, FR-010)."""
     return {
-        "candidate_label": summary.candidate_label,
+        "candidate_label": "" if summary.candidate_label is None else _csv_safe(summary.candidate_label),
         "success_rate": "" if summary.success_rate is None else summary.success_rate,
         "ending_balance": summary.ending_balance,
         "median_depletion_age": "" if summary.median_depletion_age is None else summary.median_depletion_age,

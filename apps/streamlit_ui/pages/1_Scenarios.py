@@ -15,6 +15,14 @@ structural, not a free-text or dropdown field: a balance entered in
 member 1's row is always submitted with member 1's person_name as its
 owner, and likewise for member 2 -- an invalid owner is impossible to
 enter, not merely disallowed by a validator (contracts/ui-pages.md).
+
+Each member's income streams (021-pension-annuity-income, rp-pid) ARE a
+genuine free-form repeating list -- a member can have any number of
+pensions/annuities/phased-retirement earned-income sources, unlike every
+other list on this page. See _render_income_streams()/_add_income_stream()/
+_remove_income_stream() below (rp-5cq) for the widget-identity scheme this
+requires: each row is keyed by a monotonically increasing id, never a
+list index, so removing one row never shifts another row's widget state.
 """
 
 import streamlit as st
@@ -42,14 +50,22 @@ DEFAULTS = {
     "member1_ss_annual_benefit": 0.0,
     "member1_full_retirement_age": 67.0,
     "member1_predicted_death_age": 0,  # 0 = not set (maps to None) -- see _build_body()
-    "member1_income_streams": [],  # 021-pension-annuity-income: opaque pass-through, no editing widgets yet
+    # rp-5cq: income streams are NOT stored under a single key -- each
+    # member's rows live under "member{1,2}_stream_ids" (a list of row
+    # ids) plus per-row keys "member{1,2}_stream_{id}_{field}", seeded by
+    # _add_income_stream()/_load_income_streams() below. Only the id-list
+    # and next-id counter need a DEFAULTS entry; per-row keys don't exist
+    # until a row does.
+    "member1_stream_ids": [],
+    "member1_stream_next_id": 0,
     "member2_person_name": "",
     "member2_current_age": 60,
     "member2_ss_claim_age": 67,
     "member2_ss_annual_benefit": 0.0,
     "member2_full_retirement_age": 67.0,
     "member2_predicted_death_age": 0,
-    "member2_income_streams": [],
+    "member2_stream_ids": [],
+    "member2_stream_next_id": 0,
     "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
@@ -119,12 +135,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     # "not set" sentinel (DEFAULTS above), never a KeyError for a scenario
     # saved before this feature existed.
     st.session_state["member1_predicted_death_age"] = m1.get("predicted_death_age") or 0
-    # 021-pension-annuity-income (rp-pid): no editing widgets exist for
-    # this yet (plan.md Scope Boundaries) -- stashed as an opaque
-    # pass-through so a household that configured income streams via YAML
-    # or the API doesn't have them silently deleted the next time they
-    # save via this form (see _build_body() below).
-    st.session_state["member1_income_streams"] = m1.get("income_streams") or []
+    _load_income_streams("member1", m1.get("income_streams") or [])
     if len(members) > 1:
         m2 = members[1]
         st.session_state["member2_person_name"] = m2["person_name"]
@@ -133,7 +144,12 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
         st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
         st.session_state["member2_predicted_death_age"] = m2.get("predicted_death_age") or 0
-        st.session_state["member2_income_streams"] = m2.get("income_streams") or []
+        _load_income_streams("member2", m2.get("income_streams") or [])
+    # NOTE: when the loaded scenario has no member 2 (single filer), its
+    # stream rows are left untouched here -- mirrors every other member2_*
+    # field's own behavior above (not reset, since member 2's section
+    # isn't rendered for a single-filer scenario and _build_body() never
+    # reads it in that case either).
     # 011-per-owner-accounts: match each account to a member row by
     # (account_type, owner) against the members just loaded above. An
     # account whose owner is None or doesn't match either member (a
@@ -198,6 +214,165 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["conversion_window_end"] = rc["window"][1]
 
 
+# -- Income streams (021-pension-annuity-income, rp-5cq) ------------------
+#
+# The one genuinely free-form repeating list on this page (module
+# docstring). Each member's rows are identified by an id that is never
+# reused and never a list index -- "member{1,2}_stream_ids" holds the
+# ordered list of currently-live ids, "member{1,2}_stream_next_id" is a
+# monotonically increasing counter, and each row's own field values live
+# under "member{1,2}_stream_{id}_{field}". Removing a row deletes its id
+# from the list (and pops its field keys); it never renumbers the rows
+# that remain, so another row's already-rendered widget never silently
+# picks up a different row's state.
+#
+# Every function here that seeds a row's field keys does so from an
+# on_click callback (_add_income_stream, _remove_income_stream) or is
+# immediately followed by st.rerun() at its call site (_load_income_streams,
+# via the Load button below) -- never a plain assignment followed by
+# drawing that same row's widgets later in the *same* script run. That
+# ordering matters for the same reason _seed_inherited_ira_defaults()
+# above needs on_change: a widget row rendered for the first time in the
+# very run that revealed it does not reliably pick up a same-run,
+# plain-assignment value in real Streamlit (confirmed against a real
+# browser, not just this repo's AppTest-based tests, which don't
+# reproduce the quirk) -- a callback (runs before the script body) or a
+# fully separate rerun (so the row isn't "new" from the widget tree's
+# point of view) both sidestep it.
+
+_STREAM_FIELD_SUFFIXES = ("label", "type", "start_age", "end_age", "amount", "inflation")
+
+
+def _stream_prefix(member_key: str, stream_id: int) -> str:
+    return f"{member_key}_stream_{stream_id}_"
+
+
+def _add_income_stream(member_key: str) -> None:
+    """on_click handler for a member's "+ Add income stream" button."""
+    next_id_key = f"{member_key}_stream_next_id"
+    stream_id = st.session_state[next_id_key]
+    st.session_state[next_id_key] = stream_id + 1
+    st.session_state[f"{member_key}_stream_ids"].append(stream_id)
+    prefix = _stream_prefix(member_key, stream_id)
+    st.session_state[prefix + "label"] = ""
+    st.session_state[prefix + "type"] = "pension"
+    # Defaults to this member's current age -- start_age must be >= 0 but
+    # has no other natural default; current age is at least a plausible
+    # starting point for the user to adjust, not a guess this form acts on.
+    st.session_state[prefix + "start_age"] = st.session_state.get(f"{member_key}_current_age", 60)
+    st.session_state[prefix + "end_age"] = 0  # 0 = not set -- mirrors predicted_death_age's own sentinel
+    st.session_state[prefix + "amount"] = 0.0
+    st.session_state[prefix + "inflation"] = "cola_adjusted"
+
+
+def _remove_income_stream(member_key: str, stream_id: int) -> None:
+    """on_click handler for one row's "Remove" button."""
+    st.session_state[f"{member_key}_stream_ids"].remove(stream_id)
+    prefix = _stream_prefix(member_key, stream_id)
+    for suffix in _STREAM_FIELD_SUFFIXES:
+        st.session_state.pop(prefix + suffix, None)
+
+
+def _load_income_streams(member_key: str, streams: list[dict]) -> None:
+    """Replaces a member's income-stream rows with `streams` (a
+    get_scenario()-shaped list). Called from _apply_scenario_to_form();
+    the Load button handler below must st.rerun() afterwards -- see this
+    section's own module-level comment for why."""
+    for stream_id in st.session_state.get(f"{member_key}_stream_ids", []):
+        prefix = _stream_prefix(member_key, stream_id)
+        for suffix in _STREAM_FIELD_SUFFIXES:
+            st.session_state.pop(prefix + suffix, None)
+    next_id = st.session_state.get(f"{member_key}_stream_next_id", 0)
+    new_ids = []
+    for stream in streams:
+        stream_id = next_id
+        next_id += 1
+        new_ids.append(stream_id)
+        prefix = _stream_prefix(member_key, stream_id)
+        st.session_state[prefix + "label"] = stream["label"]
+        st.session_state[prefix + "type"] = stream["stream_type"]
+        st.session_state[prefix + "start_age"] = stream["start_age"]
+        st.session_state[prefix + "end_age"] = stream.get("end_age") or 0
+        st.session_state[prefix + "amount"] = stream["annual_amount"]
+        st.session_state[prefix + "inflation"] = stream["inflation_adjustment"]
+    st.session_state[f"{member_key}_stream_ids"] = new_ids
+    st.session_state[f"{member_key}_stream_next_id"] = next_id
+
+
+_STREAM_LABEL_HELP = "A short label for this income source (e.g. \"State Teachers' Pension\") -- display/audit only, doesn't affect the calculation."
+_STREAM_TYPE_HELP = "Informational classification only -- pension, annuity, and phased-retirement earned income are all taxed identically here, as fully taxable ordinary income."
+_STREAM_START_AGE_HELP = "This member's age (whole years) when the stream begins paying, inclusive."
+_STREAM_END_AGE_HELP = "This member's age through which the stream still pays, inclusive. Leave at 0 for 'pays for every remaining plan year' -- no end date."
+_STREAM_AMOUNT_HELP = "Today's (scenario-start) real dollars -- same convention as spending need and Social Security benefit above. Must be zero or more."
+_STREAM_INFLATION_HELP = (
+    "`cola_adjusted` -- keeps pace with inflation (this engine already works entirely in real "
+    "dollars, so this is simply a flat amount every active year). `fixed_nominal` -- does NOT keep "
+    "pace with inflation, so its real value erodes over time."
+)
+
+
+def _render_income_streams(member_key: str) -> None:
+    """One row of editing widgets per currently-live stream id, plus an
+    Add button. Renders nothing extra when the member has no streams --
+    just the Add button -- so an unused household member's section stays
+    exactly as compact as before this feature."""
+    stream_ids = st.session_state[f"{member_key}_stream_ids"]
+    if stream_ids:
+        st.caption("Income streams (pensions, annuities, phased-retirement earned income):")
+    for stream_id in stream_ids:
+        prefix = _stream_prefix(member_key, stream_id)
+        r1, r2, r3, r4, r5, r6, r7 = st.columns([3, 2, 1.3, 1.3, 2, 2, 0.7])
+        r1.text_input("Label", key=prefix + "label", help=_STREAM_LABEL_HELP)
+        r2.selectbox(
+            "Type", options=["pension", "annuity", "earned_income"], key=prefix + "type", help=_STREAM_TYPE_HELP
+        )
+        r3.number_input("Start age", min_value=0, step=1, key=prefix + "start_age", help=_STREAM_START_AGE_HELP)
+        r4.number_input("End age (0 = none)", min_value=0, step=1, key=prefix + "end_age", help=_STREAM_END_AGE_HELP)
+        r5.number_input(
+            "Annual amount ($)", min_value=0.0, step=1000.0, key=prefix + "amount", help=_STREAM_AMOUNT_HELP
+        )
+        r6.selectbox(
+            "Inflation",
+            options=["cola_adjusted", "fixed_nominal"],
+            key=prefix + "inflation",
+            help=_STREAM_INFLATION_HELP,
+        )
+        r7.button(
+            "✕",
+            key=prefix + "remove",
+            help="Remove this income stream.",
+            on_click=_remove_income_stream,
+            args=(member_key, stream_id),
+        )
+    st.button(
+        "+ Add income stream",
+        key=f"{member_key}_add_stream",
+        help="Add a pension, annuity, or phased-retirement earned-income source for this member.",
+        on_click=_add_income_stream,
+        args=(member_key,),
+    )
+
+
+def _collect_income_streams(member_key: str) -> list[dict]:
+    """The _build_body() counterpart to _render_income_streams() -- reads
+    every currently-live row's widget state back into a
+    get_scenario()-shaped list, in display order."""
+    streams = []
+    for stream_id in st.session_state[f"{member_key}_stream_ids"]:
+        prefix = _stream_prefix(member_key, stream_id)
+        streams.append(
+            {
+                "label": st.session_state[prefix + "label"],
+                "stream_type": st.session_state[prefix + "type"],
+                "start_age": st.session_state[prefix + "start_age"],
+                "annual_amount": st.session_state[prefix + "amount"],
+                "inflation_adjustment": st.session_state[prefix + "inflation"],
+                "end_age": st.session_state[prefix + "end_age"] or None,
+            }
+        )
+    return streams
+
+
 def _render_flags(flags: list[dict]) -> None:
     """Inline validation feedback, distinguishing blocking from
     warning-only (Acceptance Scenario US1.2) -- never lets a blocking flag
@@ -241,6 +416,13 @@ with load_col:
             st.error(str(err))
         else:
             _apply_scenario_to_form(scenario)
+            # rp-5cq: income-stream rows are rendered conditionally (one
+            # per live id), so a load that adds rows for the first time
+            # is "revealing" widgets that didn't exist a moment ago --
+            # st.rerun() so they're drawn on a fresh run that already has
+            # their state, not the same run that just seeded it (see the
+            # income-streams section's own comment above).
+            st.rerun()
 with delete_col:
     if st.button(
         "Delete selected",
@@ -330,14 +512,7 @@ c5.number_input(
 c6.number_input(
     "Predicted death age", min_value=0, step=1, key="member1_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
 )
-if st.session_state["member1_income_streams"]:
-    # 021-pension-annuity-income (rp-pid): no editing widgets yet
-    # (plan.md Scope Boundaries) -- just confirm nothing was lost.
-    st.caption(
-        f"ℹ️ {len(st.session_state['member1_income_streams'])} income stream(s) configured "
-        "(pension/annuity/earned income) -- preserved on save, not yet editable here. "
-        "Edit the scenario file or use the API to change them."
-    )
+_render_income_streams("member1")
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
@@ -354,12 +529,7 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     c6.number_input(
         "Predicted death age", min_value=0, step=1, key="member2_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
     )
-    if st.session_state["member2_income_streams"]:
-        st.caption(
-            f"ℹ️ {len(st.session_state['member2_income_streams'])} income stream(s) configured "
-            "(pension/annuity/earned income) -- preserved on save, not yet editable here. "
-            "Edit the scenario file or use the API to change them."
-        )
+    _render_income_streams("member2")
     st.number_input(
         "Survivor spending reduction",
         min_value=0.0,
@@ -691,10 +861,7 @@ def _build_body() -> dict:
                     "ss_annual_benefit": st.session_state["member1_ss_annual_benefit"],
                     "full_retirement_age": st.session_state["member1_full_retirement_age"],
                     "predicted_death_age": st.session_state["member1_predicted_death_age"] or None,
-                    # 021-pension-annuity-income (rp-pid): pass-through
-                    # only -- resubmitted unchanged, never edited by this
-                    # form (plan.md Scope Boundaries).
-                    "income_streams": st.session_state["member1_income_streams"],
+                    "income_streams": _collect_income_streams("member1"),
                 }
             ],
         },
@@ -742,7 +909,7 @@ def _build_body() -> dict:
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
                 "full_retirement_age": st.session_state["member2_full_retirement_age"],
                 "predicted_death_age": st.session_state["member2_predicted_death_age"] or None,
-                "income_streams": st.session_state["member2_income_streams"],
+                "income_streams": _collect_income_streams("member2"),
             }
         )
         body["accounts"].extend(

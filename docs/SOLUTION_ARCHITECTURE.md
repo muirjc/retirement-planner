@@ -158,7 +158,7 @@ C4Component
 
     Container_Boundary(ui, "apps/streamlit_ui") {
         Component(app, "app.py", "Streamlit entry point / landing page.")
-        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields), 2_Run_Simulation, 3_Compare.")
+        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields and per-member income-stream add/edit/remove rows), 2_Run_Simulation, 3_Compare.")
         Component(client, "src/rp_ui", "HTTP client wrapping the BFF's OpenAPI-described contract, chart helpers (fan chart, comparison overlay), the verification.py 'needs verification' indicator renderer, the account_table.py per-account year-by-year detail table (015).")
     }
 
@@ -265,9 +265,9 @@ Four independent layers, outermost to innermost:
 ```mermaid
 graph TD
     E2E["e2e/ — 16 tests<br/>real BFF + real UI subprocesses, real headless Chromium"]
-    UI["apps/streamlit_ui/tests/ — 99 tests<br/>Streamlit-script-level UI logic, mocked BFF client"]
-    BFF["services/bff/tests/ — 62 tests<br/>HTTP contract, route/resolution logic"]
-    CORE["tests/ — 326 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
+    UI["apps/streamlit_ui/tests/ — 110 tests<br/>Streamlit-script-level UI logic, mocked BFF client"]
+    BFF["services/bff/tests/ — 76 tests<br/>HTTP contract, route/resolution logic"]
+    CORE["tests/ — 493 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
 
     E2E --> UI
     E2E --> BFF

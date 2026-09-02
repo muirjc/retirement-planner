@@ -10,6 +10,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # rp-apm: CI quality gates -- pinned exactly like ADP's own
+    # pyproject.toml (/home/jmuir/projects/ADP), the reference this
+    # project's CI pipeline was modeled on, so a version bump is a
+    # deliberate, reviewed choice, not a silent drift.
+    "ruff==0.15.20",
+    "mypy==2.1.0",
+    "bandit==1.9.4",
+    "pip-audit==2.10.1",
 ]
 
 [build-system]
@@ -21,3 +29,39 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# -- Ruff (rp-apm) -----------------------------------------------------------
+
+[tool.ruff]
+# 190, not ADP's 100 -- this codebase's own established style already
+# runs comment/docstring-heavy lines well past 100 (up to 187, in
+# apps/streamlit_ui/pages/2_Run_Simulation.py's help text) across src/,
+# tests/, and pages/; a tighter limit would flag hundreds of existing,
+# intentional lines on day one.
+line-length = 190
+src = ["src"]
+
+[tool.ruff.lint]
+# Not ADP's "I" (isort) -- this codebase's __init__.py files deliberately
+# group re-exports (models first, then submodules in build order), not
+# alphabetically; enabling I would flag every one of them on day one for
+# a style choice that isn't a bug.
+select = ["E", "W", "F"]
+
+# -- Mypy (rp-apm) ------------------------------------------------------------
+#
+# Non-strict: catches the most common bugs (undeclared-None access, wrong
+# argument types) without demanding full annotation coverage on a codebase
+# with no prior type-check history. The baseline this config produces (28
+# findings across the three packages, none in already-shipped, tested
+# behavior) is tracked as a follow-on triage item, not fixed wholesale here
+# -- see rp-apm's own bd issue and the CI workflow's continue-on-error note.
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+warn_unused_ignores = false
+warn_return_any = false
+no_implicit_reexport = false

@@ -95,6 +95,27 @@ cd e2e && ../.venv/bin/python3.12 -m pytest -q   # browser-driven e2e -- 16 test
 
 `e2e/` is the outermost layer: it launches a real BFF + real Streamlit UI as subprocesses and drives them through a real headless Chromium browser via Playwright, against an isolated scratch `config/scenarios/` directory — see [`e2e/README.md`](e2e/README.md) for one-time setup (it needs its own `pip install` and `playwright install chromium`, and runs under a specific interpreter — the README explains why).
 
+### Quality gates
+
+Each of the three packages also has its own lint (`ruff`), type-check (`mypy`), Python security scan (`bandit`), and dependency CVE scan (`pip-audit`) — install via each package's own `dev` extra (already included in the `pip install -e ".[dev]"` commands above):
+
+```bash
+ruff check src/ tests/                          # lint -- core
+ruff check services/bff/                        # lint -- BFF
+ruff check apps/streamlit_ui/                    # lint -- Streamlit UI
+mypy --config-file pyproject.toml src/retirement_planner                                   # type check -- core (report-only in CI, see rp-cgj)
+mypy --config-file services/bff/pyproject.toml services/bff/src/rp_bff                      # type check -- BFF (report-only in CI, see rp-cgj)
+mypy --config-file apps/streamlit_ui/pyproject.toml apps/streamlit_ui/src/rp_ui             # type check -- Streamlit UI (report-only in CI, see rp-cgj)
+bandit -r src/retirement_planner -ll             # security scan -- core
+bandit -r services/bff/src/rp_bff -ll            # security scan -- BFF
+bandit -r apps/streamlit_ui/src/rp_ui -ll        # security scan -- Streamlit UI
+pip-audit --skip-editable                        # dependency CVE scan, all three packages' dependencies
+```
+
+### CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and every PR to `main`: the quality gates above plus all four test suites, then (needing that job to pass first) the e2e suite and an [OWASP ZAP](https://www.zaproxy.org/) API security scan (a DAST pen test, not just static analysis) against a live BFF instance, driven by its own OpenAPI spec and thresholded by [`.zap/rules.tsv`](.zap/rules.tsv) — its report is uploaded as a build artifact regardless of pass/fail. mypy runs report-only (`continue-on-error`) pending rp-cgj's triage of its initial findings; the ZAP job itself also runs report-only pending its first few real-runner calibration passes (its own comment in `ci.yml` explains why — it could not be executed end-to-end in the environment this pipeline was authored in).
+
 ## Project layout
 
 ```

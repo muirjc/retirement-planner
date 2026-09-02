@@ -13,7 +13,6 @@ import statistics
 from retirement_planner.comparison import (
     ComparisonResult,
     PlanProjection,
-    StrategyConfiguration,
     deemed_rmd_owner,
     member_age_in_tax_year,
 )

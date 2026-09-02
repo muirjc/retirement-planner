@@ -10,8 +10,6 @@ quickstart.md's prose, is not yet an implemented state module — mirrors
 004's own test_comparison_lifecycle.py adaptation).
 """
 
-import pytest
-
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions

@@ -1,0 +1,12 @@
+40012	FAIL	Cross Site Scripting Reflected -- must never be present
+90019	FAIL	Server Side Code Injection -- must never be present
+6	FAIL	Path Traversal -- must never be present
+7	FAIL	Remote File Inclusion -- must never be present
+20019	FAIL	External Redirect -- must never be present
+90020	FAIL	Remote OS Command Injection -- must never be present
+90037	FAIL	Remote OS Command Injection Time Based -- must never be present
+40018	WARN	SQL Injection -- this BFF has no SQL backend (config/scenarios/ is YAML files, not a database); kept visible as WARN rather than unlisted, not yet confirmed against a real scan
+40014	WARN	XSS Persistent in JSON Response -- likely false positive for a JSON-only API (ADP's own documented experience with a comparable FastAPI backend); not yet confirmed against this app's own scan
+100000	WARN	Server Error Response -- active-scan payloads can legitimately trigger a 4xx/5xx from input validation
+10049	IGNORE	Storable and Cacheable Content -- GET API responses are intentionally cacheable
+10050	IGNORE	Retrieved from Cache -- informational only

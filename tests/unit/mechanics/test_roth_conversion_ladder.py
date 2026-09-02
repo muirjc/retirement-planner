@@ -9,7 +9,6 @@ ROTH_CONVERSION_SEASONING_YEARS (5 years) is cross-checked directly against
 import pytest
 
 from retirement_planner.mechanics import (
-    ROTH_CONVERSION_SEASONING_YEARS,
     RothConversionLot,
     compute_roth_ladder_consumption,
 )

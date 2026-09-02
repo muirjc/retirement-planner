@@ -10,11 +10,11 @@ It is not a one-off analysis script — it's infrastructure: a deterministic tax
 
 **Non-goals**: multi-user/SaaS support, investment advice or trade execution, tax filing, real-time account aggregation. This is a single-household tool with manual, config-driven data entry.
 
-For what this tool actually models — which regulations it implements, what math each engine uses, and what's still an illustrative placeholder — see [`docs/BRD.md`](docs/BRD.md). For a deeper architectural walkthrough with C4 diagrams, see [`docs/SOLUTION_ARCHITECTURE.md`](docs/SOLUTION_ARCHITECTURE.md).
+For what this tool actually models — which regulations it implements, what math each engine uses, and what's still an illustrative placeholder — see [`docs/BRD.md`](docs/BRD.md). For a deeper architectural walkthrough with C4 diagrams, see [`docs/SOLUTION_ARCHITECTURE.md`](docs/SOLUTION_ARCHITECTURE.md). For day-to-day operating procedure — starting/stopping the stack, health checks, backups, and troubleshooting — see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## Architecture
 
-Three layers, built incrementally as 14 spec-driven features (`specs/001`–`014`, one `spec.md` → `plan.md` → `tasks.md` per feature), each with its own dependency boundary:
+Three layers, built incrementally as 23 spec-driven features (`specs/001`–`023`, one `spec.md` → `plan.md` → `tasks.md` per feature), each with its own dependency boundary:
 
 ```
 ┌─────────────────────────┐
@@ -134,7 +134,7 @@ tests/                      Core library tests (unit + integration)
 
 This project was built with a spec-driven workflow: every feature (`specs/NNN-*/`) has a `spec.md` (requirements, user-facing), `plan.md` (architecture, Constitution Check), `research.md`, `data-model.md`, `contracts/` (where the feature changes a public interface), `quickstart.md`, and `tasks.md` (dependency-ordered, one checkbox per task) before any implementation code was written. `.specify/memory/constitution.md` records the project's governing principles (accuracy over cleverness, reproducibility, auditability, offline-first, performance budget) that every plan is checked against.
 
-**Keeping this README, `docs/BRD.md`, and `docs/SOLUTION_ARCHITECTURE.md` current is part of finishing a feature**, not a separate cleanup pass — see the "Keeping this document current" note at the top of each of those two docs, and `CLAUDE.md`'s Architecture Overview section.
+**Keeping this README, `docs/BRD.md`, `docs/SOLUTION_ARCHITECTURE.md`, and `docs/RUNBOOK.md` current is part of finishing a feature**, not a separate cleanup pass — see the "Keeping this document current" note at the top of each of those docs, and `CLAUDE.md`'s Architecture Overview section.
 
 ## License
 

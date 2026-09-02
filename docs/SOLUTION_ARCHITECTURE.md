@@ -1,6 +1,6 @@
 # Solution Architecture: Retirement Planner
 
-**Status**: Living document — reflects the codebase as of `specs/001`–`014`
+**Status**: Living document — reflects the codebase as of `specs/001`–`023`
 
 > **Keeping this document current**: Every diagram and table here
 > describes what's actually in the repo today, not an aspiration. A
@@ -307,8 +307,11 @@ Everything runs on one machine, as three local processes:
 No container, no orchestration, no external database — deliberately, per
 the constitution's Offline-First principle and this tool's single-user
 scope. `README.md`'s "Getting started" section is the actual deployment
-procedure; there is no separate ops runbook because there is no separate
-ops environment.
+procedure; [`docs/RUNBOOK.md`](RUNBOOK.md) covers day-to-day operation of
+that same local deployment (start/stop, health checks, backups,
+troubleshooting) — there is still no separate ops *environment*, so the
+runbook is scoped to running this one developer/household machine, not a
+hosted service.
 
 ## 11. Source documents & traceability
 
@@ -317,8 +320,11 @@ ops environment.
 - `docs/frontend_architecture.md` — the original design rationale for the
   BFF/reporting/UI split (specs `006`–`008`); this document supersedes it
   as the current-state reference but keeps it for historical rationale.
-- `specs/001`–`014` — each feature's own `plan.md` is the authoritative
+- `specs/001`–`023` — each feature's own `plan.md` is the authoritative
   record of the architectural decisions made when that feature was built,
   including its own Constitution Check.
+- `docs/RUNBOOK.md` — the operating procedure for actually running this
+  architecture day to day: startup/shutdown, health checks, backups, and
+  troubleshooting.
 - `.specify/memory/constitution.md` — the architectural principles §8
   above is checked against.

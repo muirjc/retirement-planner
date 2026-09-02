@@ -1,7 +1,7 @@
 # Business Requirements Document: Retirement Planner
 
-**Status**: Living document — reflects the codebase as of `specs/001`–`014`
-**Last reviewed against**: `014-figure-verification` (rp-9wi)
+**Status**: Living document — reflects the codebase as of `specs/001`–`023`
+**Last reviewed against**: `023-probabilistic-death-draws` (rp-vgv)
 
 > **Keeping this document current**: This BRD is derived from, and must
 > stay consistent with, the actual code — every regulation and formula
@@ -769,10 +769,12 @@ before it's considered complete:
 - `docs/remaining_scope.md` — a section-by-section reconciliation of that
   original ask against what had shipped as of `specs/001`–`005` (now
   partially superseded by `006`–`014`; kept for historical traceability).
-- `specs/001`–`014` — the full spec → plan → tasks → implementation
+- `specs/001`–`023` — the full spec → plan → tasks → implementation
   record for every feature; each spec's own Functional Requirements are
   the authoritative, testable statement of what that feature does.
 - `.specify/memory/constitution.md` — the non-functional principles every
   plan is checked against (§8 above).
 - `docs/SOLUTION_ARCHITECTURE.md` — how the system delivering all of the
   above is actually put together.
+- `docs/RUNBOOK.md` — how to actually run and operate that system day to
+  day.

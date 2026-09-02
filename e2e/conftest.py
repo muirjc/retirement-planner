@@ -17,6 +17,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -26,10 +27,20 @@ import httpx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-APP_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
-"""The interpreter with retirement_planner/rp_bff/rp_ui installed --
-deliberately not sys.executable (this suite's own pytest process may be
-running under a different interpreter, see README.md)."""
+_LOCAL_APP_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+APP_PYTHON = _LOCAL_APP_PYTHON if _LOCAL_APP_PYTHON.exists() else Path(sys.executable)
+"""The interpreter with retirement_planner/rp_bff/rp_ui installed.
+
+Prefers .venv/bin/python over sys.executable when it exists, because
+this suite's own pytest process may be running under a *different*
+interpreter than the one those packages are installed into (this
+repo's own local dev sandbox has exactly that split -- see README.md).
+CI (.github/workflows/ci.yml) never creates a .venv at all -- it
+installs every package directly into whichever single interpreter runs
+pytest itself -- so there, sys.executable is correct and .venv/bin/python
+would raise FileNotFoundError (rp-7x2: e2e-tests never actually ran in
+CI until this session's own quality-gates fix let it start, which is
+when this was first caught)."""
 STREAMLIT_APP = REPO_ROOT / "apps" / "streamlit_ui" / "app.py"
 
 

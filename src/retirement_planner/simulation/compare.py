@@ -44,6 +44,7 @@ def compare_states(
     strategy: StrategyConfiguration,
     return_paths: list[ReturnPath],
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see run_simulation()'s own docstring
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in states, holding strategy,
@@ -57,6 +58,13 @@ def compare_states(
     run_simulation() itself never mutates this parameter, only its own
     per-path copies (monte_carlo.py's module docstring), so no candidate-
     level copy is needed here the way 004's compare.py needs one.
+
+    death_year_draws (023-probabilistic-death-draws rp-vgv): forwarded
+    unchanged to every state's own run_simulation() call, identical
+    placement/behavior to survival_curves above -- the same pre-generated
+    draw set is reused path-for-path across every candidate (the
+    paired-draw standard pattern, spec.md FR-005), never regenerated per
+    state.
     """
     _validate_consistent_generation_mode(return_paths)
     runs = [
@@ -74,6 +82,7 @@ def compare_states(
             return_paths=return_paths,
             candidate_label=state,
             survival_curves=survival_curves,
+            death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
         )
         for state in states
@@ -96,6 +105,7 @@ def compare_roth_conversion_strategies(
     return_paths: list[ReturnPath],
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
@@ -106,7 +116,9 @@ def compare_roth_conversion_strategies(
     010-advanced-tax-benefits contracts/comparison-api.md).
     Mirrors 004's compare_roth_conversion_strategies() exactly, substituting
     return_paths for return_assumption. inherited_accounts (012-inherited-
-    ira-rmd rp-mt7): see compare_states()'s own docstring."""
+    ira-rmd rp-mt7): see compare_states()'s own docstring. death_year_draws
+    (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
+    docstring."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -128,6 +140,7 @@ def compare_roth_conversion_strategies(
             return_paths=return_paths,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
+            death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
         )
         for candidate in candidates
@@ -152,6 +165,7 @@ def compare_withdrawal_sequencing_strategies(
     return_paths: list[ReturnPath],
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
@@ -163,7 +177,9 @@ def compare_withdrawal_sequencing_strategies(
     010-advanced-tax-benefits contracts/comparison-api.md).
     Mirrors 004's compare_withdrawal_sequencing_strategies() exactly,
     substituting return_paths for return_assumption. inherited_accounts
-    (012-inherited-ira-rmd rp-mt7): see compare_states()'s own docstring."""
+    (012-inherited-ira-rmd rp-mt7): see compare_states()'s own docstring.
+    death_year_draws (023-probabilistic-death-draws rp-vgv): see
+    compare_states()'s own docstring."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -187,6 +203,7 @@ def compare_withdrawal_sequencing_strategies(
             return_paths=return_paths,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
+            death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
         )
         for candidate in candidates
@@ -211,6 +228,7 @@ def compare_claiming_age_grid(
     return_paths: list[ReturnPath],
     claiming_age_grid: list[dict[str, int]],
     survival_curves: dict[str, SurvivalCurve] | None = None,
+    death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
 ) -> SimulationComparisonResult:
@@ -227,7 +245,9 @@ def compare_claiming_age_grid(
     own compare_claiming_age_grid() docstring for why (rp-dd9). Mirrors
     004's compare_claiming_age_grid() exactly, substituting return_paths
     for return_assumption. inherited_accounts (012-inherited-ira-rmd
-    rp-mt7): see compare_states()'s own docstring."""
+    rp-mt7): see compare_states()'s own docstring. death_year_draws
+    (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
+    docstring."""
     member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
         if set(entry) != member_names:
@@ -266,6 +286,7 @@ def compare_claiming_age_grid(
             return_paths=return_paths,
             candidate_label=f"claiming_ages_{index}",
             survival_curves=survival_curves,
+            death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)

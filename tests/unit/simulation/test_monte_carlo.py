@@ -669,3 +669,217 @@ def test_early_withdrawal_penalty_matches_deterministic_projection_exactly():
     assert any(
         year.tax_year >= 2031 and year.early_withdrawal_penalty.penalty_owed == 0.0 for year in deterministic.years
     )
+
+
+# -- 023-probabilistic-death-draws (rp-vgv), User Story 1 -------------------
+
+def _married_household_and_kwargs():
+    """Shared MFJ fixture for the death_year_draws tests below -- no
+    member has predicted_death_age configured (this feature's whole point
+    is to supply it per-path instead)."""
+    household = Household(
+        filing_status="married_filing_jointly",
+        survivor_spending_reduction_pct=0.20,
+        members=[
+            HouseholdMember(
+                person_name="you", current_age=67, ss_claim_age=67,
+                ss_annual_benefit=30_000, full_retirement_age=67.0,
+            ),
+            HouseholdMember(
+                person_name="spouse", current_age=65, ss_claim_age=67,
+                ss_annual_benefit=20_000, full_retirement_age=67.0,
+            ),
+        ],
+    )
+    accounts = AccountBalances(traditional=800_000, roth=0, taxable=0)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        claiming_ages={"you": 67, "spouse": 67},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=85,
+        strategy=strategy,
+        candidate_label="test",
+    )
+    return household, accounts, strategy, common_kwargs
+
+
+def _survival_curves_for(household):
+    """A deliberately degenerate "always alive" curve (probability 1.0 at
+    every documented age) -- fine for tests below that only need
+    survival_curves to satisfy run_simulation()'s own precondition
+    (required alongside death_year_draws for citation purposes) and
+    otherwise hand-craft their own death_year_draws directly; NOT suitable
+    for a test that needs generate_death_age_draws() itself to produce a
+    varying draw (see the real SURVIVAL_TABLE used for that instead)."""
+    from datetime import date
+
+    from retirement_planner.simulation.models import SurvivalCurve
+
+    curve = SurvivalCurve(
+        person_name="placeholder",
+        probabilities_by_age={age: 1.0 for age in range(50, 111)},
+        citation="test fixture",
+        last_verified=date(2026, 8, 28),
+        verified=False,
+    )
+    return {member.person_name: curve for member in household.members}
+
+
+def test_death_year_draws_defaulting_to_none_is_identical_to_omitting_the_parameter():
+    """FR-007, SC-005: death_year_draws=None (the explicit default) must
+    produce byte-for-byte identical output to a caller that doesn't pass
+    the parameter at all -- even when survival_curves is also given (so
+    survival_adjusted_success_rate is in play too)."""
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household, _accounts, _strategy, common_kwargs = _married_household_and_kwargs()
+    survival_curves = _survival_curves_for(household)
+    path = ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[])
+
+    explicit_none = run_simulation(
+        **common_kwargs, return_paths=[path], survival_curves=survival_curves, death_year_draws=None
+    )
+    omitted = run_simulation(**common_kwargs, return_paths=[path], survival_curves=survival_curves)
+
+    assert explicit_none.success_rate == omitted.success_rate
+    assert explicit_none.percentile_bands == omitted.percentile_bands
+    assert explicit_none.survival_adjusted_success_rate == omitted.survival_adjusted_success_rate
+    assert explicit_none.path_results == omitted.path_results
+
+
+def test_death_year_draw_reproduces_a_direct_run_plan_projection_call_with_that_death_age():
+    """Acceptance Scenario 2 (and 3, via the "you" entry's None draw):
+    a path's own drawn death age for "spouse" must produce exactly the
+    same PlanProjection a direct run_plan_projection() call with that
+    same predicted_death_age would -- reusing 018's survivor-scenario
+    logic completely unchanged, per _household_for_path()."""
+    from dataclasses import replace
+
+    from retirement_planner.comparison import run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household, accounts, strategy, common_kwargs = _married_household_and_kwargs()
+    survival_curves = _survival_curves_for(household)
+    path = ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[])
+    # "spouse" (current_age=65) drawn to die at 70 -- 5 years into the
+    # horizon; "you" drawn as None -- no death at all for this path.
+    death_year_draws = [{"you": None, "spouse": 70}]
+
+    run = run_simulation(
+        **common_kwargs, return_paths=[path], survival_curves=survival_curves, death_year_draws=death_year_draws
+    )
+
+    household_for_this_path = replace(
+        household,
+        members=[
+            replace(household.members[0], predicted_death_age=None),
+            replace(household.members[1], predicted_death_age=70),
+        ],
+    )
+    direct = run_plan_projection(
+        household=household_for_this_path,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=85,
+        strategy=strategy,
+        return_assumption=path,
+    )
+
+    assert run.path_results[0] == direct
+    # Sanity: the switch actually took effect somewhere in this projection.
+    assert any(year.filing_status == "single" for year in direct.years)
+
+
+def test_death_year_draws_vary_independently_path_to_path():
+    """A different draw per path produces a different per-path Household
+    override -- the whole point of this feature over the single,
+    household-wide static predicted_death_age every path shared before."""
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household, _accounts, _strategy, common_kwargs = _married_household_and_kwargs()
+    survival_curves = _survival_curves_for(household)
+    paths = [
+        ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[]),
+        ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[]),
+    ]
+    death_year_draws = [{"you": None, "spouse": None}, {"you": None, "spouse": 70}]
+
+    run = run_simulation(
+        **common_kwargs, return_paths=paths, survival_curves=survival_curves, death_year_draws=death_year_draws
+    )
+
+    path0_filing_statuses = [year.filing_status for year in run.path_results[0].years]
+    path1_filing_statuses = [year.filing_status for year in run.path_results[1].years]
+    assert all(status == "married_filing_jointly" for status in path0_filing_statuses)
+    assert "single" in path1_filing_statuses
+    assert path0_filing_statuses != path1_filing_statuses
+
+
+def test_death_year_draws_identical_under_serial_and_forced_parallel_dispatch(monkeypatch):
+    """023-probabilistic-death-draws (rp-vgv), User Story 2, SC-003
+    (second half): the same household/return_paths/death_year_draws/seed
+    must produce identical results regardless of dispatch mode -- mirrors
+    this file's own existing
+    test_run_simulation_reproducible_including_under_forced_parallel_dispatch
+    precedent, extended to cover the new per-path Household override
+    threaded through _run_one_path_shared()'s per-task argument."""
+    import retirement_planner.simulation.monte_carlo as monte_carlo_module
+    from retirement_planner.simulation.mortality import generate_death_age_draws
+    from retirement_planner.simulation.monte_carlo import run_simulation
+    from retirement_planner.simulation.returns import generate_return_paths
+    from retirement_planner.simulation.survival_data import SURVIVAL_TABLE
+
+    monkeypatch.setattr(monte_carlo_module, "_PARALLEL_DISPATCH_THRESHOLD", 10)
+
+    household, _accounts, _strategy, common_kwargs = _married_household_and_kwargs()
+    # The real (illustrative) survival table, not _survival_curves_for()'s
+    # deliberately-degenerate always-alive fixture -- this test needs
+    # draws that actually vary path to path.
+    survival_curves = {"you": SURVIVAL_TABLE["primary"], "spouse": SURVIVAL_TABLE["spouse"]}
+    market = MarketAssumptions(
+        equity_allocation=0.60, equity_return_mean_real=0.065, equity_return_std_real=0.17,
+        bond_allocation=0.40, bond_return_mean_real=0.015, bond_return_std_real=0.06,
+        correlation=-0.10,
+    )
+    return_paths = generate_return_paths(
+        market_assumptions=market, path_count=50, horizon_years=19, start_plan_year=1, seed=99
+    )
+    death_year_draws = generate_death_age_draws(
+        household=household, survival_curves=survival_curves, path_count=50, seed=123
+    )
+
+    first = run_simulation(
+        **common_kwargs, return_paths=return_paths, survival_curves=survival_curves,
+        death_year_draws=death_year_draws,
+    )
+    second = run_simulation(
+        **common_kwargs, return_paths=return_paths, survival_curves=survival_curves,
+        death_year_draws=death_year_draws,
+    )
+
+    assert first.success_rate == second.success_rate
+    assert first.percentile_bands == second.percentile_bands
+    assert first.path_results == second.path_results
+    # Sanity: the parallel branch (path_count=50 >= the monkeypatched
+    # threshold of 10) is actually the one exercised here, and draws did
+    # vary path to path -- not a vacuously-true comparison of two empty
+    # or identical-by-construction runs.
+    assert len({tuple(sorted(d.items())) for d in death_year_draws}) > 1

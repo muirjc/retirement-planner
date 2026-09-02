@@ -211,10 +211,12 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   income switching to the survivor amount, and spending need reduced by
   a household-configured percentage, all from the year after a
   configured death forward — are now modeled for deterministic and
-  strategy-comparison projections. Still not modeled: a per-path
-  probabilistic death draw inside Monte Carlo simulation (every path
-  uses the same deterministic, household-configured death year — §6.2c);
-  Qualifying Surviving Spouse status or a joint return specifically for
+  strategy-comparison projections. Monte Carlo simulation's default
+  behavior still applies the same household-configured death year to
+  every path (§6.2c); an opt-in, core-library-only per-path probabilistic
+  death draw now exists (§6.8, rp-vgv) but isn't yet exposed through the
+  BFF or Streamlit UI. Still not modeled: Qualifying Surviving Spouse
+  status or a joint return specifically for
   the year of death (this engine switches straight from
   married-filing-jointly through the death year to single the year
   after, which may overstate the survivor's near-term tax burden
@@ -414,12 +416,16 @@ overwhelming majority of scenarios — is completely unaffected; every
 year's effective filing status and spending need simply equal the
 household's configured values, unchanged.
 
-**Not modeled** (see §5.3 for the full list): Monte Carlo simulation
-does not draw a per-path probabilistic death year — every path uses the
-same deterministic, household-configured death year a plain projection
-would; Qualifying Surviving Spouse status; remarriage; a detailed
-post-death budget re-plan; and a second (the survivor's own, later)
-configured death ending the projection early.
+**Not modeled** (see §5.3 for the full list): Qualifying Surviving Spouse
+status; remarriage; a detailed post-death budget re-plan; and a second
+(the survivor's own, later) configured death ending the projection early.
+Monte Carlo simulation's *default* behavior still matches this section
+exactly — every path uses the same deterministic, household-configured
+death year a plain projection would — but an opt-in, core-library-only
+capability now lets a caller instead give each path its own probabilistic
+death year (§6.8) drawn from an actuarial curve, reusing this section's
+own filing-status/Social-Security/spending-reduction switch unchanged for
+whichever death year that specific path drew.
 
 ### 6.2d Pension, annuity & phased-retirement income streams (rp-pid)
 
@@ -634,7 +640,30 @@ own independent random paths.
 - **Survival-adjusted scoring** (optional): success rate can be expressed
   as "probability of not running out of money while at least one spouse
   is alive," using per-member actuarial survival curves, instead of a
-  single fixed planning horizon for every path.
+  single fixed planning horizon for every path. This is a *post-hoc*
+  metric — it never changes what a path actually funds, only whether a
+  shortfall on that path still counts as a failure once both members are
+  presumed deceased (a fixed ≥50%-survival-probability threshold, checked
+  once at that path's own shortfall year).
+- **Per-path probabilistic death draws** (optional, core-library-only —
+  rp-vgv): unlike survival-adjusted scoring above, this capability
+  changes what each path actually funds. Given the same per-member
+  actuarial survival curves, each path draws its own death age per
+  covered member — conditioned on that member's current age, so the
+  drawn age is always plausible (never earlier than today) — and is
+  funded and scored as if that death actually happened on schedule,
+  reusing §6.2c's filing-status/Social-Security/spending-reduction switch
+  unchanged. A path's own `success_rate` and ending-balance percentile
+  bands therefore already reflect survivor-scenario risk, rather than
+  requiring the separate metric above. Off by default; a caller opts in
+  by pre-generating one draw set (`generate_death_age_draws()`, its own
+  independent random seed, decoupled from the return-path draws) and
+  reusing it, path-for-path, across every candidate in a comparison —
+  identical to how return paths are already shared across candidates.
+  Not yet exposed through the BFF or Streamlit UI — usable only by a
+  caller reaching the core `retirement_planner.simulation` package
+  directly, the same current limitation as historical-bootstrap return
+  generation and the sequence-of-returns stress overlay above.
 
 ### 6.9 What's synthetic, not real, in the simulation engine
 
@@ -645,7 +674,11 @@ structural completeness (constitution Principle V — this project has no
 runtime network access to fetch a real series, and none was fetched at
 authoring time either). Both ship `verified=False` and must not be
 presented as real historical returns or real actuarial mortality data
-until replaced with an actual, cited source.
+until replaced with an actual, cited source. Per-path probabilistic death
+draws (§6.8) sample directly from this same synthetic mortality table —
+every drawn death year this capability produces is therefore no more
+reliable than the illustrative curve it came from, exactly like
+survival-adjusted scoring already was.
 
 ## 7. Known Limitations & Open Items
 
@@ -668,14 +701,19 @@ until replaced with an actual, cited source.
   (§5.3).
 - A configured spouse's death changes a deterministic or
   strategy-comparison projection's filing status, Social Security income,
-  and spending need mid-horizon (§6.2c), but Monte Carlo simulation does
-  not draw its own per-path probabilistic death year — every path uses
-  the same deterministic, household-configured death year. Also not
-  modeled: Qualifying Surviving Spouse status / a joint return
-  specifically for the year of death, remarriage, a detailed post-death
-  budget re-plan beyond the single configured spending percentage, and a
-  second (the survivor's own, later) configured death ending the
-  projection (§6.2c).
+  and spending need mid-horizon (§6.2c). By default, Monte Carlo
+  simulation still applies that same switch identically to every path
+  (the household's static configured death year, if any); an opt-in,
+  core-library-only capability (§6.8) instead lets each path draw its own
+  probabilistic death year — not yet exposed through the BFF or Streamlit
+  UI, so a user of the app itself cannot turn it on. Also not modeled,
+  under either behavior: Qualifying Surviving Spouse status / a joint
+  return specifically for the year of death, remarriage, a detailed
+  post-death budget re-plan beyond the single configured spending
+  percentage, correlation between a path's own market returns and its
+  drawn death year (or between the two members' own drawn death years),
+  and a second (the survivor's own, later) configured or drawn death
+  ending the projection (§6.2c, §6.8).
 - Roth conversion five-year seasoning tracking (§6.6) now feeds a real
   10% early-withdrawal penalty (§6.6a). Still not modeled: per-member
   Roth ownership attribution (a conservative household-level age check is

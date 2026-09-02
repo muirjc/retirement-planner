@@ -95,3 +95,43 @@ def test_run_simulation_raises_key_error_for_missing_survival_curve():
             **_COMMON_KWARGS, return_paths=[_PATH_OK], candidate_label="test",
             survival_curves={},  # missing "you"
         )
+
+
+# -- 023-probabilistic-death-draws (rp-vgv): death_year_draws validation ----
+
+
+def test_death_year_draws_requires_survival_curves_to_also_be_given():
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    with pytest.raises(ValueError):
+        run_simulation(
+            **_COMMON_KWARGS, return_paths=[_PATH_OK], candidate_label="test",
+            death_year_draws=[{"you": None}],  # survival_curves omitted entirely
+        )
+
+
+def test_death_year_draws_length_must_match_return_paths():
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    with pytest.raises(ValueError):
+        run_simulation(
+            **_COMMON_KWARGS, return_paths=[_PATH_OK, _PATH_FAIL], candidate_label="test",
+            survival_curves={"you": _curve(probability_at_91=0.9)},
+            death_year_draws=[{"you": None}],  # one entry, but two return_paths
+        )
+
+
+def test_death_year_draws_coexists_with_survival_adjusted_success_rate():
+    """spec.md Edge Cases / FR-008: both may be requested at once --
+    survival_adjusted_success_rate's own formula is computed unchanged,
+    over whatever path_results this call produced."""
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    run = run_simulation(
+        **_COMMON_KWARGS, return_paths=[_PATH_OK, _PATH_FAIL], candidate_label="test",
+        survival_curves={"you": _curve(probability_at_91=0.9)},
+        death_year_draws=[{"you": None}, {"you": None}],  # no-op draws -- isolates the coexistence check
+    )
+
+    assert run.survival_adjusted_success_rate is not None
+    assert run.success_rate == pytest.approx(0.5)

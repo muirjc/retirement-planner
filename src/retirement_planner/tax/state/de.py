@@ -11,6 +11,14 @@ requirement document cites "DE $12,500/person" for the exclusion, which
 this module uses directly), not asserted as the actual current Delaware
 Code figures — see quickstart.md and plan.md's Development Workflow gate.
 `verified=False` reflects that honestly.
+
+rp-wif: the schedule below originally documented only tax year 2026, so
+any projection running a real multi-decade plan horizon (the tool's
+actual use case) hit UnsupportedTaxYearError starting tax year 2027 --
+fixed by repeating the same 2026 figures across `_DOCUMENTED_YEARS`,
+matching every other module's convention (tax/federal.py,
+mechanics/rmd.py, ...). The figures themselves, and their
+illustrative-not-real status, are unchanged.
 """
 
 from __future__ import annotations
@@ -22,18 +30,20 @@ from ..models import BracketRow, FilingStatus, IncomeComponents, SourcedFigure, 
 
 _AGE_EXCLUSION_THRESHOLD = 60
 
+_DOCUMENTED_YEARS = range(2020, 2075)
+
+_BRACKETS = (
+    BracketRow(rate=0.022, income_up_to=5_000.0),
+    BracketRow(rate=0.039, income_up_to=10_000.0),
+    BracketRow(rate=0.048, income_up_to=20_000.0),
+    BracketRow(rate=0.052, income_up_to=25_000.0),
+    BracketRow(rate=0.0555, income_up_to=60_000.0),
+    BracketRow(rate=0.066, income_up_to=None),
+)
+
 _BRACKET_TABLE = SourcedFigure(
     name="de_bracket_table",
-    schedule={
-        2026: (
-            BracketRow(rate=0.022, income_up_to=5_000.0),
-            BracketRow(rate=0.039, income_up_to=10_000.0),
-            BracketRow(rate=0.048, income_up_to=20_000.0),
-            BracketRow(rate=0.052, income_up_to=25_000.0),
-            BracketRow(rate=0.0555, income_up_to=60_000.0),
-            BracketRow(rate=0.066, income_up_to=None),
-        ),
-    },
+    schedule={year: _BRACKETS for year in _DOCUMENTED_YEARS},
     citation="Del. Code Ann. tit. 30 §1102 (placeholder — pending verification)",
     last_verified=date(2026, 8, 27),
     verified=False,
@@ -41,7 +51,7 @@ _BRACKET_TABLE = SourcedFigure(
 
 _AGE_60_EXCLUSION = SourcedFigure(
     name="de_age_60_exclusion",
-    schedule={2026: 12_500.0},
+    schedule={year: 12_500.0 for year in _DOCUMENTED_YEARS},
     citation="Del. Code Ann. tit. 30 §1106 (placeholder — pending verification)",
     last_verified=date(2026, 8, 27),
     verified=False,

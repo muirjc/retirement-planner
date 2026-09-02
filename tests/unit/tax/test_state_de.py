@@ -28,3 +28,16 @@ def test_de_figures_used_includes_brackets_and_exclusion():
     figure_names = {f.name for f in result.figures_used}
     assert "de_bracket_table" in figure_names
     assert "de_age_60_exclusion" in figure_names
+
+
+def test_de_supports_a_realistic_multi_decade_plan_horizon():
+    """rp-wif: the bracket table used to document only tax year 2026, so
+    any plan year beyond 2026 raised UnsupportedTaxYearError -- a real
+    household's plan horizon runs decades, not one year. Confirms a far-
+    future tax year produces the same result as 2026 (the figures are
+    held flat across the whole documented range, matching every other
+    _DOCUMENTED_YEARS-based module)."""
+    income = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
+    result_2026 = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+    result_2050 = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2050)
+    assert result_2050.state_tax_owed == result_2026.state_tax_owed == 1_600.0

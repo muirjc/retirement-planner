@@ -116,16 +116,16 @@ def main() -> None:
     # Question 3: Location comparison -- how much does state matter?
     # SC, DE, FL are the states with real bracket-level tax modules today
     # (see docs/remaining_scope.md §4 item 1 -- GA/NC/TN/MS/PA/NH are
-    # still backlog). A single-year horizon is used here because DE's
-    # bracket table currently only documents tax year 2026.
-    single_year = {**common, "plan_to_age": 60}
-    state_paths = generate_return_paths(
-        market_assumptions=market, path_count=5_000, horizon_years=1, start_plan_year=1, seed=42
-    )
+    # still backlog). Runs across the same full plan_to_age horizon as
+    # every other comparison above -- SC's and DE's bracket schedules
+    # used to document only 1-2 tax years, which forced this comparison
+    # onto a single-year, single-path workaround; rp-wif extended both to
+    # cover a realistic multi-decade horizon like every other module
+    # already does (tax/federal.py, mechanics/rmd.py, ...).
     state_comparison = compare_states(
-        **single_year, states=["SC", "DE", "FL"], strategy=base_strategy, return_paths=state_paths,
+        **common, states=["SC", "DE", "FL"], strategy=base_strategy, return_paths=paths,
     )
-    print("\n[Q3 Location comparison] State comparison (2026 only -- DE's module only covers that year today):")
+    print(f"\n[Q3 Location comparison] State comparison (5,000-path Monte Carlo, plan to age {plan_to_age}):")
     for state_run in state_comparison.runs:
         print(f"  {state_run.candidate_label:4s} success_rate={state_run.success_rate:.1%}")
 

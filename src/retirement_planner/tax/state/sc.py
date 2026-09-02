@@ -15,7 +15,14 @@ reflects that honestly.
 The bracket table documents two tax years (2026, 2027) specifically to
 exercise the schedule mechanic FR-012 requires (see User Story 3) — the
 2027 rate is a placeholder illustrating a scheduled change, not a real,
-currently-legislated SC rate change.
+currently-legislated SC rate change. rp-wif: that two-year table was
+never extended past 2027, so any projection running a real multi-decade
+plan horizon (the tool's actual use case) hit UnsupportedTaxYearError
+starting tax year 2028 -- fixed by repeating each of the two tables
+across its own sub-range of `_DOCUMENTED_YEARS`, mirroring how
+mechanics/rmd.py already encodes SECURE 2.0's own 73->75 RMD-age step as
+two merged sub-ranges of one schedule dict. The 2026/2027 tables
+themselves, and their illustrative-not-real status, are unchanged.
 """
 
 from __future__ import annotations
@@ -27,19 +34,32 @@ from ..models import BracketRow, FilingStatus, IncomeComponents, SourcedFigure, 
 
 _AGE_EXCLUSION_THRESHOLD = 65
 
+# rp-wif: matches every other module's _DOCUMENTED_YEARS convention
+# (tax/federal.py, mechanics/rmd.py, ...) -- covers any realistic plan
+# horizon so a multi-year projection never hits UnsupportedTaxYearError.
+_DOCUMENTED_YEARS = range(2020, 2075)
+
+_2026_BRACKETS = (
+    BracketRow(rate=0.00, income_up_to=3_200.0),
+    BracketRow(rate=0.03, income_up_to=16_040.0),
+    BracketRow(rate=0.064, income_up_to=None),
+)
+_2027_BRACKETS = (
+    BracketRow(rate=0.00, income_up_to=3_200.0),
+    BracketRow(rate=0.03, income_up_to=16_040.0),
+    BracketRow(rate=0.06, income_up_to=None),
+)
+
 _BRACKET_TABLE = SourcedFigure(
     name="sc_bracket_table",
     schedule={
-        2026: (
-            BracketRow(rate=0.00, income_up_to=3_200.0),
-            BracketRow(rate=0.03, income_up_to=16_040.0),
-            BracketRow(rate=0.064, income_up_to=None),
-        ),
-        2027: (
-            BracketRow(rate=0.00, income_up_to=3_200.0),
-            BracketRow(rate=0.03, income_up_to=16_040.0),
-            BracketRow(rate=0.06, income_up_to=None),
-        ),
+        # Before 2027: the originally-documented 2026 table. From 2027
+        # on: the originally-documented 2027 table (its illustrative
+        # scheduled-change rate), held flat for the rest of the horizon --
+        # the same "one step, then flat" shape rmd.py's own 73->75 step
+        # uses.
+        **{year: _2026_BRACKETS for year in range(_DOCUMENTED_YEARS.start, 2027)},
+        **{year: _2027_BRACKETS for year in range(2027, _DOCUMENTED_YEARS.stop)},
     },
     citation="SC Code Ann. §12-6-510 (placeholder — pending verification; 2027 top rate is illustrative)",
     last_verified=date(2026, 8, 27),
@@ -48,7 +68,7 @@ _BRACKET_TABLE = SourcedFigure(
 
 _AGE_65_EXCLUSION = SourcedFigure(
     name="sc_age_65_exclusion",
-    schedule={2026: 15_000.0, 2027: 15_000.0},
+    schedule={year: 15_000.0 for year in _DOCUMENTED_YEARS},
     citation="SC Code Ann. §12-6-1170 (placeholder — pending verification)",
     last_verified=date(2026, 8, 27),
     verified=False,

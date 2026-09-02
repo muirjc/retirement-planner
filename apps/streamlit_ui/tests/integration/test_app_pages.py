@@ -328,6 +328,137 @@ def test_predicted_death_age_left_unset_sends_none_not_zero():
     assert store["no_death_age_case"]["household"]["members"][0]["predicted_death_age"] is None
 
 
+def test_hdhp_coverage_defaults_false_and_is_saved_and_reloaded():
+    """010-advanced-tax-benefits (rp-83g): the HDHP coverage checkbox
+    defaults to False, an explicit True is sent in the saved payload, and
+    loading a previously saved scenario repopulates it."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="member1_hdhp_coverage").value is False
+
+    _fill_minimal_valid_scenario(at, name="hdhp_case")
+    at.checkbox(key="member1_hdhp_coverage").set_value(True)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["hdhp_case"]["household"]["members"][0]["hdhp_coverage"] is True
+
+    # A fresh page load, then loading that saved scenario back, repopulates it.
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("hdhp_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.checkbox(key="member1_hdhp_coverage").value is True
+
+
+def test_hsa_contribution_hidden_until_checkbox_checked():
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="include_hsa_contribution").value is False
+    with pytest.raises(KeyError):
+        at.number_input(key="hsa_annual_amount")
+
+    at.checkbox(key="include_hsa_contribution").set_value(True)
+    at.run()
+    assert at.number_input(key="hsa_annual_amount") is not None
+
+
+def test_hsa_contribution_save_round_trip():
+    """010-advanced-tax-benefits (rp-83g): a checked HSA contribution
+    saves as an hsa_contribution block, alongside whichever members have
+    HDHP coverage checked."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="hsa_case")
+    at.checkbox(key="member1_hdhp_coverage").set_value(True)
+    at.checkbox(key="include_hsa_contribution").set_value(True)
+    at.run()
+    at.number_input(key="hsa_annual_amount").set_value(4_150.0)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["hsa_case"]["hsa_contribution"] == {"annual_amount": 4_150.0}
+    assert store["hsa_case"]["household"]["members"][0]["hdhp_coverage"] is True
+
+
+def test_hsa_contribution_unchecked_submits_none():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="no_hsa_case")
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["no_hsa_case"]["hsa_contribution"] is None
+
+
+def test_hsa_and_hdhp_load_round_trip_and_survive_an_untouched_save():
+    """rp-83g regression test: before this fix, loading a scenario
+    configured with HSA/HDHP fields (e.g. via direct API/YAML, since this
+    page had no widgets for them) and clicking Save with nothing else
+    touched SILENTLY DELETED that configuration -- hdhp_coverage reset to
+    False and hsa_contribution reset to None, because neither field was
+    loaded into form state nor re-emitted in the save payload. Both the
+    load and the untouched-save round trip must now preserve them."""
+    handler, store = make_fake_bff()
+    _install(handler)
+    store["hsa_preexisting_case"] = {
+        "name": "hsa_preexisting_case",
+        "household": {
+            "filing_status": "single",
+            "members": [
+                {
+                    "person_name": "Alex",
+                    "current_age": 55,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 28_000,
+                    "full_retirement_age": 67.0,
+                    "hdhp_coverage": True,
+                }
+            ],
+        },
+        "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
+        "spending": {"annual_need_real": 60_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6, "equity_return_mean_real": 0.05, "equity_return_std_real": 0.15,
+            "bond_allocation": 0.4, "bond_return_mean_real": 0.02, "bond_return_std_real": 0.05, "correlation": 0.0,
+        },
+        "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": None,
+        "hsa_contribution": {"annual_amount": 3_850.0},
+        "validation_flags": [],
+        "is_usable": True,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("hsa_preexisting_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.checkbox(key="member1_hdhp_coverage").value is True
+    assert at.checkbox(key="include_hsa_contribution").value is True
+    assert at.number_input(key="hsa_annual_amount").value == 3_850.0
+
+    # Save without touching anything else -- must NOT delete the HSA config.
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved = store["hsa_preexisting_case"]
+    assert saved["household"]["members"][0]["hdhp_coverage"] is True
+    assert saved["hsa_contribution"] == {"annual_amount": 3_850.0}
+
+
 def test_income_stream_loads_into_editing_widgets_and_round_trips_unedited():
     """rp-5cq: loading a scenario with an already-configured income stream
     populates real per-field editing widgets (label/type/start age/end

@@ -634,11 +634,18 @@ own independent random paths.
   the same paths.
 - **Historical-bootstrap mode**: moving-block resampling from an annual
   real-return series, instead of only parametric normal draws, to capture
-  fat tails and genuine historical sequencing.
+  fat tails and genuine historical sequencing. Not yet exposed through the
+  BFF or Streamlit UI (rp-xxp) — every BFF-triggered run uses parametric
+  mode only; usable today only by a caller reaching
+  `retirement_planner.simulation.generate_historical_bootstrap_paths()`
+  directly.
 - **Sequence-of-returns stress overlay**: a configurable shock (magnitude,
   duration, and starting point within the plan) layered onto either
   return-generation mode, since a bad early sequence of returns is a
   materially different risk than the same average return spread evenly.
+  Not yet exposed through the BFF or Streamlit UI (rp-xxp) — usable today
+  only by a caller reaching
+  `retirement_planner.simulation.apply_stress_scenario()` directly.
 - **Survival-adjusted scoring** (optional): success rate can be expressed
   as "probability of not running out of money while at least one spouse
   is alive," using per-member actuarial survival curves, instead of a
@@ -646,7 +653,13 @@ own independent random paths.
   metric — it never changes what a path actually funds, only whether a
   shortfall on that path still counts as a failure once both members are
   presumed deceased (a fixed ≥50%-survival-probability threshold, checked
-  once at that path's own shortfall year).
+  once at that path's own shortfall year). Not yet exposed through the BFF
+  or Streamlit UI (rp-xxp) — the BFF never passes `survival_curves` into
+  `run_simulation()`/the simulated `compare_*()` functions, so
+  `SimulationRun.survival_adjusted_success_rate` is always `None` in every
+  BFF response today, and `reporting.SummaryStatistics` (what every UI
+  page actually reads) has no field for it at all yet, even for a caller
+  who did wire `survival_curves` in.
 - **Per-path probabilistic death draws** (optional, core-library-only —
   rp-vgv): unlike survival-adjusted scoring above, this capability
   changes what each path actually funds. Given the same per-member
@@ -737,6 +750,20 @@ survival-adjusted scoring already was.
   surcharge above the standard Medicare premium is. A household must
   estimate and fold both into `annual_need_real` itself; a follow-up
   feature may model either directly in the future (rp-1pp).
+- **Three Monte Carlo capabilities are engine-complete but not yet
+  reachable through the app itself** (rp-xxp full-surface audit):
+  historical-bootstrap return generation, the sequence-of-returns stress
+  overlay, and survival-adjusted success scoring (§6.8) all exist in
+  `retirement_planner.simulation` and are exercised by that package's own
+  tests, but `services/bff`'s request schemas never accept a
+  `generation_mode`, a stress-scenario configuration, or survival-curve
+  data, and no Streamlit page offers a control for any of the three — a
+  user of the deployed app can only ever run parametric, unstressed,
+  fixed-horizon simulations today. Follow-on work is scheduled to expose
+  the first two behind an "Advanced" section (a shock/return-model choice
+  most single households won't need on a first run) and the third as a
+  simple checkbox (survival-adjusted scoring needs no new user-entered
+  data, since a default synthetic survival table already exists).
 
 ## 8. Non-Functional Requirements
 

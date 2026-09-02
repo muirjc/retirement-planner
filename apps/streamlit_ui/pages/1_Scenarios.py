@@ -50,6 +50,7 @@ DEFAULTS = {
     "member1_ss_annual_benefit": 0.0,
     "member1_full_retirement_age": 67.0,
     "member1_predicted_death_age": 0,  # 0 = not set (maps to None) -- see _build_body()
+    "member1_hdhp_coverage": False,  # 010-advanced-tax-benefits
     # rp-5cq: income streams are NOT stored under a single key -- each
     # member's rows live under "member{1,2}_stream_ids" (a list of row
     # ids) plus per-row keys "member{1,2}_stream_{id}_{field}", seeded by
@@ -64,6 +65,7 @@ DEFAULTS = {
     "member2_ss_annual_benefit": 0.0,
     "member2_full_retirement_age": 67.0,
     "member2_predicted_death_age": 0,
+    "member2_hdhp_coverage": False,
     "member2_stream_ids": [],
     "member2_stream_next_id": 0,
     "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
@@ -90,6 +92,8 @@ DEFAULTS = {
     "conversion_bracket_ceiling_or_amount": 0.0,
     "conversion_window_start": 0,
     "conversion_window_end": 0,
+    "include_hsa_contribution": False,  # 010-advanced-tax-benefits
+    "hsa_annual_amount": 0.0,
     "include_inherited_ira": False,
     "inherited_account_type": "traditional",
     "inherited_owner": None,
@@ -135,6 +139,12 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     # "not set" sentinel (DEFAULTS above), never a KeyError for a scenario
     # saved before this feature existed.
     st.session_state["member1_predicted_death_age"] = m1.get("predicted_death_age") or 0
+    # 010-advanced-tax-benefits (rp-83g): `.get(..., False)` guards a
+    # scenario saved before this field existed, mirroring
+    # full_retirement_age's own guard comment above -- but hdhp_coverage
+    # actually IS resolved server-side to a concrete bool (schemas.py's own
+    # `= False` default), so this is belt-and-suspenders, not load-bearing.
+    st.session_state["member1_hdhp_coverage"] = m1.get("hdhp_coverage", False)
     _load_income_streams("member1", m1.get("income_streams") or [])
     if len(members) > 1:
         m2 = members[1]
@@ -144,6 +154,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_ss_annual_benefit"] = m2["ss_annual_benefit"]
         st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
         st.session_state["member2_predicted_death_age"] = m2.get("predicted_death_age") or 0
+        st.session_state["member2_hdhp_coverage"] = m2.get("hdhp_coverage", False)
         _load_income_streams("member2", m2.get("income_streams") or [])
     # NOTE: when the loaded scenario has no member 2 (single filer), its
     # stream rows are left untouched here -- mirrors every other member2_*
@@ -212,6 +223,12 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["conversion_bracket_ceiling_or_amount"] = rc["bracket_ceiling_or_amount"]
         st.session_state["conversion_window_start"] = rc["window"][0]
         st.session_state["conversion_window_end"] = rc["window"][1]
+    # 010-advanced-tax-benefits (rp-83g): mirrors roth_conversion's own
+    # optional-block loading immediately above -- see that block's shape.
+    hsa = scenario.get("hsa_contribution")
+    st.session_state["include_hsa_contribution"] = hsa is not None
+    if hsa is not None:
+        st.session_state["hsa_annual_amount"] = hsa["annual_amount"]
 
 
 # -- Income streams (021-pension-annuity-income, rp-5cq) ------------------
@@ -497,9 +514,13 @@ _SURVIVOR_SPENDING_REDUCTION_HELP = (
     "configured member's death above (e.g. 0.2 = 20% less spending). 0 (the default) means spending "
     "stays unchanged even after a death (018-survivor-scenario-projection)."
 )
+_HDHP_COVERAGE_HELP = (
+    "Whether this person is covered by a High-Deductible Health Plan (HDHP) -- required for HSA "
+    "eligibility. Only relevant if an HSA contribution is configured below (010-advanced-tax-benefits)."
+)
 
 st.markdown("**Member 1**")
-c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 c1.text_input("Name", key="member1_person_name", help=_NAME_HELP)
 c2.number_input("Current age", min_value=0, step=1, key="member1_current_age", help=_CURRENT_AGE_HELP)
 c3.number_input("SS claim age", min_value=0, step=1, key="member1_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
@@ -512,11 +533,12 @@ c5.number_input(
 c6.number_input(
     "Predicted death age", min_value=0, step=1, key="member1_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
 )
+c7.checkbox("HDHP coverage", key="member1_hdhp_coverage", help=_HDHP_COVERAGE_HELP)
 _render_income_streams("member1")
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     c1.text_input("Name", key="member2_person_name", help=_NAME_HELP)
     c2.number_input("Current age", min_value=0, step=1, key="member2_current_age", help=_CURRENT_AGE_HELP)
     c3.number_input("SS claim age", min_value=0, step=1, key="member2_ss_claim_age", help=_SS_CLAIM_AGE_HELP)
@@ -529,6 +551,7 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     c6.number_input(
         "Predicted death age", min_value=0, step=1, key="member2_predicted_death_age", help=_PREDICTED_DEATH_AGE_HELP
     )
+    c7.checkbox("HDHP coverage", key="member2_hdhp_coverage", help=_HDHP_COVERAGE_HELP)
     _render_income_streams("member2")
     st.number_input(
         "Survivor spending reduction",
@@ -847,6 +870,24 @@ if st.session_state["include_roth_conversion"]:
     w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start", help=_WINDOW_HELP)
     w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end", help=_WINDOW_HELP)
 
+st.subheader("HSA contribution (optional)")
+st.checkbox(
+    "Include an HSA contribution",
+    key="include_hsa_contribution",
+    help=(
+        "Leave unchecked if this household isn't contributing to an HSA. Only takes effect in years "
+        "a member above has HDHP coverage checked (010-advanced-tax-benefits)."
+    ),
+)
+if st.session_state["include_hsa_contribution"]:
+    st.number_input(
+        "Annual contribution ($)",
+        min_value=0.0,
+        step=100.0,
+        key="hsa_annual_amount",
+        help="The household's intended annual HSA contribution, in years any member above is HDHP-eligible.",
+    )
+
 
 def _build_body() -> dict:
     body = {
@@ -861,6 +902,7 @@ def _build_body() -> dict:
                     "ss_annual_benefit": st.session_state["member1_ss_annual_benefit"],
                     "full_retirement_age": st.session_state["member1_full_retirement_age"],
                     "predicted_death_age": st.session_state["member1_predicted_death_age"] or None,
+                    "hdhp_coverage": st.session_state["member1_hdhp_coverage"],
                     "income_streams": _collect_income_streams("member1"),
                 }
             ],
@@ -899,6 +941,7 @@ def _build_body() -> dict:
             "plan_to_age": st.session_state["plan_to_age"],
         },
         "roth_conversion": None,
+        "hsa_contribution": None,
     }
     if st.session_state["filing_status"] == "married_filing_jointly":
         body["household"]["members"].append(
@@ -909,6 +952,7 @@ def _build_body() -> dict:
                 "ss_annual_benefit": st.session_state["member2_ss_annual_benefit"],
                 "full_retirement_age": st.session_state["member2_full_retirement_age"],
                 "predicted_death_age": st.session_state["member2_predicted_death_age"] or None,
+                "hdhp_coverage": st.session_state["member2_hdhp_coverage"],
                 "income_streams": _collect_income_streams("member2"),
             }
         )
@@ -937,6 +981,8 @@ def _build_body() -> dict:
             "bracket_ceiling_or_amount": st.session_state["conversion_bracket_ceiling_or_amount"],
             "window": [st.session_state["conversion_window_start"], st.session_state["conversion_window_end"]],
         }
+    if st.session_state["include_hsa_contribution"]:
+        body["hsa_contribution"] = {"annual_amount": st.session_state["hsa_annual_amount"]}
     if st.session_state["include_inherited_ira"]:
         inherited_account = {
             "account_type": st.session_state["inherited_account_type"],

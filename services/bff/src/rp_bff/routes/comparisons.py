@@ -170,6 +170,10 @@ def resolve_and_compare_deterministic(
 
     try:
         if body.axis == "roth_conversion_strategy":
+            # rp-cgj: candidates is only None when body.axis ==
+            # "claiming_age_grid" (the ternary above) -- this branch is the
+            # opposite, so it's always a real list here.
+            assert candidates is not None
             for candidate in candidates:
                 if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                     _reject_unknown("conversion_strategy", candidate.conversion_strategy)
@@ -178,6 +182,7 @@ def resolve_and_compare_deterministic(
                 claiming_ages=context.strategy.claiming_ages, candidates=candidates,
             )
         elif body.axis == "withdrawal_sequencing":
+            assert candidates is not None  # rp-cgj: see the roth_conversion_strategy branch's own comment above
             for candidate in candidates:
                 if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
                     _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
@@ -272,6 +277,10 @@ def resolve_and_compare_simulated(
                 else None
             )
             if body.axis == "roth_conversion_strategy":
+                # rp-cgj: candidates is only None when body.axis ==
+                # "claiming_age_grid" (the ternary above) -- this branch is
+                # the opposite, so it's always a real list here.
+                assert candidates is not None
                 for candidate in candidates:
                     if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                         _reject_unknown("conversion_strategy", candidate.conversion_strategy)
@@ -281,6 +290,7 @@ def resolve_and_compare_simulated(
                     hsa_contribution=context.strategy.hsa_contribution,
                 )
             elif body.axis == "withdrawal_sequencing":
+                assert candidates is not None  # rp-cgj: see the roth_conversion_strategy branch's own comment above
                 for candidate in candidates:
                     if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
                         _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)

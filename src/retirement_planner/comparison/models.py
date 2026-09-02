@@ -170,10 +170,21 @@ class PlanOutcome:
 
 @dataclass
 class PlanProjection:
-    """data-model.md § PlanProjection."""
+    """data-model.md § PlanProjection.
+
+    return_assumption (rp-cgj): typed ReturnSchedule, not the narrower
+    DeterministicReturnAssumption this field's type annotation originally
+    had (004-strategy-comparison-layer, before 005-simulation-engine's own
+    ReturnSchedule seam existed) -- 005's data-model.md § path_results
+    already documents the real, current behavior this corrects the type
+    to match: for a Monte Carlo path, this field holds the specific
+    ReturnPath that produced it, not a DeterministicReturnAssumption at
+    all. run_plan_projection()'s own return_assumption parameter has
+    already been ReturnSchedule since 012-inherited-ira-rmd; this field
+    was simply never updated to match."""
 
     strategy: StrategyConfiguration
-    return_assumption: DeterministicReturnAssumption
+    return_assumption: ReturnSchedule
     years: list[PlanYearProjection]
     outcome: PlanOutcome
 

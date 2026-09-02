@@ -10,7 +10,7 @@ RMD_START_AGE and UNIFORM_LIFETIME_TABLE have both been cross-checked
 against their primary sources and ship verified=True
 (014-figure-verification, rp-9wi.5/.7). JOINT_LIFE_TABLE remains an
 illustrative placeholder figure (SourcedFigure, verified=False),
-continuing 002's citation/verification convention (FR-019) — it covers
+continuing 002's citation/verification convention (FR-019) -- it covers
 only the age pairs this project's tests and quickstart.md exercise, and
 neither its coverage nor its verification is in that feature's scope;
 extending it to the full IRS Pub. 590-B Table II remains follow-on work.
@@ -18,7 +18,7 @@ extending it to the full IRS Pub. 590-B Table II remains follow-on work.
 Schedule note (added for 004-strategy-comparison-layer, updated by
 014-figure-verification): RMD_START_AGE is scheduled to actually change
 (73 -> 75 in 2033 under SECURE 2.0 Act §107, codified at 26 U.S.C.
-§401(a)(9)(C)(v)) — a real future caller must not assume it never will.
+§401(a)(9)(C)(v)) -- a real future caller must not assume it never will.
 That step is now modeled directly: the schedule below returns 73 for
 tax years before 2033 and 75 for 2033 onward. This is a tax-year-keyed
 approximation of the statute's actual rule, which is keyed to the
@@ -41,6 +41,7 @@ compute_rmd().
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from retirement_planner.tax import SourcedFigure
 
@@ -171,17 +172,29 @@ def compute_rmd(
         spouse_is_sole_beneficiary and spouse_age is not None and (member_age - spouse_age) > 10
     )
 
+    # rp-cgj: each branch keeps its own SourcedFigure reference (rather than
+    # a shared `table_figure` name) since JOINT_LIFE_TABLE and
+    # UNIFORM_LIFETIME_TABLE are differently-keyed
+    # (SourcedFigure[dict[tuple[int, int], float]] vs.
+    # SourcedFigure[dict[int, float]]) -- mypy correctly rejects reusing one
+    # variable across both. table_used gets an explicit Literal annotation
+    # so its two string-literal assignments narrow to RmdResult's own
+    # Literal["uniform_lifetime", "joint_life"] field, not a widened str.
+    table_used: Literal["uniform_lifetime", "joint_life"]
     if use_joint_life:
-        table_figure = JOINT_LIFE_TABLE
-        divisor = table_figure.value_for_year(tax_year)[(member_age, spouse_age)]
+        # use_joint_life's own definition above already required
+        # spouse_age is not None -- this assert documents that invariant
+        # for mypy, which doesn't track it through the boolean flag.
+        assert spouse_age is not None
+        divisor = JOINT_LIFE_TABLE.value_for_year(tax_year)[(member_age, spouse_age)]
         table_used = "joint_life"
+        figures_used = [RMD_START_AGE.usage_for_year(tax_year), JOINT_LIFE_TABLE.usage_for_year(tax_year)]
     else:
-        table_figure = UNIFORM_LIFETIME_TABLE
-        divisor = table_figure.value_for_year(tax_year)[member_age]
+        divisor = UNIFORM_LIFETIME_TABLE.value_for_year(tax_year)[member_age]
         table_used = "uniform_lifetime"
+        figures_used = [RMD_START_AGE.usage_for_year(tax_year), UNIFORM_LIFETIME_TABLE.usage_for_year(tax_year)]
 
     required_amount = traditional_balance / divisor
-    figures_used = [RMD_START_AGE.usage_for_year(tax_year), table_figure.usage_for_year(tax_year)]
 
     return RmdResult(
         required_amount=required_amount,

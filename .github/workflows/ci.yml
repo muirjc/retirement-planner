@@ -45,21 +45,19 @@ jobs:
       - name: Lint (ruff) -- Streamlit UI
         run: ruff check apps/streamlit_ui/
 
-      # rp-cgj: report-only until the 28-finding baseline (13 core / 4 BFF /
-      # 11 UI) established when mypy was first added is triaged and fixed --
-      # not blocking here to avoid either fixing untriaged type gaps in
-      # tested, constitution-covered financial-calculation code as a side
-      # effect of adding CI tooling, or shipping CI red on day one. Remove
-      # continue-on-error per package once rp-cgj closes that package's own
-      # findings.
+      # rp-cgj: blocking -- the 28-finding baseline (13 core / 4 BFF / 11 UI)
+      # established when mypy was first added (rp-apm) has been triaged and
+      # fixed: real None-narrowing gaps documented with an `assert` at the
+      # point of use, two shared-variable type ambiguities split into
+      # per-branch typed locals, one genuinely-too-narrow dataclass field
+      # (PlanProjection.return_assumption) widened to match 005-simulation-
+      # engine's own already-documented contract, and api_client.py's
+      # untyped-JSON boundary made explicit with `cast()` at each call site.
       - name: Type check (mypy) -- core
-        continue-on-error: true
         run: mypy --config-file pyproject.toml src/retirement_planner
       - name: Type check (mypy) -- BFF
-        continue-on-error: true
         run: mypy --config-file services/bff/pyproject.toml services/bff/src/rp_bff
       - name: Type check (mypy) -- Streamlit UI
-        continue-on-error: true
         run: mypy --config-file apps/streamlit_ui/pyproject.toml apps/streamlit_ui/src/rp_ui
 
       # -ll (medium+ severity only): the low-severity findings this baseline

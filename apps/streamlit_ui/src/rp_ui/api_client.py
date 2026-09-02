@@ -12,6 +12,7 @@ by tests/unit/test_api_client.py) -- production code never sets it, so
 from __future__ import annotations
 
 import os
+from typing import cast
 
 import httpx
 
@@ -91,6 +92,13 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 
 
+# rp-cgj: every _json() call site below casts its result to the shape
+# 007's own documented contract (contracts/bff-api.md) guarantees for that
+# specific endpoint -- _json() itself stays typed `object` (an honest
+# description of "whatever httpx.Response.json() actually returned"; this
+# module does no client-side schema validation, per its own docstring
+# above), so a cast is the accurate way to say "trust the contract here"
+# rather than a type: ignore that would silence a real mismatch too.
 def _json(method: str, path: str, *, json: object = None, params: dict | None = None) -> object:
     resp = _request(method, path, json=json, params=params)
     if resp.status_code >= 300:
@@ -112,19 +120,19 @@ def _text(method: str, path: str, *, json: object = None, params: dict | None = 
 
 def list_scenarios() -> list[str]:
     """GET /scenarios -- data-model.md § API Client."""
-    return _json("GET", "/scenarios")["scenarios"]
+    return cast(dict, _json("GET", "/scenarios"))["scenarios"]
 
 
 def get_scenario(name: str) -> dict:
     """GET /scenarios/{name} -- raises ScenarioNotFoundError on a 404."""
-    return _json("GET", f"/scenarios/{name}")
+    return cast(dict, _json("GET", f"/scenarios/{name}"))
 
 
 def put_scenario(name: str, body: dict) -> dict:
     """PUT /scenarios/{name} -- upsert; the response always includes
     validation_flags/is_usable, even for a scenario with blocking flags
     (contracts/ui-pages.md § 1_Scenarios.py, Acceptance Scenario US1.2)."""
-    return _json("PUT", f"/scenarios/{name}", json=body)
+    return cast(dict, _json("PUT", f"/scenarios/{name}", json=body))
 
 
 def delete_scenario(name: str) -> None:
@@ -135,7 +143,7 @@ def delete_scenario(name: str) -> None:
 
 def validate_scenario(name: str, body: dict) -> dict:
     """POST /scenarios/{name}/validate -- validates without saving."""
-    return _json("POST", f"/scenarios/{name}/validate", json=body)
+    return cast(dict, _json("POST", f"/scenarios/{name}/validate", json=body))
 
 
 # -- Reference data -----------------------------------------------------------
@@ -143,24 +151,24 @@ def validate_scenario(name: str, body: dict) -> dict:
 
 def list_states() -> list[str]:
     """GET /reference/states -- live from 002's STATE_MODULES (Principle IV)."""
-    return _json("GET", "/reference/states")["states"]
+    return cast(dict, _json("GET", "/reference/states"))["states"]
 
 
 def list_withdrawal_strategies() -> list[str]:
     """GET /reference/withdrawal-strategies -- live from 003's registry."""
-    return _json("GET", "/reference/withdrawal-strategies")["withdrawal_strategies"]
+    return cast(dict, _json("GET", "/reference/withdrawal-strategies"))["withdrawal_strategies"]
 
 
 def list_conversion_strategies() -> list[str]:
     """GET /reference/conversion-strategies -- live from 003's registry."""
-    return _json("GET", "/reference/conversion-strategies")["conversion_strategies"]
+    return cast(dict, _json("GET", "/reference/conversion-strategies"))["conversion_strategies"]
 
 
 def list_comparison_axes() -> list[str]:
     """GET /reference/comparison-axes -- 005's full axis set, including
     "state"; 3_Compare.py filters "state" out client-side for the
     Deterministic engine (FR-010)."""
-    return _json("GET", "/reference/comparison-axes")["axes"]
+    return cast(dict, _json("GET", "/reference/comparison-axes"))["axes"]
 
 
 # -- Simulations and comparisons ---------------------------------------------
@@ -169,20 +177,20 @@ def list_comparison_axes() -> list[str]:
 def run_simulation(body: dict) -> dict:
     """POST /simulations -- {"run": ..., "summary": ..., "account_detail": ...}
     on success (account_detail added by 015-per-account-projection-detail)."""
-    return _json("POST", "/simulations", json=body)
+    return cast(dict, _json("POST", "/simulations", json=body))
 
 
 def compare_deterministic(body: dict) -> dict:
     """POST /comparisons/deterministic -- {"axis": ..., "summaries": [...],
     "account_detail": [...]} (account_detail added by
     015-per-account-projection-detail, one list per candidate)."""
-    return _json("POST", "/comparisons/deterministic", json=body)
+    return cast(dict, _json("POST", "/comparisons/deterministic", json=body))
 
 
 def compare_simulated(body: dict) -> dict:
     """POST /comparisons/simulated -- same response shape as
     compare_deterministic(), the only endpoint that accepts axis="state"."""
-    return _json("POST", "/comparisons/simulated", json=body)
+    return cast(dict, _json("POST", "/comparisons/simulated", json=body))
 
 
 # -- Reports (CSV export) ------------------------------------------------------

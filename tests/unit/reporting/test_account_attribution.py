@@ -12,7 +12,7 @@ import pytest
 from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting import attribute_plan_projection, compute_account_shares
-from retirement_planner.scenario import Account, Household, HouseholdMember
+from retirement_planner.scenario import Account, Household, HouseholdMember, IncomeStream
 
 
 def _strategy(**overrides):
@@ -249,3 +249,33 @@ def test_member_social_security_benefits_pass_through_unchanged():
     detail = attribute_plan_projection(projection, shares)
 
     assert detail[0].member_social_security_benefits == projection.years[0].member_social_security_benefits == {"you": 30_000.0}
+
+
+def test_member_income_stream_amounts_pass_through_unchanged():
+    """021-pension-annuity-income (rp-pid), mirrors
+    test_member_social_security_benefits_pass_through_unchanged."""
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=67,
+                ss_claim_age=99,
+                ss_annual_benefit=0,
+                income_streams=[
+                    IncomeStream(
+                        label="State Pension", stream_type="pension", start_age=67,
+                        annual_amount=18_000.0, inflation_adjustment="cola_adjusted",
+                    )
+                ],
+            )
+        ],
+    )
+    scenario_accounts = [Account(account_type="taxable", balance=100_000, owner="you", account_id="taxable-0")]
+    accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
+    projection = _run(household, accounts, {"you": 0.0}, plan_to_age=67, strategy_overrides={"claiming_ages": {"you": 99}})
+    shares = compute_account_shares(scenario_accounts)
+
+    detail = attribute_plan_projection(projection, shares)
+
+    assert detail[0].member_income_stream_amounts == projection.years[0].member_income_stream_amounts == {"you": 18_000.0}

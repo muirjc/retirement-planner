@@ -328,6 +328,70 @@ def test_predicted_death_age_left_unset_sends_none_not_zero():
     assert store["no_death_age_case"]["household"]["members"][0]["predicted_death_age"] is None
 
 
+def test_income_streams_survive_a_load_then_save_round_trip_without_editing():
+    """021-pension-annuity-income (rp-pid): this form has no editing
+    widgets for income streams yet (plan.md Scope Boundaries), but must
+    not silently delete a member's already-configured streams the next
+    time the scenario is saved -- the non-lossy pass-through this feature
+    requires, stricter than this form's own pre-existing hdhp_coverage gap."""
+    handler, store = make_fake_bff()
+    _install(handler)
+    store["pension_case"] = {
+        "name": "pension_case",
+        "household": {
+            "filing_status": "single",
+            "members": [
+                {
+                    "person_name": "Alex",
+                    "current_age": 60,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 30_000,
+                    "full_retirement_age": 67.0,
+                    "income_streams": [
+                        {
+                            "label": "State Pension",
+                            "stream_type": "pension",
+                            "start_age": 62,
+                            "annual_amount": 18_000,
+                            "inflation_adjustment": "cola_adjusted",
+                            "end_age": None,
+                        }
+                    ],
+                }
+            ],
+        },
+        "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
+        "spending": {"annual_need_real": 60_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
+            "bond_allocation": 0.4, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
+            "correlation": -0.10,
+        },
+        "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": None,
+        "validation_flags": [],
+        "is_usable": True,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("pension_case")
+    at.button(key="load_button").click().run()
+    assert not at.exception
+
+    # No income-stream editing widget exists -- confirm the informational
+    # caption appeared instead, then save without touching anything else.
+    assert any("1 income stream(s) configured" in block.value for block in at.caption)
+
+    at.button(key="save_button").click().run()
+    assert not at.exception
+
+    streams = store["pension_case"]["household"]["members"][0]["income_streams"]
+    assert len(streams) == 1
+    assert streams[0]["label"] == "State Pension"
+    assert streams[0]["annual_amount"] == 18_000
+
+
 def test_survivor_spending_reduction_pct_defaults_zero_and_is_saved_and_reloaded():
     """018-survivor-scenario-projection: the widget only appears for a
     married-filing-jointly household (mirrors member2's own fields), it

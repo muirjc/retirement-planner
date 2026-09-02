@@ -189,6 +189,35 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                     severity="warning",
                 )
             )
+        # 021-pension-annuity-income (rp-pid): blocking, not a warning --
+        # an end_age before start_age is incoherent (a stream that stops
+        # before it starts), and a negative annual_amount is not a
+        # plausible income figure, mirroring ss_annual_benefit's own
+        # blocking (not warning) treatment above (data-model.md).
+        for stream_index, stream in enumerate(member.income_streams):
+            field_prefix = f"household.members[{index}].income_streams[{stream_index}]"
+            if stream.end_age is not None and stream.end_age < stream.start_age:
+                flags.append(
+                    ValidationFlag(
+                        field=f"{field_prefix}.end_age",
+                        message=(
+                            f"End age {stream.end_age} is less than this stream's start age "
+                            f"({stream.start_age}); a stream cannot stop before it starts."
+                        ),
+                        severity="blocking",
+                    )
+                )
+            if stream.annual_amount < 0:
+                flags.append(
+                    ValidationFlag(
+                        field=f"{field_prefix}.annual_amount",
+                        message=(
+                            f"Annual amount is negative (${stream.annual_amount:,.2f}); "
+                            "it cannot be negative."
+                        ),
+                        severity="blocking",
+                    )
+                )
     # 018-survivor-scenario-projection: a plausibility warning, not a
     # blocking rejection -- a household deliberately modeling spending
     # going UP after a death (e.g. new caregiving costs) is a legitimate,

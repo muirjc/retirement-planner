@@ -14,6 +14,54 @@ from typing import Literal
 
 
 @dataclass
+class IncomeStream:
+    """A generic fixed (optionally inflation-adjusted) income source
+    belonging to one household member -- a pension, an annuity payout, or
+    phased-retirement earned income (021-pension-annuity-income, rp-pid).
+    data-model.md § IncomeStream.
+
+    Feeds into the same household ordinary-income total Social Security
+    and account withdrawals already feed
+    (mechanics.compute_plan_year_mechanics()'s income_stream_total), fully
+    taxable -- unlike Social Security, none of it is excluded via a
+    provisional-income test.
+    """
+
+    label: str
+    """Free-text, user-facing (e.g. "State Teachers' Pension"). Display/
+    audit only -- no computation reads this field."""
+    stream_type: Literal["pension", "annuity", "earned_income"]
+    """Informational classification; does not itself change tax treatment
+    -- all three are fully taxable ordinary income. Kept as its own field
+    so a future feature (e.g. FICA on earned_income, explicitly out of
+    scope here) has a stable discriminator to key off without a shape
+    change (research.md, spec.md Assumptions)."""
+    start_age: int
+    """The member's age (whole years) at which the stream begins paying,
+    inclusive."""
+    annual_amount: float
+    """Today's (scenario-start) real dollars, the same convention as
+    annual_need_real/ss_annual_benefit. Must be >= 0 (validation.py)."""
+    inflation_adjustment: Literal["cola_adjusted", "fixed_nominal"]
+    """cola_adjusted: pays exactly annual_amount every active year -- this
+    engine already works entirely in real, inflation-adjusted dollars with
+    no separate nominal-dollar projection, so a cost-of-living-adjusted
+    income source is, in that convention, simply flat (same treatment as
+    ss_annual_benefit). fixed_nominal: does NOT keep pace with inflation,
+    so its real amount erodes over time against
+    mechanics.income_streams.INFLATION_RATE (research.md §1) -- this
+    engine's first inflation-rate figure, since nothing before this
+    feature needed one. No default -- every stream must state its mode
+    explicitly, mirroring ss_claim_age's own no-default precedent for a
+    similarly load-bearing field."""
+    end_age: int | None = None
+    """The member's age through which the stream still pays, inclusive.
+    None (the default) means the stream pays for every remaining plan
+    year -- a lifetime stream, mirroring ss_annual_benefit's own "once
+    claimed, never stops" behavior."""
+
+
+@dataclass
 class HouseholdMember:
     """One person in the household. data-model.md § HouseholdMember."""
 
@@ -55,6 +103,13 @@ class HouseholdMember:
     computations consults this field -- it exists purely as the
     data-model home a future feature (rp-g8y) will need, once mortality
     is wired into a running projection."""
+    income_streams: list[IncomeStream] = field(default_factory=list)
+    """021-pension-annuity-income (rp-pid): this member's own pension/
+    annuity/earned-income streams, zero or more, independent of every
+    other member's own streams. Defaults to [] (the default, and every
+    scenario predating this feature) -- a true no-op, reproducing every
+    existing scenario's exact current behavior unchanged; nothing
+    consumes this field unless it's non-empty (data-model.md)."""
 
 
 @dataclass

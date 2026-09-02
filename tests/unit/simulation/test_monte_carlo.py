@@ -13,7 +13,7 @@ import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import Household, HouseholdMember, IncomeStream, MarketAssumptions
 from retirement_planner.simulation.models import ReturnPath
 from retirement_planner.simulation.returns import generate_return_paths
 
@@ -450,6 +450,82 @@ def test_death_switch_matches_deterministic_projection_exactly():
     # Sanity: the switch actually occurred somewhere in this horizon.
     assert any(year.filing_status == "single" for year in deterministic.years)
     assert any(year.filing_status == "married_filing_jointly" for year in deterministic.years)
+
+
+def test_income_stream_matches_deterministic_projection_exactly():
+    """021-pension-annuity-income (rp-pid) FR-011/SC-004: income streams
+    are computed entirely inside comparison.run_plan_projection() -- every
+    Monte Carlo path already calls that function internally, so no
+    separate simulation-layer wiring is needed. Mirrors
+    test_death_switch_matches_deterministic_projection_exactly's own
+    consistency-check precedent."""
+    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.simulation.monte_carlo import run_simulation
+
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=60,
+                ss_claim_age=99,
+                ss_annual_benefit=0,
+                full_retirement_age=67.0,
+                income_streams=[
+                    IncomeStream(
+                        label="State Pension", stream_type="pension", start_age=62,
+                        annual_amount=18_000.0, inflation_adjustment="cola_adjusted",
+                    )
+                ],
+            )
+        ],
+    )
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
+    strategy = StrategyConfiguration(
+        label="test",
+        withdrawal_strategy="rmd_taxable_traditional_roth",
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        conversion_window=None,
+        claiming_ages={"you": 99},
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,  # spans both pre- and post-pension-start plan years (starts at 62)
+        strategy=strategy,
+    )
+
+    deterministic = run_plan_projection(
+        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+    )
+    simulated = run_simulation(
+        **common_kwargs,
+        return_paths=[
+            ReturnPath(
+                start_plan_year=1,
+                annual_returns=[0.0] * len(deterministic.years),
+                generation_mode="parametric",
+                figures_used=[],
+            )
+        ],
+        candidate_label="test",
+    )
+
+    simulated_years = simulated.path_results[0].years
+    assert len(simulated_years) == len(deterministic.years)
+    for simulated_year, deterministic_year in zip(simulated_years, deterministic.years):
+        assert simulated_year.member_income_stream_amounts == deterministic_year.member_income_stream_amounts
+
+    # Sanity: the pension actually turned on somewhere in this horizon.
+    assert any(year.member_income_stream_amounts["you"] > 0 for year in deterministic.years)
+    assert any(year.member_income_stream_amounts["you"] == 0 for year in deterministic.years)
 
 
 def test_roth_ladder_flag_matches_deterministic_projection_exactly():

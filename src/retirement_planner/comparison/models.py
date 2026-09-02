@@ -103,6 +103,12 @@ class PlanYearProjection:
     """person_name -> that member's own gross Social Security benefit
     received this year -- 0.0 before that member's own claiming age, never
     omitted."""
+    member_income_stream_amounts: dict[str, float] = field(default_factory=dict)
+    """021-pension-annuity-income (rp-pid): person_name -> that member's
+    own summed gross income-stream amount this year, across every
+    pension/annuity/earned-income stream that member has configured --
+    0.0 for a member with none configured, or none active this year,
+    never omitted. Mirrors member_social_security_benefits."""
     inherited_account_balances: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own ending balance this
     year, snapshotted from InheritedAccountBalance.balance (012/013's own

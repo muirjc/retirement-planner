@@ -9,6 +9,7 @@ from retirement_planner.scenario import (
     Household,
     HouseholdMember,
     HsaContributionPlan,
+    IncomeStream,
     InheritedIraDetails,
     MarketAssumptions,
     Scenario,
@@ -111,6 +112,46 @@ def test_predicted_death_age_defaults_to_none_after_a_save_load_round_trip(scena
     reloaded = load_scenario("no_death_age_case", scenarios_dir=scenario_store_dir)
 
     assert reloaded.household.members[0].predicted_death_age is None
+
+
+def test_income_streams_survive_a_save_load_round_trip(scenario_store_dir):
+    """021-pension-annuity-income (rp-pid): same field-by-field round-trip
+    discipline as full_retirement_age/predicted_death_age above --
+    _income_stream_to_dict() must be wired into _scenario_to_dict(), not
+    just the dataclass shape existing."""
+    scenario = _scenario("pension_case")
+    scenario.household.members[0].income_streams = [
+        IncomeStream(
+            label="State Pension",
+            stream_type="pension",
+            start_age=62,
+            annual_amount=18_000.0,
+            inflation_adjustment="cola_adjusted",
+        ),
+        IncomeStream(
+            label="Old annuity",
+            stream_type="annuity",
+            start_age=65,
+            end_age=74,
+            annual_amount=6_000.0,
+            inflation_adjustment="fixed_nominal",
+        ),
+    ]
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("pension_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].income_streams == scenario.household.members[0].income_streams
+
+
+def test_income_streams_default_to_empty_list_after_a_save_load_round_trip(scenario_store_dir):
+    scenario = _scenario("no_pension_case")
+    assert scenario.household.members[0].income_streams == []
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("no_pension_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].income_streams == []
 
 
 def test_account_owner_survives_a_save_load_round_trip(scenario_store_dir):

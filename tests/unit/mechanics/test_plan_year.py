@@ -148,3 +148,99 @@ def test_inherited_rmd_figures_used_are_unioned_into_result():
         inherited_rmd_figures_used=[figure],
     )
     assert figure in result.figures_used
+
+
+def test_income_stream_total_included_in_ordinary_income():
+    # 021-pension-annuity-income (rp-pid): mirrors
+    # test_inherited_distribution_amount_included_in_ordinary_income --
+    # spending_need=60_000 fully covered by rmd_drawn (40_000) + an
+    # income-stream total (15_000) alone, no further sequence draws.
+    result = compute_plan_year_mechanics(
+        plan_year=2030,
+        tax_year=2030,
+        spending_need=55_000,
+        starting_balances=AccountBalances(traditional=900_000, roth=200_000, taxable=50_000),
+        rmd_amount=40_000,
+        social_security_gross_benefit=0,
+        filing_status="married_filing_jointly",
+        conversion_window=None,
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        income_stream_total=15_000,
+    )
+    assert result.ordinary_income == 55_000
+
+
+def test_income_stream_total_reduces_roth_conversion_bracket_headroom():
+    # research.md §3: income_stream_total must be folded into
+    # ordinary_income_established BEFORE compute_roth_conversion() runs,
+    # so a configured pension correctly eats into that year's remaining
+    # bracket-fill room -- unlike social_security_gross_benefit, which
+    # stays a separate, partially-excluded component.
+    without_pension = compute_plan_year_mechanics(
+        plan_year=2030,
+        tax_year=2026,
+        spending_need=60_000,
+        starting_balances=AccountBalances(traditional=900_000, roth=200_000, taxable=50_000),
+        rmd_amount=40_000,
+        social_security_gross_benefit=0,
+        filing_status="married_filing_jointly",
+        conversion_window=(2028, 2034),
+        conversion_strategy="fill_to_bracket",
+        conversion_bracket_ceiling_or_amount=100_000,
+    )
+    with_pension = compute_plan_year_mechanics(
+        plan_year=2030,
+        tax_year=2026,
+        spending_need=60_000,
+        starting_balances=AccountBalances(traditional=900_000, roth=200_000, taxable=50_000),
+        rmd_amount=40_000,
+        social_security_gross_benefit=0,
+        filing_status="married_filing_jointly",
+        conversion_window=(2028, 2034),
+        conversion_strategy="fill_to_bracket",
+        conversion_bracket_ceiling_or_amount=100_000,
+        income_stream_total=30_000,
+    )
+    assert with_pension.conversion.amount_converted < without_pension.conversion.amount_converted
+
+
+def test_income_stream_figures_used_are_unioned_into_result():
+    figure = FigureUsage(
+        name="income_stream_fixed_nominal_erosion_rate",
+        citation="SSA 2025 Trustees Report, Long-Range Economic Assumptions",
+        last_verified=date(2026, 9, 2),
+        verified=True,
+    )
+    result = compute_plan_year_mechanics(
+        plan_year=2030,
+        tax_year=2030,
+        spending_need=60_000,
+        starting_balances=AccountBalances(traditional=900_000, roth=200_000, taxable=50_000),
+        rmd_amount=40_000,
+        social_security_gross_benefit=0,
+        filing_status="married_filing_jointly",
+        conversion_window=None,
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+        income_stream_total=5_000,
+        income_stream_figures_used=[figure],
+    )
+    assert figure in result.figures_used
+
+
+def test_omitted_income_stream_parameters_reproduce_prior_behavior():
+    result = compute_plan_year_mechanics(
+        plan_year=2030,
+        tax_year=2030,
+        spending_need=60_000,
+        starting_balances=AccountBalances(traditional=900_000, roth=200_000, taxable=50_000),
+        rmd_amount=40_000,
+        social_security_gross_benefit=0,
+        filing_status="married_filing_jointly",
+        conversion_window=None,
+        conversion_strategy=None,
+        conversion_bracket_ceiling_or_amount=None,
+    )
+    assert result.ordinary_income == 40_000
+    assert result.figures_used == []

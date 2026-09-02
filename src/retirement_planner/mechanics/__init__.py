@@ -9,12 +9,14 @@ additive HSA extension.
 """
 
 from .hsa import compute_hsa_contribution, compute_hsa_eligibility
+from .income_streams import INFLATION_RATE, compute_income_stream_amount
 from .models import (
     AccountBalances,
     AccountType,
     ConversionResult,
     HsaContributionResult,
     HsaEligibility,
+    IncomeStreamAmountResult,
     InheritedAccountBalance,
     InheritedRmdResult,
     PlanYearMechanicsResult,
@@ -52,6 +54,8 @@ __all__ = [
     "ConversionResult",
     "HsaContributionResult",
     "HsaEligibility",
+    "INFLATION_RATE",
+    "IncomeStreamAmountResult",
     "InheritedAccountBalance",
     "InheritedRmdResult",
     "JOINT_LIFE_TABLE",
@@ -72,6 +76,7 @@ __all__ = [
     "WithdrawalPlan",
     "compute_hsa_contribution",
     "compute_hsa_eligibility",
+    "compute_income_stream_amount",
     "compute_inherited_rmd",
     "compute_plan_year_mechanics",
     "compute_rmd",

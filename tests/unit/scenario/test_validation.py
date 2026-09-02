@@ -4,6 +4,7 @@ from retirement_planner.scenario import (
     Account,
     Household,
     HouseholdMember,
+    IncomeStream,
     InheritedIraDetails,
     MarketAssumptions,
     Scenario,
@@ -25,7 +26,9 @@ def _market_assumptions():
     )
 
 
-def _member(name="you", age=60, claim_age=67, benefit=32_000.0, fra=None, predicted_death_age=None):
+def _member(
+    name="you", age=60, claim_age=67, benefit=32_000.0, fra=None, predicted_death_age=None, income_streams=None
+):
     return HouseholdMember(
         person_name=name,
         current_age=age,
@@ -33,6 +36,7 @@ def _member(name="you", age=60, claim_age=67, benefit=32_000.0, fra=None, predic
         ss_annual_benefit=benefit,
         full_retirement_age=fra,
         predicted_death_age=predicted_death_age,
+        income_streams=income_streams or [],
     )
 
 
@@ -89,6 +93,103 @@ def test_validate_flags_negative_ss_annual_benefit_as_blocking():
     assert len(flags) == 1
     assert flags[0].field == "household.members[0].ss_annual_benefit"
     assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_income_stream_end_age_before_start_age_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="Bad stream",
+                            stream_type="pension",
+                            start_age=70,
+                            end_age=65,
+                            annual_amount=10_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].income_streams[0].end_age"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_income_stream_annual_amount_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="Bad stream",
+                            stream_type="pension",
+                            start_age=65,
+                            annual_amount=-1_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].income_streams[0].annual_amount"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_accepts_well_formed_income_stream():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="State Pension",
+                            stream_type="pension",
+                            start_age=62,
+                            end_age=90,
+                            annual_amount=18_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_accepts_income_stream_end_age_equal_to_start_age():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="One-year annuity",
+                            stream_type="annuity",
+                            start_age=70,
+                            end_age=70,
+                            annual_amount=5_000.0,
+                            inflation_adjustment="fixed_nominal",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    assert validate(scenario) == []
 
 
 def test_validate_accepts_full_retirement_age_inside_plausible_range():

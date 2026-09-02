@@ -9,12 +9,21 @@ IRMAA/NIIT extension.
 
 from .early_withdrawal_penalty import EARLY_WITHDRAWAL_PENALTY_RATE, compute_early_withdrawal_penalty
 from .federal import compute_federal_tax
+from .fica import (
+    ADDITIONAL_MEDICARE_TAX_RATE,
+    ADDITIONAL_MEDICARE_TAX_THRESHOLDS,
+    MEDICARE_RATE,
+    OASDI_RATE,
+    OASDI_WAGE_BASE,
+    compute_fica_tax,
+)
 from .irmaa import compute_irmaa_surcharge
 from .models import (
     BracketRow,
     BracketTable,
     EarlyWithdrawalPenaltyResult,
     FederalTaxResult,
+    FicaTaxResult,
     FigureUsage,
     FilingStatus,
     IncomeComponents,
@@ -32,12 +41,18 @@ from .social_security import compute_taxable_social_security
 from .state import STATE_MODULES, compute_state_tax
 
 __all__ = [
+    "ADDITIONAL_MEDICARE_TAX_RATE",
+    "ADDITIONAL_MEDICARE_TAX_THRESHOLDS",
     "EARLY_WITHDRAWAL_PENALTY_RATE",
+    "MEDICARE_RATE",
+    "OASDI_RATE",
+    "OASDI_WAGE_BASE",
     "STATE_MODULES",
     "BracketRow",
     "BracketTable",
     "EarlyWithdrawalPenaltyResult",
     "FederalTaxResult",
+    "FicaTaxResult",
     "FigureUsage",
     "FilingStatus",
     "IncomeComponents",
@@ -51,6 +66,7 @@ __all__ = [
     "UnsupportedTaxYearError",
     "compute_early_withdrawal_penalty",
     "compute_federal_tax",
+    "compute_fica_tax",
     "compute_irmaa_surcharge",
     "compute_niit",
     "compute_state_tax",

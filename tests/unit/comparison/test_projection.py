@@ -898,9 +898,14 @@ def test_income_streams_are_independent_per_member():
 
 def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
     """021-pension-annuity-income (rp-pid), US3: stream_type is purely
-    informational -- an earned_income stream flows through the exact same
-    code path as pension/annuity (data-model.md). No payroll/FICA figure
-    is modeled or appears anywhere in this result (spec.md Assumptions)."""
+    informational for *ordinary income tax* purposes -- an earned_income
+    stream flows through the exact same code path as pension/annuity
+    (data-model.md), contributing identically to mechanics.ordinary_income.
+    (022-fica-payroll-tax, rp-elp, later added a real FICA-specific
+    consequence for earned_income streams -- see test_projection.py's own
+    FICA-focused tests below -- so this test no longer asserts that no
+    such figure appears at all, only that ordinary-income treatment is
+    identical.)"""
     household = _single_member_household(current_age=63)
     household.members[0].income_streams = [
         IncomeStream(
@@ -930,8 +935,156 @@ def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
     assert by_age[63].mechanics.ordinary_income == by_age[63].member_income_stream_amounts["you"]
     assert by_age[66].member_income_stream_amounts["you"] == 0.0  # window ended after 65
 
-    figure_names = {figure.name for year in result.years for figure in year.figures_used}
-    assert not any("fica" in name.lower() or "payroll" in name.lower() for name in figure_names)
+
+def _earned_income_household(annual_amount, current_age=63, start_age=63, end_age=None):
+    household = _single_member_household(current_age=current_age)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Consulting", stream_type="earned_income", start_age=start_age, end_age=end_age,
+            annual_amount=annual_amount, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    return household
+
+
+def test_earned_income_stream_fica_is_funded_from_account_balances():
+    """022-fica-payroll-tax (rp-elp), US1: FICA reduces the household's
+    own account balances (spec.md FR-004/SC-002), not merely reported
+    alongside them -- mirrors how IRMAA/NIIT/the early-withdrawal penalty
+    already fund tax_owed."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    with_earned_income = run_plan_projection(household=_earned_income_household(40_000), **common_kwargs)
+    without_earned_income = run_plan_projection(household=_single_member_household(current_age=63), **common_kwargs)
+
+    first_year = with_earned_income.years[0]
+    assert first_year.fica_tax.total_fica_tax == pytest.approx(40_000 * (0.062 + 0.0145))
+    assert with_earned_income.outcome.ending_balance < without_earned_income.outcome.ending_balance
+    assert with_earned_income.outcome.cumulative_fica_tax_paid > 0.0
+    assert without_earned_income.outcome.cumulative_fica_tax_paid == 0.0
+
+
+def test_pension_and_annuity_streams_never_incur_fica():
+    """spec.md Acceptance Scenario US1.2: a household with only pension/
+    annuity streams (no earned_income) has fica_tax.total_fica_tax == 0.0
+    every year."""
+    household = _single_member_household(current_age=63)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Pension", stream_type="pension", start_age=63,
+            annual_amount=40_000.0, inflation_adjustment="cola_adjusted",
+        ),
+        IncomeStream(
+            label="Annuity", stream_type="annuity", start_age=63,
+            annual_amount=10_000.0, inflation_adjustment="fixed_nominal",
+        ),
+    ]
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    for year in result.years:
+        assert year.fica_tax.total_fica_tax == 0.0
+    assert result.outcome.cumulative_fica_tax_paid == 0.0
+
+
+def test_no_income_streams_produces_zero_fica_and_unaffected_output():
+    """spec.md FR-005/SC-003: a scenario with no income streams at all
+    (every scenario predating 021/022) is unaffected -- fica_tax is
+    always present (required field) but zeroed."""
+    result = run_plan_projection(
+        household=_single_member_household(current_age=63),
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    for year in result.years:
+        assert year.fica_tax.total_fica_tax == 0.0
+        assert year.fica_tax.member_oasdi_tax == {"you": 0.0}
+        assert year.fica_tax.member_medicare_tax == {"you": 0.0}
+    assert result.outcome.cumulative_fica_tax_paid == 0.0
+
+
+def test_earned_income_over_wage_base_caps_oasdi_in_a_running_projection():
+    """022-fica-payroll-tax (rp-elp), US2: the wage-base cap survives the
+    full projection wiring, not just compute_fica_tax() in isolation."""
+    household = _earned_income_household(250_000)
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=63,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    first_year = result.years[0]
+    assert first_year.fica_tax.member_oasdi_tax["you"] == pytest.approx(184_500 * 0.062)
+    assert first_year.fica_tax.member_medicare_tax["you"] == pytest.approx(250_000 * 0.0145)
+
+
+def test_additional_medicare_tax_applies_to_combined_mfj_earned_income_in_a_running_projection():
+    """022-fica-payroll-tax (rp-elp), US3: two spouses each individually
+    under the single-shaped $200k amount, but combined over the $250k MFJ
+    threshold -- computed once for the household."""
+    household = _mfj_household(you_age=63, spouse_age=63)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Consulting", stream_type="earned_income", start_age=63,
+            annual_amount=150_000.0, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    household.members[1].income_streams = [
+        IncomeStream(
+            label="Consulting", stream_type="earned_income", start_age=63,
+            annual_amount=150_000.0, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=1_000_000),
+        traditional_ownership_shares={"you": 0.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=63,
+        strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    first_year = result.years[0]
+    assert first_year.fica_tax.additional_medicare_tax == pytest.approx((300_000 - 250_000) * 0.009)
 
 
 def test_full_retirement_age_equal_to_claim_age_reproduces_pre_feature_flat_benefit():
@@ -1290,6 +1443,30 @@ def test_death_with_no_spending_reduction_configured_leaves_spending_unchanged()
     first_post_death_year = next(y for y in result.years if y.tax_year == 2030)
     assert first_post_death_year.filing_status == "single"
     assert first_post_death_year.effective_spending_need == 60_000.0
+
+
+def test_fica_additional_medicare_tax_threshold_switches_with_mid_horizon_filing_status():
+    """022-fica-payroll-tax (rp-elp), US3 + 018-survivor-scenario-projection
+    interaction: "you" earns $220k/year -- under the $250k MFJ threshold
+    (no Additional Medicare Tax while married), but over the $200k single
+    threshold (Additional Medicare Tax applies) once effective_filing_status
+    switches to single after spouse's death (contracts/comparison-api.md)."""
+    household = _death_household(spouse_death_age=70)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Consulting", stream_type="earned_income", start_age=67,
+            annual_amount=220_000.0, inflation_adjustment="cola_adjusted",
+        )
+    ]
+    result = _run_death_projection(household)
+
+    pre_death_year = next(y for y in result.years if y.tax_year == 2028)
+    assert pre_death_year.filing_status == "married_filing_jointly"
+    assert pre_death_year.fica_tax.additional_medicare_tax == 0.0
+
+    first_post_death_year = next(y for y in result.years if y.tax_year == 2030)
+    assert first_post_death_year.filing_status == "single"
+    assert first_post_death_year.fica_tax.additional_medicare_tax == pytest.approx((220_000 - 200_000) * 0.009)
 
 
 def test_no_configured_death_leaves_every_year_unchanged():

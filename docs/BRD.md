@@ -168,6 +168,8 @@ methodology this table's federal rows were most recently produced by.
 | Social Security spousal-benefit early-claiming reduction rate (25/36 of 1%/month first 36 months, 5/12 of 1%/month beyond; no delayed credit) | 42 U.S.C. §402(b)/(c); 20 C.F.R. §404.410 (wife's/husband's-benefit paragraph, fixed by regulation) | `mechanics/social_security_benefit.py` |
 | Social Security survivor-benefit rule (higher of the two benefits continues, the lower stops) | 42 U.S.C. §402(e)/(f); 20 C.F.R. §404.335/§404.336 | `mechanics/social_security_benefit.py` |
 | Non-COLA'd ("fixed-nominal") income-stream real-dollar erosion rate (2.40%/year) | SSA, *2025 Annual Report of the Boards of Trustees of the OASI and DI Trust Funds*, "Long-Range Economic Assumptions," intermediate assumption, ultimate CPI increase — a planning assumption, not binding law, unlike every other row above | `mechanics/income_streams.py` |
+| FICA OASDI rate (6.2%), Medicare/HI rate (1.45%, uncapped), 2026 OASDI wage base ($184,500) | SSA, "2026 Cost-of-Living Adjustment (COLA) Fact Sheet" (ssa.gov/news/en/cola/factsheets/2026.html); cross-checked against SSA's own Contribution and Benefit Base page (ssa.gov/oact/cola/cbb.html) | `tax/fica.py` |
+| Additional Medicare Tax rate (0.9%) and thresholds ($200,000 single / $250,000 MFJ, fixed since 2013, not inflation-indexed) | 26 U.S.C. §3101(b)(2); IRS, "Questions and Answers for the Additional Medicare Tax" | `tax/fica.py` |
 
 **Simplification, documented not hidden**: the RMD start-age step above is
 modeled as a tax-year cutoff (73 before 2033, 75 from 2033 on), not the
@@ -237,13 +239,16 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   taking the standard deduction (§5.1); a household that would itemize, or
   that qualifies for the senior bonus deduction, has its federal tax
   overstated relative to that household's actual liability.
-- **Payroll/self-employment tax (FICA/SECA) on `earned_income` income
-  streams** (rp-pid, §6.2d) — an earned-income stream is modeled purely as
-  ordinary taxable income, with no Social Security (6.2%) or Medicare
-  (1.45%, plus the 0.9% Additional Medicare Tax above threshold) payroll
-  tax computed on it. A household modeling meaningful phased-retirement
-  wages will see its true after-tax cash flow overstated relative to this
-  tool's output. Named follow-on work, not silently absorbed.
+- **Self-employment (SECA) tax on `earned_income` income streams**
+  (rp-elp, §6.2e) — employee-side FICA (Social Security + Medicare +
+  Additional Medicare Tax) on `earned_income` streams is now modeled
+  (§6.2e), closing most of this gap as originally described (rp-pid,
+  §6.2d). What remains unmodeled: the 15.3% combined self-employment rate
+  a 1099/sole-proprietor household member's earned income would actually
+  owe — a household whose phased-retirement earnings are genuinely
+  self-employment income, rather than W-2 wages, will still see its true
+  payroll-tax cost understated. Named follow-on work, not silently
+  absorbed.
 
 ### 5.4 State — South Carolina, Delaware, Florida
 
@@ -464,6 +469,45 @@ and editing these streams through the Streamlit UI — they round-trip
 through the scenario YAML and the BFF API today, but the UI form
 currently only preserves an already-configured stream on save rather than
 offering widgets to add or change one (a follow-on issue tracks this).
+
+### 6.2e FICA payroll tax on earned-income streams (rp-elp)
+
+`earned_income` income streams (§6.2d) now carry employee-side FICA
+payroll tax, closing the gap that feature explicitly left open:
+
+- **Social Security (OASDI)**: 6.2% of each household member's own
+  combined `earned_income` amount for the year, capped at the annual
+  Social Security wage base ($184,500 for 2026) — the cap applies
+  per worker, so a household with two earning spouses caps each
+  spouse's own OASDI independently.
+- **Medicare (HI)**: 1.45% of each member's own `earned_income`, with no
+  cap.
+- **Additional Medicare Tax**: a further 0.9%, computed once per
+  household (not per member) on the household's *combined* `earned_income`
+  above a filing-status threshold ($200,000 single / $250,000 married
+  filing jointly) — matching how this tax actually reconciles on IRS Form
+  8959 for a married couple, not a per-spouse check against a
+  single-filer-shaped number.
+
+Every dollar of this tax is funded from the household's own account
+balances the same plan year it's owed, exactly like federal/state income
+tax, the IRMAA surcharge, NIIT, and the early-withdrawal penalty already
+are — it genuinely reduces projected cash flow, not merely appears
+alongside it in a report. The wage base is pinned to its 2026 published
+value and held flat across every documented year, the same "real dollars,
+no further indexing engine" convention federal brackets and the standard
+deduction already use (§5.2) — the Additional Medicare Tax's $200k/$250k
+thresholds are held flat for a different reason: they are genuinely fixed
+by statute (26 U.S.C. §3101(b)(2)) since the tax took effect in 2013, not
+merely an engine convention standing in for missing data.
+
+**Not modeled**: self-employment (SECA) tax. This models only the
+employee-side W-2 rates above, not the 15.3% combined self-employment
+rate a 1099/sole-proprietor household member's `earned_income` would
+actually owe — a household whose phased-retirement earnings are genuinely
+self-employment income will see this feature understate their true
+payroll-tax cost. `pension`/`annuity` streams never incur FICA at all
+(they are not wages) — this is the correct treatment, not a gap.
 
 ### 6.3 Net Investment Income Tax (NIIT)
 

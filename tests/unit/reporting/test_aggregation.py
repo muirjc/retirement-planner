@@ -180,6 +180,38 @@ def test_median_lifetime_early_withdrawal_penalty_paid_derived_from_plan_outcome
     assert summary.median_lifetime_early_withdrawal_penalty_paid == pytest.approx(expected)
 
 
+def test_median_lifetime_fica_tax_paid_derived_from_plan_outcome():
+    """022-fica-payroll-tax (rp-elp): median_lifetime_fica_tax_paid is
+    derived the same way median_lifetime_early_withdrawal_penalty_paid
+    already is -- the median across paths' own
+    PlanOutcome.cumulative_fica_tax_paid."""
+    from retirement_planner.reporting.aggregation import summarize_run
+
+    projections = [_PROJECTION_A, _PROJECTION_B, _PROJECTION_C]
+    run = _run_from_projections(projections, success_rate=2 / 3)
+
+    summary = summarize_run(run, household=_HOUSEHOLD, reference_tax_year=2026)
+
+    expected = statistics.median(p.outcome.cumulative_fica_tax_paid for p in projections)
+    assert summary.median_lifetime_fica_tax_paid == pytest.approx(expected)
+
+
+def test_summarize_deterministic_comparison_includes_fica_tax():
+    """022-fica-payroll-tax (rp-elp): the deterministic path
+    (_summarize_plan_projection()) surfaces cumulative_fica_tax_paid
+    directly, the same "single value, no median needed" convention every
+    other median_lifetime_X_paid field already follows for one candidate."""
+    from retirement_planner.reporting.aggregation import summarize_deterministic_comparison
+
+    comparison = ComparisonResult(
+        dimension="withdrawal_sequencing",
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.03),
+        projections=[_PROJECTION_A],
+    )
+    summaries = summarize_deterministic_comparison(comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+    assert summaries[0].median_lifetime_fica_tax_paid == _PROJECTION_A.outcome.cumulative_fica_tax_paid
+
+
 def test_summarize_run_is_repeatable():
     from retirement_planner.reporting.aggregation import summarize_run
 

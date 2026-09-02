@@ -21,6 +21,7 @@ _MONTE_CARLO_SUMMARY = {
     "median_lifetime_irmaa_paid": 4_600.0,
     "median_lifetime_niit_paid": 0.0,
     "median_lifetime_early_withdrawal_penalty_paid": 0.0,
+    "median_lifetime_fica_tax_paid": 0.0,
     "unverified_figure_names": [],
 }
 
@@ -36,6 +37,7 @@ _DETERMINISTIC_SUMMARY = {
     "median_lifetime_irmaa_paid": 0.0,
     "median_lifetime_niit_paid": 1_200.0,
     "median_lifetime_early_withdrawal_penalty_paid": 800.0,
+    "median_lifetime_fica_tax_paid": 3_060.0,
     "unverified_figure_names": [],
 }
 
@@ -98,6 +100,7 @@ def test_tax_irmaa_niit_entries_always_present_and_currency_formatted():
     assert by_label["Lifetime Medicare IRMAA surcharge"]["value"] == "$0.00"
     assert by_label["Lifetime Net Investment Income Tax"]["value"] == "$1,200.00"
     assert by_label["Lifetime early-withdrawal penalty paid"]["value"] == "$800.00"  # 020-early-withdrawal-penalty
+    assert by_label["Lifetime FICA payroll tax paid"]["value"] == "$3,060.00"  # 022-fica-payroll-tax
 
 
 # --- render_results_explanation() (Streamlit rendering) ---

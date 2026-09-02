@@ -153,6 +153,17 @@ def narrate_metrics(summary: dict, *, path_count: int | None = None) -> list[dic
             ),
         }
     )
+    entries.append(
+        {
+            "label": "Lifetime FICA payroll tax paid",
+            "value": format_currency(summary.get("median_lifetime_fica_tax_paid")),
+            "explanation": (
+                f"{tax_qualifier} total employee-side FICA payroll tax (Social Security + Medicare) "
+                "on any earned-income streams (e.g. phased-retirement wages) -- $0 for a household "
+                "with only pensions, annuities, or account withdrawals, since those are not wages."
+            ),
+        }
+    )
 
     if is_monte_carlo:
         entries.append(

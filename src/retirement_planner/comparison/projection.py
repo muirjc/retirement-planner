@@ -34,6 +34,7 @@ from retirement_planner.tax import (
     IncomeComponents,
     compute_early_withdrawal_penalty,
     compute_federal_tax,
+    compute_fica_tax,
     compute_irmaa_surcharge,
     compute_niit,
     compute_state_tax,
@@ -225,6 +226,49 @@ def _member_income_stream_amounts(
             figures_used.extend(result.figures_used)
         amounts[member.person_name] = member_total
     return amounts, figures_used
+
+
+def _member_earned_income_amounts(
+    household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int
+) -> dict[str, float]:
+    """022-fica-payroll-tax (rp-elp): each member's own summed gross
+    earned_income-type stream amount this year -- unlike
+    _member_income_stream_amounts() above, which pools every stream type
+    together for the ordinary-income total, this sums ONLY
+    stream_type == "earned_income" streams, since pension/annuity income
+    is not wages and never enters a FICA calculation (research.md §2).
+    Deliberately independent of (recomputes rather than reuses)
+    _member_income_stream_amounts()'s own result -- keeps 021 and 022
+    decoupled; compute_income_stream_amount() is cheap and pure
+    (constitution Principle VI), so recomputation is not a real
+    performance concern. Never omits a member, even one with no
+    earned_income streams at all (0.0).
+
+    Deliberately returns no figures_used of its own: any fixed_nominal
+    earned_income stream's INFLATION_RATE usage is already collected once
+    by _member_income_stream_amounts() above (which iterates every
+    stream, earned_income included) -- collecting it again here would
+    only duplicate an entry an unaffected downstream reader already
+    dedupes by name (reporting.aggregation._unverified_figure_names()),
+    not add missing provenance."""
+    amounts: dict[str, float] = {}
+    for member in household.members:
+        member_total = 0.0
+        for stream in member.income_streams:
+            if stream.stream_type != "earned_income":
+                continue
+            result = compute_income_stream_amount(
+                annual_amount=stream.annual_amount,
+                inflation_adjustment=stream.inflation_adjustment,
+                start_age=stream.start_age,
+                end_age=stream.end_age,
+                member_age_this_year=ages_this_year[member.person_name],
+                tax_year=tax_year,
+                reference_tax_year=reference_tax_year,
+            )
+            member_total += result.amount
+        amounts[member.person_name] = member_total
+    return amounts
 
 
 def run_plan_projection(
@@ -658,6 +702,22 @@ def run_plan_projection(
             tax_year=tax_year,
         )
 
+        # 022-fica-payroll-tax (rp-elp): employee-side FICA on this
+        # year's earned_income-type stream amounts only -- never
+        # pension/annuity (_member_earned_income_amounts() above already
+        # excludes them). Uses effective_filing_status (018's own
+        # mid-horizon switch), so a household that switches to "single"
+        # after a configured death also switches which Additional
+        # Medicare Tax threshold applies from that year forward,
+        # consistent with every other filing-status-dependent
+        # computation in this loop.
+        member_earned_income = _member_earned_income_amounts(household, ages_this_year, tax_year, reference_tax_year)
+        fica_tax = compute_fica_tax(
+            member_earned_income=member_earned_income,
+            filing_status=effective_filing_status,
+            tax_year=tax_year,
+        )
+
         # rp-yqf: irmaa.surcharge_owed and niit.surtax_owed are included
         # here too -- both are real household costs (010-advanced-tax-
         # benefits FR-002/FR-006: "include the resulting ... surcharge as
@@ -682,6 +742,7 @@ def run_plan_projection(
             + irmaa.surcharge_owed
             + niit.surtax_owed
             + early_withdrawal_penalty.penalty_owed
+            + fica_tax.total_fica_tax
         )
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
             spending_need=tax_owed,
@@ -732,6 +793,7 @@ def run_plan_projection(
             *niit.figures_used,
             *ladder_result.figures_used,
             *early_withdrawal_penalty.figures_used,
+            *fica_tax.figures_used,
         ]
 
         years.append(
@@ -749,6 +811,7 @@ def run_plan_projection(
                 niit=niit,
                 hsa_contribution=hsa_contribution,
                 early_withdrawal_penalty=early_withdrawal_penalty,
+                fica_tax=fica_tax,
                 figures_used=figures_used,
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
@@ -794,6 +857,7 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
     cumulative_early_withdrawal_penalty_paid = sum(
         year.early_withdrawal_penalty.penalty_owed for year in years
     )
+    cumulative_fica_tax_paid = sum(year.fica_tax.total_fica_tax for year in years)
 
     return PlanOutcome(
         ending_balance=ending_balance,
@@ -802,4 +866,5 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
         cumulative_irmaa_paid=cumulative_irmaa_paid,
         cumulative_niit_paid=cumulative_niit_paid,
         cumulative_early_withdrawal_penalty_paid=cumulative_early_withdrawal_penalty_paid,
+        cumulative_fica_tax_paid=cumulative_fica_tax_paid,
     )

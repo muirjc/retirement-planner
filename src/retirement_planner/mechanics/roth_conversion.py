@@ -54,6 +54,18 @@ def fill_to_bracket_ceiling(
     taxable_social_security))) (FR-009, Acceptance Scenario US3.5).
     figures_used carries the Social Security figures consulted.
     """
+    # rp-8la: taxable_social_security is computed ONCE here, against
+    # ordinary_income_established (pre-conversion) -- it is never re-solved
+    # against established_taxable_income + amount_converted below, even
+    # though a large enough conversion can itself push more Social Security
+    # into taxability under the real provisional-income test (26 U.S.C.
+    # §86). Exact whenever the household is already at/past the 85%-taxable
+    # tier before conversion (taxable_social_security is then invariant to
+    # the conversion amount) -- an approximation that can leave the real
+    # post-conversion taxable income above `ceiling` when pre-conversion
+    # income starts below that tier and the sized conversion crosses it.
+    # Documented, bounded simplification -- see docs/BRD.md §6.6 and the
+    # recorded project decision; not fixed here.
     income = IncomeComponents(
         ordinary_income=ordinary_income_established,
         social_security_gross_benefit=social_security_gross_benefit,

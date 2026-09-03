@@ -614,12 +614,39 @@ rules in §5.5.
 
 Two Roth conversion strategies ship: fill ordinary income up to a
 configured federal bracket ceiling each year, or convert a fixed dollar
-amount each year — both aware of how the conversion itself feeds back
-into Social Security taxability (26 U.S.C. §86) in the same tax year.
-Withdrawal order is modeled as a named, swappable sequence of account
-types (e.g., taxable → traditional → Roth) rather than one hardcoded
-order, so comparing sequencing strategies means comparing two data
-values, not two code paths.
+amount each year. Withdrawal order is modeled as a named, swappable
+sequence of account types (e.g., taxable → traditional → Roth) rather
+than one hardcoded order, so comparing sequencing strategies means
+comparing two data values, not two code paths.
+
+**Bracket-fill sizing vs. Social Security taxability (26 U.S.C. §86,
+rp-8la)**: the bracket-fill strategy consults
+`retirement_planner.tax.compute_taxable_social_security()` when sizing
+the conversion, but only **once**, against that year's already-established
+ordinary income (RMD + voluntary traditional draws + inherited
+distributions + pension/annuity/earned income) — *before* the conversion
+amount being sized is added. The conversion is then sized as
+`min(traditional_balance, max(0, ceiling - (established_income +
+that_one_pass's_taxable_social_security)))`. It is never re-solved against
+the post-conversion total, even though a large enough conversion can
+itself raise how much Social Security is taxable under the real
+provisional-income test. This single pass is **exact** whenever the
+household's pre-conversion provisional income already sits at or above
+the 85%-taxable tier's threshold (`threshold_2`) — the common case for a
+typical bracket-fill candidate — because `taxable_social_security` is
+then invariant to the conversion amount. It is an **approximation** (can
+land the household's real total taxable income *above* the configured
+ceiling, not exactly at it) when pre-conversion provisional income starts
+below `threshold_2` and the sized conversion is large enough to cross a
+taxability tier boundary — e.g., an early-retirement Roth-conversion-bridge
+household whose Social Security hasn't started yet, or started only
+recently at a low benefit. Decision: left as a documented, bounded
+simplification rather than an iterative/closed-form re-solve — see the
+recorded project decision for rationale; `fill_to_bracket_ceiling()`'s
+docstring in `mechanics/roth_conversion.py` carries the same note at the
+point the single pass happens, and
+`tests/unit/mechanics/test_roth_conversion.py` pins today's actual
+behavior in the edge case.
 
 **Roth conversion five-year (conversion-ladder) tracking (rp-886)**: each
 conversion a projection actually executes is tracked as its own "lot,"

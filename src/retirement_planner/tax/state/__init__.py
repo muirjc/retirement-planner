@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..models import FilingStatus, IncomeComponents, StateTaxResult
-from . import de, fl, sc
+from . import de, fl, nc, sc
 
 StateTaxFunction = Callable[[IncomeComponents, list[int], FilingStatus, int], StateTaxResult]
 
@@ -26,6 +26,7 @@ STATE_MODULES: dict[str, StateTaxFunction] = {
     "SC": sc.compute_tax,
     "DE": de.compute_tax,
     "FL": fl.compute_tax,
+    "NC": nc.compute_tax,
 }
 
 

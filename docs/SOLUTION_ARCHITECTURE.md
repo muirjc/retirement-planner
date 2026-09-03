@@ -90,7 +90,7 @@ C4Component
 
     Container_Boundary(core, "src/retirement_planner") {
         Component(scenario, "scenario", "Household/account/scenario config — YAML parse, validate, save/load. InheritedIraDetails, per-owner Account.account_id.")
-        Component(tax, "tax", "Federal + state (SC/DE/FL) income tax, Social Security taxability, NIIT, IRMAA, FICA payroll tax on earned income. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
+        Component(tax, "tax", "Federal + state (SC/DE/FL/NC) income tax, Social Security taxability, NIIT, IRMAA, FICA payroll tax on earned income. SourcedFigure — the citation/verification primitive every other subpackage's figures reuse.")
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring, opt-in per-path probabilistic death draws (mortality.py). Wraps comparison's projection loop per path.")
@@ -293,11 +293,19 @@ already proven in shipped code:
 - Adding a new state is additive by the architecture's own design: one
   new `tax/state/*.py` module implementing the locked `compute_tax()`
   signature, one new `STATE_MODULES` entry, confirmed by every one of the
-  three states shipped today (`sc.py`, `de.py`, `fl.py`) needing no change
-  outside that pattern. rp-5dn (North Carolina, the next candidate state)
-  is scoped the same way but is still open, unimplemented as of this
-  review — cited here as the pattern's next planned exercise, not as a
-  completed confirmation.
+  four states shipped today (`sc.py`, `de.py`, `fl.py`, `nc.py`) needing no
+  change outside that pattern. rp-5dn (North Carolina) is no longer just
+  the pattern's next *planned* exercise — `024-nc-state-tax` completed it:
+  `nc.py` + one `STATE_MODULES` entry, zero changes to `compute_state_tax()`,
+  `comparison/`, `simulation/`, the BFF, or the UI, exactly as predicted.
+  A real, structural difference did surface along the way — North
+  Carolina's flat rate needed no bracket *table* at all (a one-row
+  degenerate case of `apply_progressive_brackets()`), and its Bailey-
+  settlement exclusion could not be modeled through this architecture's
+  existing `IncomeComponents` shape at all (it keys off income source and
+  pension vesting date, neither of which that shared input carries) —
+  documented as a deliberate, honest omission (`docs/BRD.md` §5.4) rather
+  than an architecture gap this feature tried to paper over.
 - A real, now-fixed gap in this same evidence: South Carolina's and
   Delaware's own bracket-table `SourcedFigure`s originally covered only 1
   (`DE`) and 2 (`SC`) tax years each — far short of `_DOCUMENTED_YEARS`

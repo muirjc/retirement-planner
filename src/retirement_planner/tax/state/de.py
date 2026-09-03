@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..bracket_math import apply_progressive_brackets
+from ..bracket_math import apply_progressive_brackets_detailed
 from ..models import BracketRow, FilingStatus, IncomeComponents, SourcedFigure, StateTaxResult
 
 _AGE_EXCLUSION_THRESHOLD = 60
@@ -76,9 +76,13 @@ def compute_tax(
 
     total_exclusion = sum(exclusion_per_filer for age in filer_ages if age >= _AGE_EXCLUSION_THRESHOLD)
     taxable_income = max(0.0, income.ordinary_income - total_exclusion)
+    state_tax_owed, bracket_breakdown = apply_progressive_brackets_detailed(taxable_income, brackets)
 
     return StateTaxResult(
         state="DE",
-        state_tax_owed=apply_progressive_brackets(taxable_income, brackets),
+        state_tax_owed=state_tax_owed,
         figures_used=figures_used,
+        taxable_income=taxable_income,
+        exclusion_applied=total_exclusion,
+        bracket_breakdown=bracket_breakdown,
     )

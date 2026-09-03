@@ -66,7 +66,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..bracket_math import apply_progressive_brackets
+from ..bracket_math import apply_progressive_brackets_detailed
 from ..models import BracketRow, FilingStatus, IncomeComponents, SourcedFigure, StateTaxResult
 
 # rp-5dn: matches every other module's _DOCUMENTED_YEARS convention
@@ -120,9 +120,13 @@ def compute_tax(
     figures_used = [_NC_FLAT_RATE.usage_for_year(tax_year)]
 
     taxable_income = max(0.0, income.ordinary_income - income.government_pension_income)
+    state_tax_owed, bracket_breakdown = apply_progressive_brackets_detailed(taxable_income, brackets)
 
     return StateTaxResult(
         state="NC",
-        state_tax_owed=apply_progressive_brackets(taxable_income, brackets),
+        state_tax_owed=state_tax_owed,
         figures_used=figures_used,
+        taxable_income=taxable_income,
+        exclusion_applied=income.government_pension_income,
+        bracket_breakdown=bracket_breakdown,
     )

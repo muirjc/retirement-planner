@@ -24,11 +24,74 @@ def _year_detail(plan_year: int, tax_year: int) -> dict:
     }
 
 
+def _account_waterfall(starting: float, ending: float) -> dict:
+    """A trivially reconciling single-step waterfall (no RMD/withdrawal/
+    conversion/tax activity) -- rp-bm8.3's own field-shape, real values
+    aren't the point of these page-rendering tests."""
+    growth = ending - starting
+    return {
+        "account_type": "traditional",
+        "starting_balance": starting,
+        "rmd_drawn": 0.0,
+        "spending_withdrawal": 0.0,
+        "after_spending_withdrawal": starting,
+        "conversion_delta": 0.0,
+        "after_conversion": starting,
+        "tax_funding_withdrawal": 0.0,
+        "after_tax_withdrawal": starting,
+        "growth": growth,
+        "growth_rate_pct": (growth / starting * 100.0) if starting else None,
+        "ending_balance": ending,
+    }
+
+
+def _detail() -> dict:
+    """rp-bm8.3: a minimal but internally-consistent YearComputationDetail
+    fixture."""
+    return {
+        "balance_waterfall": {
+            "traditional": _account_waterfall(100_000.0, 105_000.0),
+            "roth": _account_waterfall(0.0, 0.0),
+            "taxable": _account_waterfall(0.0, 0.0),
+            "total_starting_balance": 100_000.0,
+            "total_ending_balance": 105_000.0,
+            "total_tax_owed": 100.0,
+        },
+        "income_composition": {
+            "rmd_drawn": 0.0,
+            "traditional_sequence_withdrawal": 0.0,
+            "inherited_distribution": 0.0,
+            "income_streams": 0.0,
+            "roth_conversion_added": 0.0,
+            "hsa_deduction": 0.0,
+            "ordinary_income_total": 0.0,
+            "social_security_gross": 0.0,
+            "taxable_social_security": 0.0,
+        },
+        "federal_tax_detail": {
+            "taxable_income": 0.0,
+            "deduction_or_exclusion_label": "standard deduction",
+            "deduction_or_exclusion_amount": 32_200.0,
+            "bracket_breakdown": [],
+            "tax_owed": 100.0,
+        },
+        "state_tax_detail": {
+            "taxable_income": 0.0,
+            "deduction_or_exclusion_label": "no state income tax",
+            "deduction_or_exclusion_amount": 0.0,
+            "bracket_breakdown": [],
+            "tax_owed": 0.0,  # FL-shaped: no state income tax at all
+        },
+        "inherited_accounts": [],
+    }
+
+
 def _story(plan_year: int, tax_year: int, unverified_figure_names: list[str] | None = None) -> dict:
     return {
         "plan_year": plan_year,
         "tax_year": tax_year,
         "member_ages": {"you": 69 + plan_year},
+        "detail": _detail(),
         "entries": [
             {
                 "driver_key": "baseline",
@@ -125,3 +188,32 @@ def test_verification_indicator_scoped_per_shown_year():
     assert len(at.warning) == 1
     assert "nc_bailey_exclusion" in at.warning[0].value
     assert len(at.success) == 2  # plan years 1 and 3, both fully verified
+
+
+def test_computation_detail_expander_renders_the_balance_waterfall_and_tax_breakdown():
+    """rp-bm8.3: each shown year gets a 'How was this year's math
+    computed?' expander with the balance waterfall table and the federal/
+    state tax breakdown."""
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)
+    at.run()
+
+    assert not at.exception
+    assert len(at.expander) == 1
+    assert at.expander[0].label == "How was this year's math computed?"
+    assert len(at.dataframe) == 1  # the balance-waterfall table
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "Account balance walk" in markdown_text
+    assert "Ordinary income composition" in markdown_text
+    assert "Federal tax" in markdown_text
+    assert "State tax" in markdown_text
+
+
+def test_computation_detail_expander_shows_no_state_income_tax_when_bracket_breakdown_is_empty():
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)
+    at.run()
+
+    assert not at.exception
+    caption_text = " ".join(c.value for c in at.caption)
+    assert "No state income tax" in caption_text

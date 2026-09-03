@@ -21,19 +21,38 @@ from .aggregation import (
     unverified_figure_names,
 )
 from .export import deterministic_comparison_to_csv_text, run_to_csv_text, simulation_comparison_to_csv_text
-from .models import NarrativeEntry, RunNarrative, SummaryStatistics, YearStory
+from .models import (
+    AccountTypeWaterfall,
+    BalanceWaterfall,
+    IncomeComposition,
+    InheritedAccountDetail,
+    NarrativeEntry,
+    RunNarrative,
+    SummaryStatistics,
+    TaxComputationDetail,
+    YearComputationDetail,
+    YearStory,
+)
 from .narrative import build_narrative_for_run, build_year_stories, select_representative_path
+from .year_detail import build_year_computation_detail
 
 __all__ = [
     "AccountShare",
+    "AccountTypeWaterfall",
     "AccountYearDetail",
+    "BalanceWaterfall",
+    "IncomeComposition",
+    "InheritedAccountDetail",
     "NarrativeEntry",
     "PlanYearAccountDetail",
     "RunNarrative",
     "SummaryStatistics",
+    "TaxComputationDetail",
+    "YearComputationDetail",
     "YearStory",
     "attribute_plan_projection",
     "build_narrative_for_run",
+    "build_year_computation_detail",
     "build_year_stories",
     "compute_account_shares",
     "deterministic_comparison_to_csv_text",

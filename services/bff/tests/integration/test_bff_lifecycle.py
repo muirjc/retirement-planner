@@ -436,7 +436,14 @@ def test_run_simulation_response_includes_a_narrative_field_shaped_per_plan_year
     assert 0 <= narrative["selected_path_index"] < len(payload["run"]["path_results"])
     assert len(narrative["years"]) == len(payload["run"]["path_results"][0]["years"])
     first_year = narrative["years"][0]
-    assert set(first_year.keys()) == {"plan_year", "tax_year", "member_ages", "entries", "unverified_figure_names"}
+    assert set(first_year.keys()) == {
+        "plan_year",
+        "tax_year",
+        "member_ages",
+        "detail",  # rp-bm8.3
+        "entries",
+        "unverified_figure_names",
+    }
     assert len(first_year["entries"]) >= 1  # FR-005: never empty
     assert first_year["member_ages"].keys() == {"you", "spouse"}
 
@@ -463,6 +470,43 @@ def test_identical_run_requests_produce_a_byte_identical_narrative_field(client)
     second = client.post("/api/v1/simulations", json=_RUN_BODY).json()["narrative"]
 
     assert first == second
+
+
+# -- rp-bm8.3: deep computation traceability (balance waterfall + tax breakdown) --
+
+
+def test_narrative_year_detail_reconciles_and_matches_federal_tax_owed(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    payload = client.post("/api/v1/simulations", json=_RUN_BODY).json()
+
+    selected_path_index = payload["narrative"]["selected_path_index"]
+    path_years = payload["run"]["path_results"][selected_path_index]["years"]
+    for story, year in zip(payload["narrative"]["years"], path_years):
+        detail = story["detail"]
+        assert set(detail.keys()) == {
+            "balance_waterfall",
+            "income_composition",
+            "federal_tax_detail",
+            "state_tax_detail",
+            "inherited_accounts",
+        }
+        for account in ("traditional", "roth", "taxable"):
+            waterfall = detail["balance_waterfall"][account]
+            reconciled = (
+                waterfall["starting_balance"]
+                - waterfall["rmd_drawn"]
+                - waterfall["spending_withdrawal"]
+                + waterfall["conversion_delta"]
+                - waterfall["tax_funding_withdrawal"]
+                + waterfall["growth"]
+            )
+            assert reconciled == pytest.approx(waterfall["ending_balance"], abs=0.01)
+        fed = detail["federal_tax_detail"]
+        assert sum(row["tax_in_bracket"] for row in fed["bracket_breakdown"]) == pytest.approx(fed["tax_owed"], abs=0.01)
+        assert fed["tax_owed"] == pytest.approx(year["federal_tax"]["federal_tax_owed"], abs=0.01)
+        state = detail["state_tax_detail"]
+        assert state["tax_owed"] == pytest.approx(year["state_tax"]["state_tax_owed"], abs=0.01)
 
 
 # -- rp-9vl: opt-in survival-adjusted success rate --

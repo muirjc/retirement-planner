@@ -94,7 +94,7 @@ C4Component
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring, opt-in per-path probabilistic death draws (mortality.py). Wraps comparison's projection loop per path.")
-        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) + per-plan-year plain-language narrative (narrative.py, 028) — depends on all five other subpackages, none of them depend on it.")
+        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) + per-plan-year plain-language narrative (narrative.py, 028) + per-plan-year computation traceability -- balance waterfall, income composition, federal/state tax breakdown (year_detail.py, rp-bm8.3) — depends on all five other subpackages, none of them depend on it.")
     }
 
     Rel(tax, scenario, "reads config types from")
@@ -146,7 +146,7 @@ C4Component
 | GET/PUT/DELETE | `/scenarios`, `/scenarios/{name}` | List/save/load/delete named scenarios |
 | POST | `/scenarios/{name}/validate` | Run validation without executing a projection |
 | GET | `/reference/states`, `/reference/withdrawal-strategies`, `/reference/conversion-strategies`, `/reference/comparison-axes` | Live registries the UI populates its dropdowns from — never hardcoded client-side |
-| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) — and `narrative` (028) — a plain-language story per plan year for the one path closest to the median outcome, independently selected from `detail_path_index` |
+| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) — and `narrative` (028) — a plain-language story per plan year for the one path closest to the median outcome, independently selected from `detail_path_index`, each year's story also carrying a `detail` field (rp-bm8.3) with the full balance waterfall and federal/state tax breakdown behind that year's numbers |
 | POST | `/comparisons/deterministic`, `/comparisons/simulated` | Deterministic (single-path) or simulated (Monte Carlo) comparison across one axis. Response includes `account_detail` (015) — one per candidate, same shape as `/simulations`' |
 | POST | `/reports/simulations.csv`, `/reports/comparisons.csv` | CSV export of the above |
 

@@ -248,6 +248,25 @@ def test_every_year_has_at_least_one_entry():
     assert all(len(story.entries) >= 1 for story in stories)
 
 
+def test_every_year_has_a_computation_detail_that_reconciles_to_the_stored_tax_owed():
+    """rp-bm8.3: build_year_stories() populates YearStory.detail for every
+    year -- full driver-detection/waterfall coverage is
+    reporting/year_detail's own test_year_detail.py; this just confirms
+    the wiring."""
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(person_name="Alex", current_age=72, ss_claim_age=99, ss_annual_benefit=0)],
+    )
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    projection = _project(household, AccountBalances(traditional=700_000, roth=0, taxable=0), strategy, plan_to_age=77)
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    for story, year in zip(stories, projection.years):
+        assert story.detail.federal_tax_detail.tax_owed == year.federal_tax.federal_tax_owed
+        assert story.detail.state_tax_detail.tax_owed == year.state_tax.state_tax_owed
+
+
 def test_covers_every_plan_year_with_no_gaps_or_duplicates():
     household = _household_one()
     strategy = _strategy(claiming_ages={"you": 99})

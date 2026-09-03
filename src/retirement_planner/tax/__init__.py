@@ -19,6 +19,7 @@ from .fica import (
 )
 from .irmaa import compute_irmaa_surcharge
 from .models import (
+    BracketContribution,
     BracketRow,
     BracketTable,
     EarlyWithdrawalPenaltyResult,
@@ -48,6 +49,7 @@ __all__ = [
     "OASDI_RATE",
     "OASDI_WAGE_BASE",
     "STATE_MODULES",
+    "BracketContribution",
     "BracketRow",
     "BracketTable",
     "EarlyWithdrawalPenaltyResult",

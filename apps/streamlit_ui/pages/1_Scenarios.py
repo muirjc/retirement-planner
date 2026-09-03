@@ -317,7 +317,15 @@ def _load_income_streams(member_key: str, streams: list[dict]) -> None:
 
 
 _STREAM_LABEL_HELP = "A short label for this income source (e.g. \"State Teachers' Pension\") -- display/audit only, doesn't affect the calculation."
-_STREAM_TYPE_HELP = "Informational classification only -- pension, annuity, and phased-retirement earned income are all taxed identically here, as fully taxable ordinary income."
+_STREAM_TYPE_HELP = (
+    "Informational classification only -- pension, annuity, and phased-retirement earned income are "
+    "all taxed identically here, as fully taxable ordinary income. **For `earned_income` "
+    "especially**: this stream's cash is never added to any account balance and never reduces the "
+    "amount withdrawn to meet the Annual spending need field below (same treatment Social Security "
+    "already gets). If this income already covers part of the household's living costs, Annual "
+    "spending need must already be entered net of that amount, or the tool will double-count it -- "
+    "the full spending need withdrawn from savings AND this salary taxed on top."
+)
 _STREAM_START_AGE_HELP = "This member's age (whole years) when the stream begins paying, inclusive."
 _STREAM_END_AGE_HELP = "This member's age through which the stream still pays, inclusive. Leave at 0 for 'pays for every remaining plan year' -- no end date."
 _STREAM_AMOUNT_HELP = "Today's (scenario-start) real dollars -- same convention as spending need and Social Security benefit above. Must be zero or more."
@@ -739,7 +747,12 @@ st.number_input(
     "Annual spending need ($, today's dollars)",
     step=1000.0,
     key="annual_need_real",
-    help="Your planned annual spending in today's dollars, before taxes. See the Instructions page's Spending section.",
+    help=(
+        "Your planned annual spending in today's dollars, before taxes. Must already be net of any "
+        "configured `earned_income` stream's contribution to living costs above -- income streams "
+        "(including Social Security and earned_income) are additional taxable income layered on top "
+        "and never reduce this withdrawal amount. See the Instructions page's Spending section."
+    ),
 )
 
 st.subheader("State")

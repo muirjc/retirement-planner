@@ -605,6 +605,30 @@ def test_income_stream_can_be_removed_without_disturbing_another_streams_row():
     ]
 
 
+def test_earned_income_stream_type_and_spending_help_text_warn_about_double_counting():
+    """rp-uaf: an earned_income stream's cash never reduces annual spending
+    need (same cash-flow treatment as Social Security, docs/BRD.md §6.2d),
+    so a scenario author has no engine-level check catching a missed manual
+    netting -- the Type field's help text (read right when `earned_income`
+    is picked) and the Annual spending need field's help text (read right
+    where the netting must actually happen) must both say so explicitly."""
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.button(key="member1_add_stream").click().run()
+    (stream_id,) = at.session_state["member1_stream_ids"]
+
+    type_help = at.selectbox(key=f"member1_stream_{stream_id}_type").help
+    assert "earned_income" in type_help
+    assert "never" in type_help.lower()
+    assert "double-count" in type_help.lower()
+
+    spending_help = at.number_input(key="annual_need_real").help
+    assert "earned_income" in spending_help
+    assert "net" in spending_help.lower()
+
+
 def test_survivor_spending_reduction_pct_defaults_zero_and_is_saved_and_reloaded():
     """018-survivor-scenario-projection: the widget only appears for a
     married-filing-jointly household (mirrors member2's own fields), it

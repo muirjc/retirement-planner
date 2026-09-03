@@ -421,6 +421,50 @@ def test_run_simulation_out_of_range_detail_path_index_returns_422(client):
     assert payload["path_count"] == n_paths
 
 
+# -- 028-results-walkthrough (rp-bm8.1): narrative field on POST /simulations --
+
+
+def test_run_simulation_response_includes_a_narrative_field_shaped_per_plan_year(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "narrative" in payload
+    narrative = payload["narrative"]
+    assert 0 <= narrative["selected_path_index"] < len(payload["run"]["path_results"])
+    assert len(narrative["years"]) == len(payload["run"]["path_results"][0]["years"])
+    first_year = narrative["years"][0]
+    assert set(first_year.keys()) == {"plan_year", "tax_year", "member_ages", "entries", "unverified_figure_names"}
+    assert len(first_year["entries"]) >= 1  # FR-005: never empty
+    assert first_year["member_ages"].keys() == {"you", "spouse"}
+
+
+def test_narrative_field_does_not_change_the_run_summary_or_account_detail_fields(client):
+    """FR-014: this feature adds one field and changes nothing else --
+    compare against 015's own account_detail-shaped-per-account test's
+    fixture expectations."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    payload = client.post("/api/v1/simulations", json=_RUN_BODY).json()
+
+    assert 0.0 <= payload["summary"]["success_rate"] <= 1.0
+    assert len(payload["account_detail"]) == len(payload["run"]["path_results"][0]["years"])
+
+
+def test_identical_run_requests_produce_a_byte_identical_narrative_field(client):
+    """FR-006/SC-002: explicit check on the narrative field itself, on top
+    of test_identical_run_requests_produce_identical_results()'s existing
+    whole-payload equality check above."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    first = client.post("/api/v1/simulations", json=_RUN_BODY).json()["narrative"]
+    second = client.post("/api/v1/simulations", json=_RUN_BODY).json()["narrative"]
+
+    assert first == second
+
+
 # -- rp-9vl: opt-in survival-adjusted success rate --
 
 

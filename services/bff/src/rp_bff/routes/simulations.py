@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from retirement_planner.comparison import deemed_rmd_owner
-from retirement_planner.reporting import compute_account_shares, summarize_run
+from retirement_planner.reporting import build_narrative_for_run, compute_account_shares, summarize_run
 from retirement_planner.scenario import ScenarioParseError
 from retirement_planner.simulation import GenerationMode, SimulationRun, StressScenario, run_simulation
 from retirement_planner.tax import UnsupportedTaxYearError
@@ -213,4 +213,15 @@ def run_simulation_route(body: SimulationRequest, scenarios_dir: Path | None = D
     except PathIndexOutOfRangeError as exc:
         raise path_index_out_of_range_error(exc)
 
-    return {"run": to_jsonable(run), "summary": to_jsonable(summary), "account_detail": to_jsonable(account_detail)}
+    # 028-results-walkthrough (rp-bm8.1, contracts/reporting-narrative-api.md):
+    # computed once, for build_narrative_for_run()'s own selected
+    # representative path -- independent of body.detail_path_index above,
+    # which governs account_detail's separately-selected path.
+    narrative = build_narrative_for_run(run, household=context.household, reference_tax_year=body.reference_tax_year)
+
+    return {
+        "run": to_jsonable(run),
+        "summary": to_jsonable(summary),
+        "account_detail": to_jsonable(account_detail),
+        "narrative": to_jsonable(narrative),
+    }

@@ -417,6 +417,71 @@ def test_run_simulation_out_of_range_detail_path_index_returns_422(client):
     assert payload["path_count"] == n_paths
 
 
+# -- rp-9vl: opt-in survival-adjusted success rate --
+
+
+def test_run_simulation_survival_adjusted_defaults_to_not_computed(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["survival_adjusted_success_rate"] is None
+    assert payload["run"]["survival_adjusted_success_rate"] is None
+    assert "survival_curve_primary" not in payload["summary"]["unverified_figure_names"]
+
+
+def test_run_simulation_survival_adjusted_true_includes_the_rate_and_flags_it_unverified(client):
+    """base_case's members (ages 60/58, plan_to_age 95) fall entirely
+    within SURVIVAL_TABLE's documented 50-110 coverage."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "survival_adjusted": True})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert 0.0 <= payload["summary"]["survival_adjusted_success_rate"] <= 1.0
+    assert payload["summary"]["survival_adjusted_success_rate"] == payload["run"]["survival_adjusted_success_rate"]
+    # simulation.survival_data.SURVIVAL_TABLE is an illustrative placeholder,
+    # never verified (docs/BRD.md §6.9) -- opting in must surface that via
+    # the same verification-flag machinery every other unverified figure
+    # already uses (rp-9vl item 4).
+    assert "survival_curve_primary" in payload["summary"]["unverified_figure_names"]
+    assert "survival_curve_spouse" in payload["summary"]["unverified_figure_names"]
+
+
+def test_run_simulation_survival_adjusted_age_out_of_range_returns_422_not_a_bare_500(client):
+    """A household member younger than SURVIVAL_TABLE's documented age-50
+    floor would otherwise hit a bare KeyError deep inside
+    run_simulation()'s per-path scoring loop -- resolution.py's pre-flight
+    check must catch this before that point and report a clean 422
+    (rp-9vl, mirroring the reference_tax_year=1900/UnsupportedTaxYearError
+    precedent above)."""
+    young_member_scenario = {
+        **_SCENARIO_BODY,
+        "household": {
+            "filing_status": "single",
+            "members": [{"person_name": "you", "current_age": 10, "ss_claim_age": 62, "ss_annual_benefit": 0}],
+        },
+        "accounts": [{"account_type": "traditional", "balance": 1_500_000, "owner": "you"}],
+        "simulation_settings": {"n_paths": 10, "seed": 1, "plan_to_age": 60},
+        "roth_conversion": None,
+    }
+    client.put("/api/v1/scenarios/young_member_case", json=young_member_scenario)
+
+    response = client.post(
+        "/api/v1/simulations",
+        json={**_RUN_BODY, "scenario_name": "young_member_case", "survival_adjusted": True},
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "survival_curve_age_out_of_range"
+    assert payload["person_name"] == "you"
+    assert payload["age"] == 10
+
+
 # --- User Story 4: run and retrieve a comparison ---
 
 
@@ -430,6 +495,36 @@ def test_simulated_state_comparison_returns_one_summary_per_state(client):
     summaries = response.json()["summaries"]
     assert len(summaries) == 3                                                     # US4.1
     assert {s["candidate_label"] for s in summaries} == {"SC", "DE", "FL"}
+
+
+def test_simulated_comparison_survival_adjusted_true_includes_the_rate_per_candidate(client):
+    """rp-9vl: same opt-in flag as /simulations, honored by every simulated
+    compare_*() axis via resolve_and_compare_simulated()'s shared `common`."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["SC", "DE"], "survival_adjusted": True}
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    assert response.status_code == 200
+    for summary in response.json()["summaries"]:
+        assert 0.0 <= summary["survival_adjusted_success_rate"] <= 1.0
+
+
+def test_deterministic_comparison_ignores_survival_adjusted_flag(client):
+    """rp-9vl: 004 has no Monte Carlo distribution to score -- the flag is
+    accepted (never a 422/validation error) but has no effect, mirroring
+    detail_path_index's own "accepted but ignored" precedent for this
+    route."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY, "axis": "withdrawal_sequencing", "survival_adjusted": True,
+        "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+    }
+    response = client.post("/api/v1/comparisons/deterministic", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["summaries"][0]["survival_adjusted_success_rate"] is None
 
 
 # -- 015-per-account-projection-detail (US2): per-candidate year-by-year

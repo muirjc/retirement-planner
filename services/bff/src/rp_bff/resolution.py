@@ -23,6 +23,7 @@ from retirement_planner.mechanics import (
     WITHDRAWAL_STRATEGIES,
 )
 from retirement_planner.scenario import Household, Scenario, load_scenario
+from retirement_planner.simulation import SURVIVAL_TABLE, SurvivalCurve
 from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
 from .cost_estimation import check_cost_within_budget
@@ -76,6 +77,82 @@ def unsupported_tax_year_error(exc: UnsupportedTaxYearError) -> HTTPException:
             "documented_years": exc.available_years,
         },
     )
+
+
+_SURVIVAL_CURVE_ROLES = ("primary", "spouse")
+"""rp-9vl: simulation.SURVIVAL_TABLE provides exactly two illustrative
+curves, keyed by role ("primary", "spouse") rather than person_name --
+build_survival_curves() below maps them onto a resolved Household's own
+members in order (index 0 -> "primary", index 1 -> "spouse"), mirroring
+every existing test's own usage of SURVIVAL_TABLE (e.g.
+tests/integration/test_simulation_lifecycle.py). Household.members has at
+most 2 entries (scenario/models.py's own FR-013 invariant), so this never
+runs out of roles."""
+
+
+class SurvivalCurveAgeOutOfRangeError(Exception):
+    """Raised by validate_survival_curve_coverage() when a household
+    member's age, at some point in this run's own plan horizon, would fall
+    outside SURVIVAL_TABLE's documented coverage (age 50-110 inclusive,
+    survival_data.py) -- pre-flight, before run_simulation()/compare_*()
+    would otherwise hit the same gap deep inside a per-path scoring loop as
+    a bare, unhelpful KeyError(age) (rp-9vl). Carries which member and age
+    so a route handler can report both, the same way
+    UnsupportedTaxYearError's figure_name/requested_year already do."""
+
+    def __init__(self, person_name: str, age: int) -> None:
+        self.person_name = person_name
+        self.age = age
+        super().__init__(f"no survival curve coverage for {person_name!r} at age {age}")
+
+
+def survival_curve_age_out_of_range_error(exc: SurvivalCurveAgeOutOfRangeError) -> HTTPException:
+    """Translates a raised SurvivalCurveAgeOutOfRangeError into a 422
+    response -- survival_adjusted scoring is opt-in (SimulationRequest/
+    ComparisonRequest.survival_adjusted), so this is a request-shape
+    problem (this household's ages don't fit the illustrative table this
+    feature ships), never a bare 500."""
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": "survival_curve_age_out_of_range",
+            "person_name": exc.person_name,
+            "age": exc.age,
+        },
+    )
+
+
+def build_survival_curves(household: Household) -> dict[str, SurvivalCurve]:
+    """Maps SURVIVAL_TABLE's two illustrative roles onto household.members
+    in order, keyed by each member's own person_name -- the shape
+    run_simulation()/simulation.compare_*() require (rp-9vl,
+    specs/005-simulation-engine/research.md §5)."""
+    return {
+        member.person_name: SURVIVAL_TABLE[role]
+        for member, role in zip(household.members, _SURVIVAL_CURVE_ROLES)
+    }
+
+
+def validate_survival_curve_coverage(
+    household: Household, survival_curves: dict[str, SurvivalCurve], plan_to_age: int, owner_current_age: int
+) -> None:
+    """Pre-flight check for every age a completed run could ever look up in
+    survival_curves (monte_carlo.run_simulation()'s own
+    `member.current_age + (shortfall_year.tax_year - reference_tax_year)`
+    formula): the earliest possible lookup is a member's own current_age
+    (an immediate, plan-year-1 shortfall); the latest is that same age plus
+    the full horizon (plan_to_age - owner_current_age, the same
+    horizon_years derivation routes/simulations.py and routes/
+    comparisons.py already use for generate_return_paths()). Raises
+    SurvivalCurveAgeOutOfRangeError at the first age missing from that
+    member's curve, rather than letting run_simulation() discover the same
+    gap only after running every requested path (rp-9vl)."""
+    max_horizon = plan_to_age - owner_current_age
+    for member in household.members:
+        curve = survival_curves[member.person_name]
+        for age in range(member.current_age, member.current_age + max_horizon + 1):
+            if age not in curve.probabilities_by_age:
+                raise SurvivalCurveAgeOutOfRangeError(member.person_name, age)
 
 
 @dataclass

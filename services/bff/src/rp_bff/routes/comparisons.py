@@ -51,10 +51,14 @@ from ..dependencies import get_scenarios_dir
 from ..resolution import (
     BlockingValidationFlagsError,
     ResolvedRunContext,
+    SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
+    build_survival_curves,
     check_run_cost,
     resolve_run_context,
+    survival_curve_age_out_of_range_error,
     unsupported_tax_year_error,
+    validate_survival_curve_coverage,
 )
 from ..serialization import to_jsonable
 
@@ -86,6 +90,13 @@ class ComparisonRequest(BaseModel):
     path's account_detail to compute for the simulated route -- ignored
     by the deterministic route, where each candidate's own PlanProjection
     already *is* the one path. Defaults to 0 when omitted."""
+    survival_adjusted: bool = False
+    """rp-9vl: same opt-in flag as SimulationRequest's own -- honored only
+    by resolve_and_compare_simulated() (005's compare_*() functions all
+    accept survival_curves); silently ignored by
+    resolve_and_compare_deterministic() (004 has no Monte Carlo
+    distribution to score, mirroring detail_path_index's own "accepted but
+    ignored by the deterministic route" precedent above)."""
 
 
 def _resolve(body: ComparisonRequest, scenarios_dir: Path | None) -> ResolvedRunContext:
@@ -246,6 +257,17 @@ def resolve_and_compare_simulated(
         horizon_years=horizon_years, start_plan_year=body.start_plan_year, seed=context.seed,
     )
 
+    # rp-9vl: same opt-in pre-flight check as resolve_and_run_simulation()'s
+    # own -- see that function's comment for why this happens before any
+    # compare_*() call rather than letting one discover the gap mid-run.
+    survival_curves = None
+    if body.survival_adjusted:
+        survival_curves = build_survival_curves(context.household)
+        try:
+            validate_survival_curve_coverage(context.household, survival_curves, context.plan_to_age, owner.current_age)
+        except SurvivalCurveAgeOutOfRangeError as exc:
+            raise survival_curve_age_out_of_range_error(exc)
+
     common = dict(
         household=context.household,
         accounts=context.accounts,
@@ -260,6 +282,7 @@ def resolve_and_compare_simulated(
         # compare_*() the same way resolve_and_compare_deterministic()'s
         # own `common` already forces it into every deterministic branch.
         inherited_accounts=context.inherited_accounts,
+        survival_curves=survival_curves,
     )
 
     try:

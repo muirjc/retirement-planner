@@ -29,6 +29,13 @@ class SummaryStatistics:
 
     candidate_label: str | None
     success_rate: float | None
+    survival_adjusted_success_rate: float | None
+    """rp-9vl (005-simulation-engine FR-017/FR-018): 1:1 pass-through of
+    SimulationRun.survival_adjusted_success_rate -- None whenever that run
+    was computed without survival_curves (every deterministic (004)
+    candidate, and every Monte Carlo run that didn't opt in), never a
+    Monte-Carlo-shaped zero standing in for "not requested" (same
+    discipline as success_rate/percentile_bands above)."""
     ending_balance: float
     percentile_bands: list[PercentileBand] | None
     median_depletion_age: float | None

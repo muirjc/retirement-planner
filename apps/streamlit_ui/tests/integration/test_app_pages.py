@@ -1042,6 +1042,87 @@ def test_us2_run_displays_success_rate_and_fan_chart():
     assert any(type(child).__name__ == "UnknownElement" for child in at.main.children.values())
 
 
+def test_us2_survival_adjusted_checkbox_defaults_off_and_is_sent_in_request_body():
+    """rp-9vl: unchecked (the default) sends survival_adjusted: False --
+    every existing request body's exact prior shape, plus this one new
+    always-present field."""
+    captured = {}
+
+    def sim_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "run": {"path_results": [{}]},
+                "summary": {"success_rate": 1.0, "percentile_bands": [], "unverified_figure_names": []},
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    assert at.checkbox(key="run_survival_adjusted").value is False
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["survival_adjusted"] is False
+
+
+def test_us2_run_displays_survival_adjusted_success_rate_next_to_success_rate():
+    """rp-9vl: checking the box and getting a real value back shows both
+    metrics side by side; the ordinary case above (summary omits the
+    field entirely) keeps showing only the one Success rate metric."""
+    summary = {
+        "candidate_label": "base_case",
+        "success_rate": 0.91,
+        "survival_adjusted_success_rate": 0.97,
+        "ending_balance": 1_800_000.0,
+        "percentile_bands": _RUN_PERCENTILE_BANDS,
+        "median_depletion_age": None,
+        "median_lifetime_tax_paid": 300_000.0,
+        "unverified_figure_names": ["survival_curve_primary"],
+    }
+
+    def sim_response(request):
+        return httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": summary})
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.checkbox(key="run_survival_adjusted").set_value(True)
+    at.run()
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    metric_values = {m.label: m.value for m in at.metric}
+    assert metric_values["Success rate"] == "91.0%"
+    assert metric_values["Survival-adjusted success rate"] == "97.0%"
+    assert any("survival_curve_primary" in w.value for w in at.warning)
+
+
+def test_us2_survival_curve_age_out_of_range_shows_specific_message():
+    def sim_response(request):
+        return httpx.Response(
+            422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10}
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.checkbox(key="run_survival_adjusted").set_value(True)
+    at.run()
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert any("'you'" in e.value and "age 10" in e.value for e in at.error)
+
+
 def test_us2_blocking_flags_show_specific_message():
     """Acceptance Scenario US2.2 -- distinct wording from a
     "scenario doesn't exist" message."""
@@ -1173,6 +1254,94 @@ def _deterministic_summary(label: str) -> dict:
         "median_lifetime_tax_paid": 250_000.0,
         "unverified_figure_names": [],
     }
+
+
+def test_compare_survival_adjusted_checkbox_hidden_for_deterministic_engine():
+    """rp-9vl: 004 has no Monte Carlo distribution to score -- the
+    checkbox itself is never drawn for Deterministic, not merely disabled."""
+    _install(_route(_compare_reference_routes()))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    assert at.checkbox(key="compare_survival_adjusted") is not None  # default engine is Monte Carlo
+
+    at.radio(key="compare_engine").set_value("Deterministic")
+    at.run()
+    with pytest.raises(KeyError):
+        at.checkbox(key="compare_survival_adjusted")
+
+
+def test_compare_survival_adjusted_defaults_off_and_is_sent_in_request_body():
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "state", "summaries": [_simulated_summary("SC")]})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    assert at.checkbox(key="compare_survival_adjusted").value is False
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["survival_adjusted"] is False
+
+
+def test_us3_simulated_comparison_shows_survival_adjusted_success_rate_column():
+    summaries = [
+        {**_simulated_summary("SC"), "survival_adjusted_success_rate": 0.95},
+        {**_simulated_summary("DE"), "survival_adjusted_success_rate": None},
+    ]
+
+    def compare_response(request):
+        return httpx.Response(200, json={"axis": "state", "summaries": summaries})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.checkbox(key="compare_survival_adjusted").set_value(True)
+    at.selectbox(key="compare_axis").set_value("state")
+    at.number_input(key="compare_candidate_count").set_value(2)
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.selectbox(key="compare_candidate_1_state").set_value("DE")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    table = at.dataframe[0].value
+    assert table["survival_adjusted_success_rate"].iloc[0] == "95.0%"
+    assert table["survival_adjusted_success_rate"].iloc[1] == "n/a"
+
+
+def test_us3_survival_curve_age_out_of_range_shows_specific_message():
+    def compare_response(request):
+        return httpx.Response(
+            422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10}
+        )
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.checkbox(key="compare_survival_adjusted").set_value(True)
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert any("'you'" in e.value and "age 10" in e.value for e in at.error)
 
 
 def test_us3_simulated_state_comparison_shows_overlay_and_table():

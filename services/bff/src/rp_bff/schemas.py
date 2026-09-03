@@ -130,6 +130,21 @@ class HsaContributionPlanRequest(BaseModel):
     annual_amount: float
 
 
+class StressScenarioRequest(BaseModel):
+    """Mirrors 005-simulation-engine's StressScenario fields exactly (rp-2bn).
+    Shared (unlike SimulationRequest/ComparisonRequest's own top-level
+    fields, which are independently duplicated per route by this codebase's
+    existing convention) because this nested shape is genuinely identical
+    wherever it's used -- see routes/simulations.py and routes/comparisons.py,
+    both of which nest this as an optional `stress_scenario` field, `None`
+    (the default) meaning no stress overlay -- every existing request's exact
+    current behavior (026-advanced-simulation-options data-model.md)."""
+
+    magnitude: float
+    duration_years: int
+    start_plan_year: int
+
+
 class ScenarioRequest(BaseModel):
     """The PUT /scenarios/{name} and POST /scenarios/{name}/validate
     request body -- see data-model.md § Scenario Resource and

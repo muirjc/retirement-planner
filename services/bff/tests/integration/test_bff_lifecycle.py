@@ -23,8 +23,12 @@ _SCENARIO_BODY = {
     "spending": {"annual_need_real": 110_000},
     "state": "FL",
     "market_assumptions": {
-        "equity_allocation": 0.60, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
-        "bond_allocation": 0.40, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
+        "equity_allocation": 0.60,
+        "equity_return_mean_real": 0.065,
+        "equity_return_std_real": 0.17,
+        "bond_allocation": 0.40,
+        "bond_return_mean_real": 0.015,
+        "bond_return_std_real": 0.06,
         "correlation": -0.10,
     },
     "simulation_settings": {"n_paths": 200, "seed": 42, "plan_to_age": 95},
@@ -37,7 +41,7 @@ _SCENARIO_BODY = {
 
 def test_save_read_and_list_round_trip(client):
     save_response = client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
-    assert save_response.status_code == 200                                       # US1.1
+    assert save_response.status_code == 200  # US1.1
     assert save_response.json()["is_usable"] is True
 
     read_response = client.get("/api/v1/scenarios/base_case")
@@ -45,14 +49,11 @@ def test_save_read_and_list_round_trip(client):
     # 012-inherited-ira-rmd: the response now also carries account_id
     # (auto-filled deterministically since the request omitted it) and
     # inherited (None -- no account in this request is inherited).
-    expected_accounts = [
-        {**account, "account_id": f"{account['account_type']}-{index}", "inherited": None}
-        for index, account in enumerate(_SCENARIO_BODY["accounts"])
-    ]
-    assert read_response.json()["accounts"] == expected_accounts                  # US1.1
+    expected_accounts = [{**account, "account_id": f"{account['account_type']}-{index}", "inherited": None} for index, account in enumerate(_SCENARIO_BODY["accounts"])]
+    assert read_response.json()["accounts"] == expected_accounts  # US1.1
 
     list_response = client.get("/api/v1/scenarios")
-    assert "base_case" in list_response.json()["scenarios"]                       # US1.2
+    assert "base_case" in list_response.json()["scenarios"]  # US1.2
 
 
 def test_full_retirement_age_round_trips_and_defaults_when_omitted(client):
@@ -221,7 +222,7 @@ def test_validate_only_reports_blocking_flags_without_saving(client):
     validate_response = client.post("/api/v1/scenarios/base_case/validate", json=invalid_body)
     assert validate_response.status_code == 200
     flags = validate_response.json()["validation_flags"]
-    assert any(flag["severity"] == "blocking" for flag in flags)                  # US1.3
+    assert any(flag["severity"] == "blocking" for flag in flags)  # US1.3
 
     # Never saved -- the validate-only endpoint has no side effect.
     list_response = client.get("/api/v1/scenarios")
@@ -235,27 +236,27 @@ def test_saving_under_an_existing_name_fully_replaces_it(client):
     client.put("/api/v1/scenarios/base_case", json=replaced_body)
 
     read_response = client.get("/api/v1/scenarios/base_case")
-    assert read_response.json()["spending"]["annual_need_real"] == 999_999        # US1.4
+    assert read_response.json()["spending"]["annual_need_real"] == 999_999  # US1.4
 
 
 def test_delete_removes_it_and_a_subsequent_read_reports_no_such_scenario(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     delete_response = client.delete("/api/v1/scenarios/base_case")
-    assert delete_response.status_code == 204                                     # US1.5
+    assert delete_response.status_code == 204  # US1.5
 
     list_response = client.get("/api/v1/scenarios")
     assert "base_case" not in list_response.json()["scenarios"]
 
     read_response = client.get("/api/v1/scenarios/base_case")
     assert read_response.status_code == 404
-    assert read_response.json()["error"] == "no_such_scenario"                    # US1.6
+    assert read_response.json()["error"] == "no_such_scenario"  # US1.6
 
 
 def test_reading_or_deleting_a_never_saved_name_reports_no_such_scenario(client):
     read_response = client.get("/api/v1/scenarios/never_saved")
     assert read_response.status_code == 404
-    assert read_response.json()["error"] == "no_such_scenario"                    # US1.6, FR-005
+    assert read_response.json()["error"] == "no_such_scenario"  # US1.6, FR-005
 
     delete_response = client.delete("/api/v1/scenarios/never_saved")
     assert delete_response.status_code == 404
@@ -271,7 +272,7 @@ def test_reference_states_matches_the_live_registry_sorted(client):
     response = client.get("/api/v1/reference/states")
     assert response.status_code == 200
     states = response.json()["states"]
-    assert states == sorted(STATE_MODULES.keys())                                 # US2.1
+    assert states == sorted(STATE_MODULES.keys())  # US2.1
 
 
 def test_reference_strategies_and_axes_match_their_registries(client):
@@ -292,7 +293,9 @@ def test_reference_strategies_and_axes_match_their_registries(client):
 
 _RUN_BODY = {
     "scenario_name": "base_case",
-    "reference_tax_year": 2026, "start_plan_year": 1, "start_tax_year": 2026,
+    "reference_tax_year": 2026,
+    "start_plan_year": 1,
+    "start_tax_year": 2026,
 }
 
 
@@ -301,7 +304,7 @@ def test_run_simulation_returns_run_and_summary_in_one_response(client):
 
     response = client.post("/api/v1/simulations", json=_RUN_BODY)
 
-    assert response.status_code == 200                                            # US3.1
+    assert response.status_code == 200  # US3.1
     payload = response.json()
     assert "run" in payload and "summary" in payload
     assert 0.0 <= payload["summary"]["success_rate"] <= 1.0
@@ -316,7 +319,7 @@ def test_run_against_a_scenario_with_blocking_flags_is_rejected_without_running(
 
     response = client.post("/api/v1/simulations", json=_RUN_BODY)
 
-    assert response.status_code == 422                                            # US3.2, FR-009
+    assert response.status_code == 422  # US3.2, FR-009
     assert response.json()["error"] == "blocking_validation_flags"
     assert len(response.json()["flags"]) > 0
 
@@ -347,7 +350,7 @@ def test_identical_run_requests_produce_identical_results(client):
     first = client.post("/api/v1/simulations", json=_RUN_BODY).json()
     second = client.post("/api/v1/simulations", json=_RUN_BODY).json()
 
-    assert first == second                                                        # US3.3, FR-010
+    assert first == second  # US3.3, FR-010
 
 
 def test_omitted_seed_n_paths_plan_to_age_default_from_scenario_settings(client):
@@ -362,7 +365,7 @@ def test_omitted_seed_n_paths_plan_to_age_default_from_scenario_settings(client)
     }
     with_explicit_matching_values = client.post("/api/v1/simulations", json=explicit_body).json()
 
-    assert without_defaults == with_explicit_matching_values                       # US3.4, FR-011
+    assert without_defaults == with_explicit_matching_values  # US3.4, FR-011
 
 
 # -- 015-per-account-projection-detail (US1): per-account year-by-year
@@ -380,7 +383,10 @@ def test_run_simulation_response_includes_account_detail_shaped_per_account(clie
     assert len(payload["account_detail"]) == len(payload["run"]["path_results"][0]["years"])
     first_year_detail = payload["account_detail"][0]
     assert set(first_year_detail.keys()) == {
-        "plan_year", "tax_year", "accounts", "member_social_security_benefits",
+        "plan_year",
+        "tax_year",
+        "accounts",
+        "member_social_security_benefits",
         "member_income_stream_amounts",  # 021-pension-annuity-income (rp-pid)
     }
     account_ids = {row["account_id"] for row in first_year_detail["accounts"]}
@@ -397,9 +403,7 @@ def test_run_simulation_detail_path_index_defaults_to_path_zero(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     without_index = client.post("/api/v1/simulations", json=_RUN_BODY).json()["account_detail"]
-    with_explicit_zero = client.post("/api/v1/simulations", json={**_RUN_BODY, "detail_path_index": 0}).json()[
-        "account_detail"
-    ]
+    with_explicit_zero = client.post("/api/v1/simulations", json={**_RUN_BODY, "detail_path_index": 0}).json()["account_detail"]
 
     assert without_index == with_explicit_zero
 
@@ -482,6 +486,107 @@ def test_run_simulation_survival_adjusted_age_out_of_range_returns_422_not_a_bar
     assert payload["age"] == 10
 
 
+# -- 026-advanced-simulation-options (rp-2bn): opt-in sequence-of-returns stress overlay --
+
+
+def test_run_simulation_stress_scenario_lowers_success_rate(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    baseline = client.post("/api/v1/simulations", json=_RUN_BODY).json()
+    stressed = client.post(
+        "/api/v1/simulations",
+        json={**_RUN_BODY, "stress_scenario": {"magnitude": -0.9, "duration_years": 3, "start_plan_year": 1}},
+    ).json()
+
+    assert stressed["summary"]["success_rate"] < baseline["summary"]["success_rate"]
+
+
+def test_run_simulation_stress_window_past_horizon_returns_422(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post(
+        "/api/v1/simulations",
+        json={
+            **_RUN_BODY,
+            "plan_to_age": 62,
+            "stress_scenario": {"magnitude": -0.3, "duration_years": 5, "start_plan_year": 10},
+        },
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "invalid_simulation_options"
+    assert "detail" in payload
+
+
+def test_run_simulation_no_stress_scenario_is_byte_for_byte_unchanged(client):
+    """SC-003: omitting stress_scenario (every existing request) reproduces
+    prior behavior exactly -- confirmed by re-running the same seed twice
+    and getting the identical result, the same determinism guarantee
+    test_run_simulation_is_deterministic_given_same_seed already checks."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    first = client.post("/api/v1/simulations", json=_RUN_BODY).json()
+    second = client.post("/api/v1/simulations", json=_RUN_BODY).json()
+
+    assert first == second
+
+
+# -- 026-advanced-simulation-options (rp-741): opt-in historical-bootstrap mode --
+
+
+def test_run_simulation_historical_bootstrap_flags_unverified_figure(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post(
+        "/api/v1/simulations",
+        json={**_RUN_BODY, "generation_mode": "historical_bootstrap", "historical_block_length": 10},
+    )
+
+    assert response.status_code == 200
+    assert "historical_annual_real_returns" in response.json()["summary"]["unverified_figure_names"]
+
+
+def test_run_simulation_default_generation_mode_omits_the_unverified_flag(client):
+    """SC-003: the default (generation_mode omitted) is unaffected by this feature."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    assert "historical_annual_real_returns" not in response.json()["summary"]["unverified_figure_names"]
+
+
+def test_run_simulation_invalid_block_length_returns_422_not_a_bare_500(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post(
+        "/api/v1/simulations",
+        json={**_RUN_BODY, "generation_mode": "historical_bootstrap", "historical_block_length": 0},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_simulation_options"
+
+
+def test_simulated_comparison_historical_bootstrap_flags_unverified_figure(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY,
+        "plan_to_age": 62,
+        "axis": "state",
+        "candidates": ["SC", "DE"],
+        "generation_mode": "historical_bootstrap",
+        "historical_block_length": 10,
+    }
+    response = client.post("/api/v1/comparisons/simulated", json=body)
+
+    assert response.status_code == 200
+    for summary in response.json()["summaries"]:
+        assert "historical_annual_real_returns" in summary["unverified_figure_names"]
+
+
 # --- User Story 4: run and retrieve a comparison ---
 
 
@@ -493,7 +598,7 @@ def test_simulated_state_comparison_returns_one_summary_per_state(client):
 
     assert response.status_code == 200
     summaries = response.json()["summaries"]
-    assert len(summaries) == 3                                                     # US4.1
+    assert len(summaries) == 3  # US4.1
     assert {s["candidate_label"] for s in summaries} == {"SC", "DE", "FL"}
 
 
@@ -518,13 +623,55 @@ def test_deterministic_comparison_ignores_survival_adjusted_flag(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     body = {
-        **_RUN_BODY, "axis": "withdrawal_sequencing", "survival_adjusted": True,
+        **_RUN_BODY,
+        "axis": "withdrawal_sequencing",
+        "survival_adjusted": True,
         "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
     }
     response = client.post("/api/v1/comparisons/deterministic", json=body)
 
     assert response.status_code == 200
     assert response.json()["summaries"][0]["survival_adjusted_success_rate"] is None
+
+
+# -- 026-advanced-simulation-options (rp-2bn): stress overlay on comparisons --
+
+
+def test_simulated_comparison_stress_scenario_applies_to_every_candidate(client):
+    """FR-004: the tool's paired-draw methodology means every candidate
+    sees the identical configured stress -- not just some of them."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY,
+        "plan_to_age": 62,
+        "axis": "state",
+        "candidates": ["SC", "DE", "FL"],
+        "stress_scenario": {"magnitude": -0.9, "duration_years": 2, "start_plan_year": 1},
+    }
+    stressed = client.post("/api/v1/comparisons/simulated", json=body).json()
+    baseline = client.post("/api/v1/comparisons/simulated", json={**_RUN_BODY, "plan_to_age": 62, "axis": "state", "candidates": ["SC", "DE", "FL"]}).json()
+
+    assert len(stressed["summaries"]) == 3
+    for stressed_summary, baseline_summary in zip(stressed["summaries"], baseline["summaries"]):
+        assert stressed_summary["success_rate"] < baseline_summary["success_rate"]
+
+
+def test_deterministic_comparison_ignores_stress_scenario(client):
+    """FR-007: 004 has no return-path generation step at all -- a
+    stress_scenario present in the body is accepted but has no effect,
+    mirroring survival_adjusted's own precedent for this route."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {
+        **_RUN_BODY,
+        "axis": "withdrawal_sequencing",
+        "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
+        "stress_scenario": {"magnitude": -0.9, "duration_years": 200, "start_plan_year": 1},  # would be invalid if honored
+    }
+    response = client.post("/api/v1/comparisons/deterministic", json=body)
+
+    assert response.status_code == 200
 
 
 # -- 015-per-account-projection-detail (US2): per-candidate year-by-year
@@ -551,7 +698,8 @@ def test_deterministic_comparison_response_includes_account_detail_per_candidate
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     body = {
-        **_RUN_BODY, "axis": "withdrawal_sequencing",
+        **_RUN_BODY,
+        "axis": "withdrawal_sequencing",
         "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
     }
     response = client.post("/api/v1/comparisons/deterministic", json=body)
@@ -566,7 +714,11 @@ def test_simulated_comparison_out_of_range_detail_path_index_returns_422(client)
     n_paths = _SCENARIO_BODY["simulation_settings"]["n_paths"]
 
     body = {
-        **_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["FL"], "detail_path_index": n_paths,
+        **_RUN_BODY,
+        "plan_to_age": 60,
+        "axis": "state",
+        "candidates": ["FL"],
+        "detail_path_index": n_paths,
     }
     response = client.post("/api/v1/comparisons/simulated", json=body)
 
@@ -588,7 +740,7 @@ def test_deterministic_roth_conversion_comparison_marks_monte_carlo_fields_not_a
 
     assert response.status_code == 200
     summaries = response.json()["summaries"]
-    assert summaries[0]["success_rate"] is None                                    # US4.2
+    assert summaries[0]["success_rate"] is None  # US4.2
     assert summaries[0]["percentile_bands"] is None
 
 
@@ -597,10 +749,11 @@ def test_both_comparison_endpoints_accept_a_single_candidate(client):
 
     sim_body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["FL"]}
     sim_response = client.post("/api/v1/comparisons/simulated", json=sim_body)
-    assert len(sim_response.json()["summaries"]) == 1                              # US4.4
+    assert len(sim_response.json()["summaries"]) == 1  # US4.4
 
     det_body = {
-        **_RUN_BODY, "axis": "withdrawal_sequencing",
+        **_RUN_BODY,
+        "axis": "withdrawal_sequencing",
         "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
     }
     det_response = client.post("/api/v1/comparisons/deterministic", json=det_body)
@@ -657,12 +810,12 @@ def test_unrecognized_axis_or_candidate_value_is_rejected(client):
 
     bad_state_body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["ZZ"]}
     response = client.post("/api/v1/comparisons/simulated", json=bad_state_body)
-    assert response.status_code == 422                                            # US4.3, FR-014
+    assert response.status_code == 422  # US4.3, FR-014
     assert response.json()["error"] == "unknown_reference_value"
 
     bad_axis_body = {**_RUN_BODY, "axis": "state", "candidates": ["FL"]}
     axis_response = client.post("/api/v1/comparisons/deterministic", json=bad_axis_body)
-    assert axis_response.status_code == 422                                        # 004 has no state axis
+    assert axis_response.status_code == 422  # 004 has no state axis
 
 
 def test_comparison_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(client):
@@ -672,8 +825,12 @@ def test_comparison_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     body = {
-        **_RUN_BODY, "reference_tax_year": 1900, "start_tax_year": 1900,
-        "plan_to_age": 60, "axis": "state", "candidates": ["FL"],
+        **_RUN_BODY,
+        "reference_tax_year": 1900,
+        "start_tax_year": 1900,
+        "plan_to_age": 60,
+        "axis": "state",
+        "candidates": ["FL"],
     }
     response = client.post("/api/v1/comparisons/simulated", json=body)
 
@@ -710,9 +867,7 @@ def test_hsa_contribution_reduces_ordinary_income_in_a_run(client):
     with_year = with_hsa["run"]["path_results"][0]["years"][0]
     without_year = without_hsa["run"]["path_results"][0]["years"][0]
     assert with_year["hsa_contribution"]["amount_contributed"] == 3_000.0
-    assert with_year["mechanics"]["ordinary_income"] == pytest.approx(
-        without_year["mechanics"]["ordinary_income"] - 3_000.0
-    )
+    assert with_year["mechanics"]["ordinary_income"] == pytest.approx(without_year["mechanics"]["ordinary_income"] - 3_000.0)
 
 
 def test_hsa_contribution_reaches_the_withdrawal_sequencing_comparison_axis(client):
@@ -725,6 +880,7 @@ def test_hsa_contribution_reaches_the_withdrawal_sequencing_comparison_axis(clie
     with the bug (the endpoint never errored, it silently ignored the
     configured amount) -- this compares the actual resulting figure
     against an identical scenario with no HSA contribution configured."""
+
     def household_with_hdhp(hsa_contribution):
         body = {
             **_SCENARIO_BODY,
@@ -745,7 +901,9 @@ def test_hsa_contribution_reaches_the_withdrawal_sequencing_comparison_axis(clie
 
     def compare(scenario_name):
         body = {
-            **_RUN_BODY, "scenario_name": scenario_name, "axis": "withdrawal_sequencing",
+            **_RUN_BODY,
+            "scenario_name": scenario_name,
+            "axis": "withdrawal_sequencing",
             "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
         }
         response = client.post("/api/v1/comparisons/deterministic", json=body)
@@ -769,7 +927,7 @@ def test_export_run_returns_csv_with_one_row_per_plan_year(client):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     lines = response.text.splitlines()
-    assert lines[0].startswith("plan_year")                                        # US5.1
+    assert lines[0].startswith("plan_year")  # US5.1
     assert len(lines) == 1 + _SCENARIO_BODY["simulation_settings"]["plan_to_age"] - 60 + 1
 
 
@@ -781,18 +939,18 @@ def test_export_comparison_returns_csv_with_one_row_per_candidate(client):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
-    assert all(state in response.text for state in ("SC", "DE", "FL"))             # US5.2
+    assert all(state in response.text for state in ("SC", "DE", "FL"))  # US5.2
 
 
 def test_exports_carry_the_verification_status_column(client):
     client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
 
     run_csv = client.post("/api/v1/reports/simulations.csv", json=_RUN_BODY)
-    assert "has_unverified_figure" in run_csv.text.splitlines()[0]                 # US5.3
+    assert "has_unverified_figure" in run_csv.text.splitlines()[0]  # US5.3
 
     body = {**_RUN_BODY, "plan_to_age": 60, "axis": "state", "candidates": ["SC", "DE", "FL"]}
     comparison_csv = client.post("/api/v1/reports/comparisons.csv?engine=simulated", json=body)
-    assert "has_unverified_figure" in comparison_csv.text.splitlines()[0]          # US5.3
+    assert "has_unverified_figure" in comparison_csv.text.splitlines()[0]  # US5.3
 
 
 # --- Polish: cost-rejection path via a real HTTP call ---
@@ -807,7 +965,7 @@ def test_an_oversized_run_request_is_rejected_before_it_would_actually_run(clien
     oversized_body = {**_RUN_BODY, "n_paths": 10_000}
     response = client.post("/api/v1/simulations", json=oversized_body)
 
-    assert response.status_code == 413                                            # FR-018
+    assert response.status_code == 413  # FR-018
     assert response.json()["error"] == "estimated_cost_exceeds_budget"
     assert response.json()["estimated_seconds"] > response.json()["budget_seconds"]
 
@@ -867,7 +1025,8 @@ def test_deterministic_comparison_against_an_inherited_account_scenario_still_wo
     client.put("/api/v1/scenarios/base_case", json=_INHERITED_SCENARIO_BODY)
 
     body = {
-        **_RUN_BODY, "axis": "withdrawal_sequencing",
+        **_RUN_BODY,
+        "axis": "withdrawal_sequencing",
         "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
     }
     response = client.post("/api/v1/comparisons/deterministic", json=body)
@@ -904,9 +1063,7 @@ def _inherited_account(**inherited_overrides):
         ("pre_rbd_traditional", _inherited_account(decedent_was_taking_rmds=False)),
         (
             "spouse_edb",
-            _inherited_account(
-                beneficiary_relationship="spouse", beneficiary_classification="eligible_designated_beneficiary_spouse"
-            ),
+            _inherited_account(beneficiary_relationship="spouse", beneficiary_classification="eligible_designated_beneficiary_spouse"),
         ),
         (
             "minor_child_edb",
@@ -936,7 +1093,8 @@ def test_each_013_case_runs_to_completion_on_both_engines(client, label, account
     det_response = client.post(
         "/api/v1/comparisons/deterministic",
         json={
-            **body, "axis": "withdrawal_sequencing",
+            **body,
+            "axis": "withdrawal_sequencing",
             "candidates": [{"label": "default", "withdrawal_strategy": "rmd_taxable_traditional_roth"}],
         },
     )

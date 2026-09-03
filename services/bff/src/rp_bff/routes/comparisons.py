@@ -30,7 +30,7 @@ from retirement_planner.comparison import (
 from retirement_planner.mechanics import CONVERSION_STRATEGIES, WITHDRAWAL_STRATEGIES
 from retirement_planner.reporting import compute_account_shares, summarize_deterministic_comparison, summarize_simulation_comparison
 from retirement_planner.scenario import ScenarioParseError
-from retirement_planner.simulation import SimulationComparisonResult, generate_return_paths
+from retirement_planner.simulation import GenerationMode, SimulationComparisonResult, StressScenario
 from retirement_planner.simulation import compare_claiming_age_grid as compare_claiming_age_grid_simulated
 from retirement_planner.simulation import compare_roth_conversion_strategies as compare_roth_conversion_strategies_simulated
 from retirement_planner.simulation import compare_states
@@ -55,11 +55,14 @@ from ..resolution import (
     UnknownReferenceValueError,
     build_survival_curves,
     check_run_cost,
+    generate_configured_return_paths,
+    invalid_simulation_options_error,
     resolve_run_context,
     survival_curve_age_out_of_range_error,
     unsupported_tax_year_error,
     validate_survival_curve_coverage,
 )
+from ..schemas import StressScenarioRequest
 from ..serialization import to_jsonable
 
 router = APIRouter()
@@ -97,6 +100,19 @@ class ComparisonRequest(BaseModel):
     resolve_and_compare_deterministic() (004 has no Monte Carlo
     distribution to score, mirroring detail_path_index's own "accepted but
     ignored by the deterministic route" precedent above)."""
+    generation_mode: GenerationMode = "parametric"
+    """rp-741 (026-advanced-simulation-options): same field as
+    SimulationRequest's own -- honored only by
+    resolve_and_compare_simulated(); silently ignored by
+    resolve_and_compare_deterministic() (FR-007, mirrors survival_adjusted's
+    own "accepted but ignored by the deterministic route" precedent)."""
+    historical_block_length: int = 10
+    """rp-741: same default and meaning as SimulationRequest's own."""
+    stress_scenario: StressScenarioRequest | None = None
+    """rp-2bn (026-advanced-simulation-options): same field as
+    SimulationRequest's own -- honored only by
+    resolve_and_compare_simulated(); silently ignored by
+    resolve_and_compare_deterministic()."""
 
 
 def _resolve(body: ComparisonRequest, scenarios_dir: Path | None) -> ResolvedRunContext:
@@ -116,13 +132,9 @@ def _resolve(body: ComparisonRequest, scenarios_dir: Path | None) -> ResolvedRun
     except ScenarioParseError:
         raise HTTPException(status_code=404, detail={"error": "no_such_scenario", "name": body.scenario_name})
     except BlockingValidationFlagsError as exc:
-        raise HTTPException(
-            status_code=422, detail={"error": "blocking_validation_flags", "flags": to_jsonable(exc.flags)}
-        )
+        raise HTTPException(status_code=422, detail={"error": "blocking_validation_flags", "flags": to_jsonable(exc.flags)})
     except UnknownReferenceValueError as exc:
-        raise HTTPException(
-            status_code=422, detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value}
-        )
+        raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value})
     return context
 
 
@@ -132,9 +144,7 @@ def _reject_unknown(field: str, value: str) -> None:
     raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": field, "value": value})
 
 
-def resolve_and_compare_deterministic(
-    body: ComparisonRequest, scenarios_dir: Path | None
-) -> tuple[ResolvedRunContext, ComparisonResult]:
+def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Path | None) -> tuple[ResolvedRunContext, ComparisonResult]:
     """Resolves body and dispatches to 004's compare_*() by axis (never
     "state" -- 004 has no state-comparison function, research.md §7),
     returning the raw ComparisonResult (not yet summarized/serialized) so
@@ -149,11 +159,7 @@ def resolve_and_compare_deterministic(
     # ValueError for any axis other than roth_conversion_strategy/
     # withdrawal_sequencing -- calling it unconditionally here 500'd every
     # claiming_age_grid comparison.
-    candidates = (
-        build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
-        if body.axis != "claiming_age_grid"
-        else None
-    )
+    candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name) if body.axis != "claiming_age_grid" else None
     return_assumption = derive_deterministic_return(context.scenario.market_assumptions)
 
     common = dict(
@@ -189,8 +195,10 @@ def resolve_and_compare_deterministic(
                 if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                     _reject_unknown("conversion_strategy", candidate.conversion_strategy)
             result = compare_roth_conversion_strategies_deterministic(
-                **common, withdrawal_strategy=context.strategy.withdrawal_strategy,
-                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                **common,
+                withdrawal_strategy=context.strategy.withdrawal_strategy,
+                claiming_ages=context.strategy.claiming_ages,
+                candidates=candidates,
             )
         elif body.axis == "withdrawal_sequencing":
             assert candidates is not None  # rp-cgj: see the roth_conversion_strategy branch's own comment above
@@ -198,15 +206,18 @@ def resolve_and_compare_deterministic(
                 if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
                     _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
             result = compare_withdrawal_sequencing_strategies_deterministic(
-                **common, conversion_strategy=context.strategy.conversion_strategy,
+                **common,
+                conversion_strategy=context.strategy.conversion_strategy,
                 conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                 conversion_window=context.strategy.conversion_window,
-                claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                claiming_ages=context.strategy.claiming_ages,
+                candidates=candidates,
             )
         else:  # claiming_age_grid
             try:
                 result = compare_claiming_age_grid_deterministic(
-                    **common, withdrawal_strategy=context.strategy.withdrawal_strategy,
+                    **common,
+                    withdrawal_strategy=context.strategy.withdrawal_strategy,
                     conversion_strategy=context.strategy.conversion_strategy,
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
@@ -220,9 +231,7 @@ def resolve_and_compare_deterministic(
     return context, result
 
 
-def resolve_and_compare_simulated(
-    body: ComparisonRequest, scenarios_dir: Path | None
-) -> tuple[ResolvedRunContext, SimulationComparisonResult]:
+def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path | None) -> tuple[ResolvedRunContext, SimulationComparisonResult]:
     """Resolves body and dispatches to 005's compare_*() by axis
     (including "state"), returning the raw SimulationComparisonResult (not
     yet summarized/serialized) so both the JSON route and the CSV export
@@ -252,10 +261,26 @@ def resolve_and_compare_simulated(
 
     owner = deemed_rmd_owner(context.household)
     horizon_years = context.plan_to_age - owner.current_age + 1
-    return_paths = generate_return_paths(
-        market_assumptions=context.scenario.market_assumptions, path_count=context.n_paths,
-        horizon_years=horizon_years, start_plan_year=body.start_plan_year, seed=context.seed,
+    stress_scenario = (
+        StressScenario(
+            magnitude=body.stress_scenario.magnitude,
+            duration_years=body.stress_scenario.duration_years,
+            start_plan_year=body.stress_scenario.start_plan_year,
+        )
+        if body.stress_scenario is not None
+        else None
     )
+    try:
+        return_paths = generate_configured_return_paths(
+            context,
+            horizon_years=horizon_years,
+            start_plan_year=body.start_plan_year,
+            generation_mode=body.generation_mode,
+            historical_block_length=body.historical_block_length,
+            stress_scenario=stress_scenario,
+        )
+    except ValueError as exc:
+        raise invalid_simulation_options_error(exc)
 
     # rp-9vl: same opt-in pre-flight check as resolve_and_run_simulation()'s
     # own -- see that function's comment for why this happens before any
@@ -294,11 +319,7 @@ def resolve_and_compare_simulated(
             # ValueError for any axis other than roth_conversion_strategy/
             # withdrawal_sequencing -- calling it unconditionally here 500'd
             # every claiming_age_grid comparison.
-            candidates = (
-                build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name)
-                if body.axis != "claiming_age_grid"
-                else None
-            )
+            candidates = build_candidates_for_axis(body.axis, body.candidates, base_label=body.scenario_name) if body.axis != "claiming_age_grid" else None
             if body.axis == "roth_conversion_strategy":
                 # rp-cgj: candidates is only None when body.axis ==
                 # "claiming_age_grid" (the ternary above) -- this branch is
@@ -308,8 +329,11 @@ def resolve_and_compare_simulated(
                     if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                         _reject_unknown("conversion_strategy", candidate.conversion_strategy)
                 result = compare_roth_conversion_strategies_simulated(
-                    **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
-                    claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                    **common,
+                    state=context.state,
+                    withdrawal_strategy=context.strategy.withdrawal_strategy,
+                    claiming_ages=context.strategy.claiming_ages,
+                    candidates=candidates,
                     hsa_contribution=context.strategy.hsa_contribution,
                 )
             elif body.axis == "withdrawal_sequencing":
@@ -318,16 +342,21 @@ def resolve_and_compare_simulated(
                     if candidate.withdrawal_strategy not in WITHDRAWAL_STRATEGIES:
                         _reject_unknown("withdrawal_strategy", candidate.withdrawal_strategy)
                 result = compare_withdrawal_sequencing_strategies_simulated(
-                    **common, state=context.state, conversion_strategy=context.strategy.conversion_strategy,
+                    **common,
+                    state=context.state,
+                    conversion_strategy=context.strategy.conversion_strategy,
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
-                    claiming_ages=context.strategy.claiming_ages, candidates=candidates,
+                    claiming_ages=context.strategy.claiming_ages,
+                    candidates=candidates,
                     hsa_contribution=context.strategy.hsa_contribution,
                 )
             else:  # claiming_age_grid
                 try:
                     result = compare_claiming_age_grid_simulated(
-                        **common, state=context.state, withdrawal_strategy=context.strategy.withdrawal_strategy,
+                        **common,
+                        state=context.state,
+                        withdrawal_strategy=context.strategy.withdrawal_strategy,
                         conversion_strategy=context.strategy.conversion_strategy,
                         conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                         conversion_window=context.strategy.conversion_window,
@@ -343,9 +372,7 @@ def resolve_and_compare_simulated(
 
 
 @router.post("/comparisons/deterministic")
-def compare_deterministic_route(
-    body: ComparisonRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)
-) -> dict:
+def compare_deterministic_route(body: ComparisonRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)) -> dict:
     """POST /comparisons/deterministic (US4.2-US4.4)."""
     context, result = resolve_and_compare_deterministic(body, scenarios_dir)
     summaries = summarize_deterministic_comparison(result, household=context.household, reference_tax_year=body.reference_tax_year)
@@ -361,9 +388,7 @@ def compare_deterministic_route(
 
 
 @router.post("/comparisons/simulated")
-def compare_simulated_route(
-    body: ComparisonRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)
-) -> dict:
+def compare_simulated_route(body: ComparisonRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)) -> dict:
     """POST /comparisons/simulated (US4.1, US4.3-US4.4)."""
     context, result = resolve_and_compare_simulated(body, scenarios_dir)
     summaries = summarize_simulation_comparison(result, household=context.household, reference_tax_year=body.reference_tax_year)

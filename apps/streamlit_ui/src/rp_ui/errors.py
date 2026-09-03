@@ -90,15 +90,28 @@ class SurvivalCurveAgeOutOfRangeError(RpUiError):
         super().__init__(f"No survival curve coverage for {person_name!r} at age {age}")
 
 
+class InvalidSimulationOptionsError(RpUiError):
+    """007 returned 422 {"error": "invalid_simulation_options", "detail": ...}
+    -- 026-advanced-simulation-options: a configured stress-scenario window
+    extends past the run's own horizon, or historical_block_length is
+    non-positive or exceeds the documented historical series' length. The
+    backend's own detail string already names the specific problem in
+    human-readable form (mirrors UnknownReferenceValueError's shape;
+    unlike SurvivalCurveAgeOutOfRangeError, no separate structured fields
+    are needed here)."""
+
+    def __init__(self, *, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
 class CostBudgetExceededError(RpUiError):
     """007 returned 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": ..., "budget_seconds": ...}."""
 
     def __init__(self, *, estimated_seconds: float, budget_seconds: float) -> None:
         self.estimated_seconds = estimated_seconds
         self.budget_seconds = budget_seconds
-        super().__init__(
-            f"Estimated cost {estimated_seconds:.0f}s exceeds budget {budget_seconds:.0f}s"
-        )
+        super().__init__(f"Estimated cost {estimated_seconds:.0f}s exceeds budget {budget_seconds:.0f}s")
 
 
 class BackendUnreachableError(RpUiError):

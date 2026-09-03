@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from retirement_planner.comparison import deemed_rmd_owner
 from retirement_planner.reporting import compute_account_shares, summarize_run
 from retirement_planner.scenario import ScenarioParseError
-from retirement_planner.simulation import SimulationRun, generate_return_paths, run_simulation
+from retirement_planner.simulation import GenerationMode, SimulationRun, StressScenario, run_simulation
 from retirement_planner.tax import UnsupportedTaxYearError
 
 from ..account_detail import PathIndexOutOfRangeError, build_account_detail_for_run, path_index_out_of_range_error
@@ -35,11 +35,14 @@ from ..resolution import (
     UnknownReferenceValueError,
     build_survival_curves,
     check_run_cost,
+    generate_configured_return_paths,
+    invalid_simulation_options_error,
     resolve_run_context,
     survival_curve_age_out_of_range_error,
     unsupported_tax_year_error,
     validate_survival_curve_coverage,
 )
+from ..schemas import StressScenarioRequest
 from ..serialization import to_jsonable
 
 router = APIRouter()
@@ -69,17 +72,35 @@ class SimulationRequest(BaseModel):
     "primary"/"spouse" curves (there is no per-scenario user-entered
     survival-curve data; a v1 needs none). False (the default) reproduces
     every existing request's exact current behavior byte-for-byte."""
+    generation_mode: GenerationMode = "parametric"
+    """rp-741 (026-advanced-simulation-options): "parametric" (default,
+    every existing request's exact current behavior) or
+    "historical_bootstrap" (opt-in moving-block resampling from
+    HISTORICAL_RETURNS -- synthetic placeholder data, docs/BRD.md §6.9;
+    surfaced via the existing unverified-figure pipeline, not silently
+    presented as real historical returns)."""
+    historical_block_length: int = 10
+    """rp-741: consulted only when generation_mode ==
+    "historical_bootstrap" (026 research.md Decision 4's default, matching
+    005-simulation-engine's own quickstart.md worked example). Ignored,
+    harmlessly present, in parametric mode."""
+    stress_scenario: StressScenarioRequest | None = None
+    """rp-2bn (026-advanced-simulation-options): None (default) means no
+    sequence-of-returns stress overlay -- every existing request's exact
+    current behavior. Applied on top of whichever generation_mode produced
+    the underlying paths."""
 
 
-def resolve_and_run_simulation(
-    body: SimulationRequest, scenarios_dir: Path | None
-) -> tuple[ResolvedRunContext, SimulationRun]:
+def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | None) -> tuple[ResolvedRunContext, SimulationRun]:
     """Resolves body into a ResolvedRunContext (translating every
-    resolution error into its documented HTTPException) and runs 005's
-    generate_return_paths()+run_simulation(), returning both the context
-    (the caller needs household/reference_tax_year for summarize_run()/
-    run_to_csv_text()) and the raw SimulationRun -- neither summarized nor
-    serialized yet."""
+    resolution error into its documented HTTPException) and runs
+    resolution.generate_configured_return_paths() (026-advanced-simulation-
+    options -- dispatches to 005's generate_return_paths() or
+    generate_historical_bootstrap_paths() per body.generation_mode, then
+    optionally applies apply_stress_scenario())+run_simulation(), returning
+    both the context (the caller needs household/reference_tax_year for
+    summarize_run()/run_to_csv_text()) and the raw SimulationRun -- neither
+    summarized nor serialized yet."""
     try:
         context = resolve_run_context(
             body.scenario_name,
@@ -116,19 +137,33 @@ def resolve_and_run_simulation(
             },
         )
 
-    # generate_return_paths() needs a single horizon_years count -- the
-    # deemed owner's (the older member's) age is what run_plan_projection()
-    # itself uses to decide when to stop, so mirror that here.
+    # generate_configured_return_paths() needs a single horizon_years count
+    # -- the deemed owner's (the older member's) age is what
+    # run_plan_projection() itself uses to decide when to stop, so mirror
+    # that here.
     owner = deemed_rmd_owner(context.household)
     horizon_years = context.plan_to_age - owner.current_age + 1
 
-    return_paths = generate_return_paths(
-        market_assumptions=context.scenario.market_assumptions,
-        path_count=context.n_paths,
-        horizon_years=horizon_years,
-        start_plan_year=body.start_plan_year,
-        seed=context.seed,
+    stress_scenario = (
+        StressScenario(
+            magnitude=body.stress_scenario.magnitude,
+            duration_years=body.stress_scenario.duration_years,
+            start_plan_year=body.stress_scenario.start_plan_year,
+        )
+        if body.stress_scenario is not None
+        else None
     )
+    try:
+        return_paths = generate_configured_return_paths(
+            context,
+            horizon_years=horizon_years,
+            start_plan_year=body.start_plan_year,
+            generation_mode=body.generation_mode,
+            historical_block_length=body.historical_block_length,
+            stress_scenario=stress_scenario,
+        )
+    except ValueError as exc:
+        raise invalid_simulation_options_error(exc)
 
     # rp-9vl: opt-in, so every existing request (survival_adjusted omitted
     # or False) reaches run_simulation() with survival_curves=None,
@@ -164,9 +199,7 @@ def resolve_and_run_simulation(
 
 
 @router.post("/simulations")
-def run_simulation_route(
-    body: SimulationRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)
-) -> dict:
+def run_simulation_route(body: SimulationRequest, scenarios_dir: Path | None = Depends(get_scenarios_dir)) -> dict:
     """POST /simulations -- run + summary in one response (FR-008, US3.1)."""
     context, run = resolve_and_run_simulation(body, scenarios_dir)
     summary = summarize_run(run, household=context.household, reference_tax_year=body.reference_tax_year)

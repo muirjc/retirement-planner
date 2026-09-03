@@ -21,6 +21,7 @@ from .errors import (
     BlockingValidationError,
     CostBudgetExceededError,
     InvalidScenarioError,
+    InvalidSimulationOptionsError,
     PathIndexOutOfRangeError,
     ScenarioNotFoundError,
     SurvivalCurveAgeOutOfRangeError,
@@ -95,6 +96,8 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
             person_name=body.get("person_name", ""),
             age=body.get("age", 0),
         )
+    if error == "invalid_simulation_options":
+        raise InvalidSimulationOptionsError(detail=body.get("detail", ""))
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 
 

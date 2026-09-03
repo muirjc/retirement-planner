@@ -155,8 +155,29 @@ def test_parse_scenario_passes_through_income_streams():
     assert streams[0].inflation_adjustment == "cola_adjusted"
     assert streams[1].end_age == 74
     assert streams[1].inflation_adjustment == "fixed_nominal"
+    # 027-nc-bailey-exclusion: bailey_qualifying defaults to False when omitted.
+    assert streams[0].bailey_qualifying is False
+    assert streams[1].bailey_qualifying is False
     # The second member still gets the default -- income_streams is per-member.
     assert scenario.household.members[1].income_streams == []
+
+
+def test_parse_scenario_passes_through_bailey_qualifying():
+    # 027-nc-bailey-exclusion: an explicit bailey_qualifying: true is read through.
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      income_streams:\n"
+        "        - label: State Pension\n"
+        "          stream_type: pension\n"
+        "          start_age: 62\n"
+        "          annual_amount: 18000\n"
+        "          inflation_adjustment: cola_adjusted\n"
+        "          bailey_qualifying: true\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].income_streams[0].bailey_qualifying is True
 
 
 def test_parse_scenario_income_stream_missing_required_field_raises():

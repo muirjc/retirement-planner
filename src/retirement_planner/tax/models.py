@@ -54,6 +54,19 @@ class IncomeComponents:
 
     ordinary_income: float
     social_security_gross_benefit: float
+    government_pension_income: float = 0.0
+    """027-nc-bailey-exclusion: the subset (never an addition) of
+    ordinary_income sourced from IncomeStreams the household has attested
+    are source-and-vesting-date-qualifying government/military retirement
+    income -- today, only tax.state.nc.compute_tax() reads this field, to
+    apply North Carolina's Bailey settlement exclusion. Defaults to 0.0,
+    which reproduces every existing state module's original behavior
+    exactly (max(0.0, ordinary_income - 0.0) == ordinary_income) -- SC,
+    DE, and FL never read this field at all. Federal tax, FICA, IRMAA, and
+    NIIT all continue to consume ordinary_income (which still includes
+    this income in full) unchanged -- this is a NC-state-only side
+    channel, not a reduction to the household's real income (data-model.md
+    § IncomeComponents)."""
 
 
 @dataclass

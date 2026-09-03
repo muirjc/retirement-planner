@@ -59,6 +59,19 @@ class IncomeStream:
     None (the default) means the stream pays for every remaining plan
     year -- a lifetime stream, mirroring ss_annual_benefit's own "once
     claimed, never stops" behavior."""
+    bailey_qualifying: bool = False
+    """027-nc-bailey-exclusion: household attestation that this stream is a
+    North Carolina Bailey-settlement-qualifying government or military
+    retirement benefit -- five or more years of creditable service in, or
+    contributions to, the plan as of August 12, 1989 (N.C. Gen. Stat.
+    §105-134.6 history; Bailey v. State of North Carolina, 1998). Not
+    verified or derived by the engine -- a household-supplied fact like
+    ss_claim_age or hdhp_coverage, not something the engine infers from
+    stream_type or any other field. Has no effect on any computation
+    unless the household's state is "NC" (tax.state.nc.compute_tax()) --
+    every other state module ignores it entirely. Defaults to False so
+    every scenario written before this feature parses and projects
+    identically (data-model.md § IncomeStream)."""
 
 
 @dataclass

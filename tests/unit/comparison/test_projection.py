@@ -936,6 +936,122 @@ def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
     assert by_age[66].member_income_stream_amounts["you"] == 0.0  # window ended after 65
 
 
+# --- 027-nc-bailey-exclusion ---------------------------------------------
+
+
+def _bailey_and_other_pension_household(bailey_amount, other_amount, bailey_qualifying=True, current_age=65):
+    """A household with two pension streams: one Bailey-qualifying (or not,
+    per `bailey_qualifying`), one plain -- start_age == current_age so both
+    are active from year 1, mirroring the income-stream tests above's own
+    "start_age == current_age" convention for keeping the math simple."""
+    household = _single_member_household(current_age=current_age)
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="State Teachers' Pension",
+            stream_type="pension",
+            start_age=current_age,
+            annual_amount=bailey_amount,
+            inflation_adjustment="cola_adjusted",
+            bailey_qualifying=bailey_qualifying,
+        ),
+        IncomeStream(
+            label="Private annuity",
+            stream_type="annuity",
+            start_age=current_age,
+            annual_amount=other_amount,
+            inflation_adjustment="cola_adjusted",
+        ),
+    ]
+    return household
+
+
+def test_bailey_qualifying_pension_reduces_nc_state_tax_only():
+    """spec.md User Story 1: a $40k Bailey-qualifying pension + $30k other
+    pension income, projected against NC -- only the $30k is taxed by NC,
+    exactly as tax.state.nc.compute_tax() computes in isolation
+    (quickstart.md § 1)."""
+    household = _bailey_and_other_pension_household(bailey_amount=40_000.0, other_amount=30_000.0)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="NC",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.mechanics.ordinary_income == pytest.approx(70_000.0)
+    assert first_year.state_tax.state_tax_owed == pytest.approx(30_000.0 * 0.0399)
+
+
+def test_bailey_qualifying_flag_leaves_federal_fica_irmaa_niit_unaffected():
+    """spec.md User Story 2: federal tax, FICA, IRMAA, and NIIT are
+    identical whether or not the same income is marked bailey_qualifying --
+    the exclusion is NC-state-only (research.md §5)."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="NC",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    with_flag = run_plan_projection(
+        household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=True), **common_kwargs
+    )
+    without_flag = run_plan_projection(
+        household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=False), **common_kwargs
+    )
+
+    with_year, without_year = with_flag.years[0], without_flag.years[0]
+    assert with_year.mechanics.ordinary_income == without_year.mechanics.ordinary_income == pytest.approx(70_000.0)
+    assert with_year.federal_tax == without_year.federal_tax
+    assert with_year.fica_tax == without_year.fica_tax
+    assert with_year.irmaa == without_year.irmaa
+    assert with_year.niit == without_year.niit
+    # Only NC's own state tax differs -- the whole point of the exclusion.
+    assert with_year.state_tax.state_tax_owed < without_year.state_tax.state_tax_owed
+
+
+@pytest.mark.parametrize("state", ["SC", "DE", "FL"])
+def test_bailey_qualifying_flag_is_inert_outside_nc(state):
+    """spec.md User Story 3: SC, DE, and FL compute identical results
+    whether or not a stream is marked bailey_qualifying -- the flag has
+    meaning only inside tax.state.nc.compute_tax()."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state=state,
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+    with_flag = run_plan_projection(
+        household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=True), **common_kwargs
+    )
+    without_flag = run_plan_projection(
+        household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=False), **common_kwargs
+    )
+    assert with_flag.years[0].state_tax.state_tax_owed == without_flag.years[0].state_tax.state_tax_owed
+
+
 def _earned_income_household(annual_amount, current_age=63, start_age=63, end_age=None):
     household = _single_member_household(current_age=current_age)
     household.members[0].income_streams = [

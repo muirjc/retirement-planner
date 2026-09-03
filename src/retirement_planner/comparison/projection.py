@@ -360,6 +360,51 @@ def _member_earned_income_amounts(household: Household, ages_this_year: dict[str
     return amounts
 
 
+def _household_bailey_qualifying_income(household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int) -> float:
+    """027-nc-bailey-exclusion: the household's total income this year from
+    streams the household has attested are NC Bailey-settlement-qualifying
+    (IncomeStream.bailey_qualifying) -- feeds
+    IncomeComponents.government_pension_income below, for
+    tax.state.nc.compute_tax()'s exclusive use (every other state module
+    ignores that field). Mirrors _member_earned_income_amounts()'s own
+    "filter to one stream property, recompute rather than reuse
+    _member_income_stream_amounts()'s result" shape, for the same reason:
+    keeps this feature decoupled from 021's/022's own call sites, and
+    compute_income_stream_amount() is cheap and pure (constitution
+    Principle VI).
+
+    Deliberately returns no figures_used of its own: _member_income_stream_
+    amounts() (called earlier this same loop iteration, unchanged) already
+    iterates every stream -- Bailey-qualifying ones included -- and already
+    collects any fixed_nominal stream's INFLATION_RATE usage. Collecting it
+    again here would only duplicate an entry an unaffected downstream
+    reader already dedupes by name (reporting.aggregation.
+    _unverified_figure_names()), matching _member_earned_income_amounts()'s
+    own documented precedent for the analogous 022-fica-payroll-tax case.
+
+    Bailey exempts income by source, not by person, so unlike
+    _member_earned_income_amounts() this returns one household-level total,
+    not a per-member dict -- IncomeComponents.government_pension_income is
+    itself a household-level figure (no per-member breakdown exists in
+    IncomeComponents today)."""
+    total = 0.0
+    for member in household.members:
+        for stream in member.income_streams:
+            if not stream.bailey_qualifying:
+                continue
+            result = compute_income_stream_amount(
+                annual_amount=stream.annual_amount,
+                inflation_adjustment=stream.inflation_adjustment,
+                start_age=stream.start_age,
+                end_age=stream.end_age,
+                member_age_this_year=ages_this_year[member.person_name],
+                tax_year=tax_year,
+                reference_tax_year=reference_tax_year,
+            )
+            total += result.amount
+    return total
+
+
 def run_plan_projection(
     household: Household,
     accounts: AccountBalances,
@@ -578,6 +623,14 @@ def run_plan_projection(
         member_income_streams, income_stream_figures_used = _member_income_stream_amounts(household, ages_this_year, tax_year, reference_tax_year)
         household_income_stream_total = sum(member_income_streams.values())
 
+        # 027-nc-bailey-exclusion: the subset of this year's income streams
+        # the household has attested are NC Bailey-settlement-qualifying --
+        # already folded into household_income_stream_total (and therefore
+        # ordinary_income) above like any other stream; this is a second,
+        # read-only view of that same total for IncomeComponents.
+        # government_pension_income below (contracts/comparison-api.md).
+        household_bailey_qualifying_income = _household_bailey_qualifying_income(household, ages_this_year, tax_year, reference_tax_year)
+
         # 011-per-owner-accounts: one compute_rmd() call per member with a
         # positive traditional share, replacing the single deemed-owner-
         # attributed call (research.md §1). spouse_is_sole_beneficiary is
@@ -733,6 +786,7 @@ def run_plan_projection(
         income = IncomeComponents(
             ordinary_income=mechanics_result.ordinary_income,
             social_security_gross_benefit=household_ss_benefit,
+            government_pension_income=household_bailey_qualifying_income,
         )
         filer_ages = [ages_this_year[member.person_name] for member in household.members]
         federal_tax = compute_federal_tax(income, filer_ages, effective_filing_status, tax_year)

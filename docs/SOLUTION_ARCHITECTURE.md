@@ -251,12 +251,103 @@ into `comparison`/`simulation`.
   conversion strategy is a new implementation registered against an
   existing interface (`compute_state_tax()`'s `STATE_MODULES` registry,
   `WITHDRAWAL_STRATEGIES`, `CONVERSION_STRATEGIES`) — never a change to
-  `comparison`'s or `simulation`'s core loop.
+  `comparison`'s or `simulation`'s core loop. A routine annual IRS/CMS/SSA
+  figure update is a data change to one `SourcedFigure` schedule dict, not
+  a code change at all — see the review immediately below.
 - **Performance**: the reference-scale simulation (3,000–5,000 Monte
   Carlo paths × every candidate state) is expected to complete in well
   under a minute on a standard laptop; `simulation/monte_carlo.py`
   dispatches path-level work across worker processes once path count
   exceeds a threshold.
+
+### Architecture review: adaptability to tax-law change (rp-sq9)
+
+**Question**: IRS figures (brackets, standard deduction, HSA limits, wage
+base, IRMAA tiers), RMD tables, and state tax law all change — some every
+year (inflation-indexed dollar figures), some on a legislated schedule
+(SECURE 2.0's 73→75 RMD step in 2033), some unpredictably (a new state
+joining the modeled set, a structural law change like NIIT itself was in
+2013). Does this architecture absorb that without a rewrite?
+
+**Verdict: no full rewrite required for the common case — confirmed, not
+just claimed.** `SourcedFigure[T]` (`tax/models.py`: `schedule:
+dict[year, T]` + `citation` + `verified`) plus each domain's own
+module-and-registry pattern (`STATE_MODULES`, `WITHDRAWAL_STRATEGIES`,
+`CONVERSION_STRATEGIES`) were explicitly designed for this, and it's
+already proven in shipped code:
+
+- Every federal/mechanics/other-tax module
+  (`tax/federal.py`, `tax/niit.py`, `tax/irmaa.py`, `tax/fica.py`,
+  `tax/social_security.py`, `tax/early_withdrawal_penalty.py`,
+  `mechanics/rmd.py`, `mechanics/hsa.py`, `mechanics/inherited_rmd.py`,
+  `mechanics/income_streams.py`, `mechanics/roth_conversion_ladder.py`,
+  `mechanics/social_security_benefit.py`) defines `_DOCUMENTED_YEARS =
+  range(2020, 2075)` and repeats its current flat real-dollar value
+  across that whole range — a routine annual bracket/limit update is a
+  data change to one dict literal, never a code change (`docs/RUNBOOK.md`
+  §9 is the step-by-step procedure for actually doing this).
+- `mechanics/rmd.py`'s own SECURE 2.0 73→75 step (2033) is **already**
+  encoded as two merged sub-ranges of that same schedule dict — concrete
+  proof the mechanism already absorbs a genuine future step-change in the
+  law, not just a flat repeat, with zero change to any function's logic.
+- Adding a new state is additive by the architecture's own design: one
+  new `tax/state/*.py` module implementing the locked `compute_tax()`
+  signature, one new `STATE_MODULES` entry, confirmed by every one of the
+  three states shipped today (`sc.py`, `de.py`, `fl.py`) needing no change
+  outside that pattern. rp-5dn (North Carolina, the next candidate state)
+  is scoped the same way but is still open, unimplemented as of this
+  review — cited here as the pattern's next planned exercise, not as a
+  completed confirmation.
+- A real, now-fixed gap in this same evidence: South Carolina's and
+  Delaware's own bracket-table `SourcedFigure`s originally covered only 1
+  (`DE`) and 2 (`SC`) tax years each — far short of `_DOCUMENTED_YEARS`
+  — meaning a real multi-decade household plan through either state
+  raised `UnsupportedTaxYearError`. This was a data-quality defect in two
+  modules, not evidence against the pattern itself (rp-wif, closed via
+  #31/#32) — the fix extended both to the same `_DOCUMENTED_YEARS`
+  convention every other module already followed.
+
+**Three structural risks the `SourcedFigure` pattern does *not* solve**
+— genuinely new design work, not a rewrite of what exists, if ever taken
+on. Decision recorded for each:
+
+1. **Locked interface contracts blocking a new required input.**
+   `docs/BRD.md` §5.1 already names one: true SECURE 2.0
+   birth-year-cohort RMD modeling (vs. today's tax-year-cutoff
+   simplification) would require threading the account owner's birth
+   year through `compute_rmd()`'s locked signature — a coordinated
+   breaking change across the core function signature, its spec contract
+   (`specs/003-retirement-account-mechanics/contracts/`), the BFF's
+   request schema, and the UI form. **Decision: not worth doing now.**
+   The tax-year-cutoff simplification is disclosed, not silently wrong
+   (`docs/BRD.md` §5.1), and no other `specs/*/contracts/` interface was
+   found with a similarly-named known-future-need gap during this review
+   — this stays a documented, single-item backlog risk rather than a
+   scheduled bead, revisited only if a birth-year-cohort-accurate result
+   is actually requested.
+2. **The real-dollar/no-annual-reindexing convention itself**
+   (`tax/federal.py`'s own docstring, `docs/BRD.md` §5.2). A future
+   requirement for genuine nominal-dollar projection with real annual
+   CPI-indexing of brackets/thresholds (rather than pinning one year's
+   real-dollar figures flat across the horizon) is a new capability — an
+   actual indexing engine touching every `SourcedFigure` consumer — not
+   something schedule-dict updates alone deliver. **Decision: not worth
+   doing now.** Accuracy-over-cleverness cuts the other way here: a
+   correct, disclosed simplification (§5.2) is preferable to a partial
+   indexing engine built speculatively; scope it as a real feature,
+   spec-first, only if a concrete use case needs nominal-dollar
+   comparison across states/years.
+3. **No tooling for the annual figure-refresh workflow itself.** The
+   schedule mechanic is well-designed, but nothing automated or
+   checklisted "IRS just published next year's Rev. Proc. — here's what
+   to touch." `specs/014-figure-verification/research.md` documents the
+   verification *methodology*; there was no equivalent lightweight
+   runbook entry for the *update* workflow. **Decision: worth doing now**
+   — low effort, high leverage (this exact gap is what let SC/DE's
+   narrow schedules go unnoticed for as long as they did, since no
+   example/test ever ran either state past its tiny documented window).
+   Done as part of this review: `docs/RUNBOOK.md` §9 ("Annual figure
+   refresh").
 
 ## 9. Testing architecture
 

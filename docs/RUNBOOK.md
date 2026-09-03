@@ -251,7 +251,90 @@ today but its uploaded report (`zap-report.html`/`.json`, 30-day
 retention) should still be read — a real finding there is real, even
 though the job is report-only for now.
 
-## 9. Rollback
+## 9. Annual figure refresh
+
+`docs/SOLUTION_ARCHITECTURE.md` §8's "Architecture review: adaptability
+to tax-law change (rp-sq9)" explains *why* this is normally a data
+change, not a code change: every tax/mechanics figure is a
+`SourcedFigure` whose `schedule: dict[year, value]` already repeats
+today's pinned real-dollar value across every documented year
+(`_DOCUMENTED_YEARS`, currently 2020-2074) — so a new year's IRS Rev.
+Proc. / CMS IRMAA table / SSA COLA fact sheet does **not** by itself
+break anything or require an urgent fix. This section is the checklist
+for the maintenance decision "a new year's figures just published — do
+we re-pin, and if so, how" (014-figure-verification's own methodology,
+generalized past that feature's original one-time cleanup).
+
+### 9.1 Which figures this applies to
+
+| Figure(s) | Module | Primary source | Refresh cadence |
+|---|---|---|---|
+| Federal bracket thresholds (MFJ/single) | `tax/federal.py` | IRS Revenue Procedure (annual) | Inflation-indexed — re-pin is optional (§9.2) |
+| IRMAA tiers (MFJ/single) | `tax/irmaa.py` | CMS.gov Medicare Parts B & D tables (annual) | Inflation-indexed — re-pin is optional |
+| HSA contribution limits (self-only/family) | `mechanics/hsa.py` | IRS Revenue Procedure (annual) | Inflation-indexed — re-pin is optional; the $1,000 catch-up is fixed by statute (IRC §223(b)(3)) and never changes |
+| SC/DE bracket tables | `tax/state/sc.py`, `tax/state/de.py` | SC Code Ann. §12-6-510, Del. Code Ann. tit. 30 §1102 | Still unverified placeholders (`verified=False`, `docs/BRD.md` §5.4) — a genuine first verification, not a re-pin, is the open task here; same procedure below once done |
+| NIIT rate/thresholds | `tax/niit.py` | 26 U.S.C. §1411 | Fixed by statute since 2013 — touch only if Congress amends this section |
+| SS provisional-income thresholds | `tax/social_security.py` | 26 U.S.C. §86(c) | Fixed by statute since 1984 — same |
+| OASDI/Medicare FICA rates | `tax/fica.py` | 26 U.S.C. §3101 et seq. | Rates are fixed by statute; `OASDI_WAGE_BASE` genuinely grows yearly via national average wage indexing (a different, faster series than CPI) but this project holds it flat at its pinned year by the same real-dollar convention (module's own docstring) — `ADDITIONAL_MEDICARE_TAX_THRESHOLDS` is fixed by statute since 2013, not merely held flat |
+| Early-withdrawal penalty rate | `tax/early_withdrawal_penalty.py` | 26 U.S.C. §72(t) | Fixed by statute |
+| Roth conversion 5-year seasoning | `mechanics/roth_conversion_ladder.py` | 26 U.S.C. §408A | Fixed by statute |
+| RMD start age | `mechanics/rmd.py` (`RMD_START_AGE`) | SECURE 2.0 Act §107 | Already encodes its one known future step (73→75 in 2033) as a two-part schedule — nothing to do unless Congress legislates *another* step |
+| Uniform Lifetime / Joint Life / Single Life Expectancy tables | `mechanics/rmd.py`, `mechanics/inherited_rmd.py` | IRS Pub. 590-B, Appendix B | Revised by IRS only occasionally (not annually) when its underlying mortality assumptions change — watch for a new Pub. 590-B edition, not a yearly check |
+| SS claiming-age/spousal/survivor adjustment formulas | `mechanics/social_security_benefit.py` | 42 U.S.C. §402 et seq. | Fixed statutory formulas |
+
+If a new year's publication reveals a **structural** change (a bracket
+added/removed, a new tier, a formula change) rather than a plain
+inflation bump, that is not a data-only refresh — treat it like
+`RMD_START_AGE`'s 2033 step: encode it as an additional keyed sub-range
+in the schedule dict, and budget real design/review time, not just a
+literal swap.
+
+### 9.2 Procedure: re-pinning an inflation-indexed figure to a newer year
+
+1. **Identify the module(s)** from the table above.
+2. **Decide whether to re-pin at all.** The existing pinned year already
+   satisfies every documented year through `_DOCUMENTED_YEARS`'s end
+   (the whole point of the real-dollar convention,
+   `docs/SOLUTION_ARCHITECTURE.md` §8) — re-pinning to a newer year is a
+   deliberate "keep the citation current" maintenance choice, not a bug
+   fix. Skip the rest of this procedure if the answer is no.
+3. **Look up the new figure against its actual primary source** (the PDF
+   Revenue Procedure, the CMS.gov table, the SSA fact sheet) — never
+   from memory or a secondary summary, mirroring
+   `specs/014-figure-verification/research.md` §1's own discipline. Note
+   the specific section/page and the date checked.
+4. **Update the schedule dict's literal values** — the whole
+   `_DOCUMENTED_YEARS` range still repeats one flat value (or, for
+   `federal.py`'s two-part brackets, one flat table); replace the old
+   literal(s), don't add a second real per-year table.
+5. **Update the `citation=` string** on that `SourcedFigure` to name the
+   new source document and tax year, and set `last_verified` to today's
+   date. Leave `verified=True` only if you actually did step 3 — an
+   unconfirmed guess must ship as `verified=False` (Constitution
+   Principle III; `docs/BRD.md` §7 is where an honestly-unverified figure
+   gets disclosed, not silently marked verified to make a warning go
+   away).
+6. **Update the module's own docstring** if it names a specific tax
+   year/citation inline (`tax/federal.py`'s docstring is the pattern to
+   match).
+7. **Update `docs/BRD.md` §5**'s verification table row for this figure
+   (source, tax year, verified status) if any of those changed.
+8. **Run that package's test suite** (`pytest tests/` at minimum;
+   `services/bff/tests/`/`apps/streamlit_ui/tests/` too if a hardcoded
+   expected figure appears in a fixture there) — a re-pin usually breaks
+   at least one test asserting the old literal, which is expected and
+   should be updated to the new one, not skipped.
+
+### 9.3 A known future action: extending `_DOCUMENTED_YEARS` itself
+
+Every schedule currently documents 2020-2074. A plan horizon that
+reaches 2075 (a `plan_to_age` far enough out from a young household's
+`current_age`) will raise `UnsupportedTaxYearError` — not urgent today,
+but worth another pass once real usage approaches that edge. Extending
+it is the same one-line `range(...)` change repeated across every
+module in the table above, not a per-figure redesign.
+
+## 10. Rollback
 
 There is no deployed environment to roll back (§0) — "rollback" here
 means the local checkout. Since every process is stateless outside
@@ -267,7 +350,7 @@ Restart the stack (§3). Scenario data in `config/scenarios/` is
 untouched by any of the above — it's gitignored and lives independently
 of the code checkout.
 
-## 10. Related documents
+## 11. Related documents
 
 - [`README.md`](../README.md) — install/run quick reference, project
   layout, development process.

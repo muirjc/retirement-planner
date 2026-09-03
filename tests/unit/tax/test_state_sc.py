@@ -61,6 +61,32 @@ def test_sc_supports_a_realistic_multi_decade_plan_horizon():
     assert result.state_tax_owed == 1_222.80  # same as the 2027 rate (held flat from 2027 on)
 
 
+def test_sc_retains_taxable_income_exclusion_applied_and_bracket_breakdown():
+    """rp-bm8.3: same worked example as
+    test_sc_bracket_math_with_age_65_exclusion_both_filers() ($60,000
+    ordinary income, both filers 65+ -> $30,000 exclusion, $30,000 taxable,
+    $1,278.64 owed) -- asserts the previously-discarded intermediate
+    values are now retained."""
+    income = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
+    result = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+
+    assert result.exclusion_applied == 30_000.0  # 2 filers x $15,000
+    assert result.taxable_income == 30_000.0  # 60,000 - 30,000
+    rows = [(row.rate, row.income_in_bracket, row.tax_in_bracket) for row in result.bracket_breakdown]
+    # SC's own $0-rate first bracket (0% up to $3,200) is included -- income
+    # reached it, even though it contributed $0 tax; only brackets the
+    # taxable_income never reached at all are omitted.
+    assert rows == [(0.00, 3_200.0, 0.0), (0.03, 12_840.0, 385.2), (0.064, 13_960.0, 893.44)]
+    assert sum(row.tax_in_bracket for row in result.bracket_breakdown) == result.state_tax_owed
+
+
+def test_sc_exclusion_applied_is_zero_when_no_filer_qualifies():
+    income = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
+    result = compute_tax(income, filer_ages=[50, 52], filing_status="married_filing_jointly", tax_year=2026)
+    assert result.exclusion_applied == 0.0
+    assert result.taxable_income == 60_000.0
+
+
 def test_sc_ignores_government_pension_income():
     """027-nc-bailey-exclusion: government_pension_income is a NC-only
     (Bailey settlement) field -- SC never reads it, so a nonzero value

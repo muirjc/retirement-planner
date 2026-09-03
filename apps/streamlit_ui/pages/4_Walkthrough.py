@@ -12,6 +12,7 @@ import streamlit as st
 
 from rp_ui.formatting import format_currency
 from rp_ui.verification import render_verification_indicator
+from rp_ui.year_detail import render_year_computation_detail
 
 _BATCH_SIZE = 3
 """spec.md Clarifications (2026-09-03): fixed batches of 3 plan years per
@@ -81,6 +82,9 @@ for offset, story in enumerate(years[batch_start : batch_start + _BATCH_SIZE]):
         format_currency(year_detail["federal_tax"]["federal_tax_owed"] + year_detail["state_tax"]["state_tax_owed"]),
     )
     metric_cols[2].metric("Shortfall", format_currency(year_detail["shortfall"]) if year_detail["shortfall"] else "None")
+
+    with st.expander("How was this year's math computed?"):
+        render_year_computation_detail(story["detail"])
 
     render_verification_indicator(story.get("unverified_figure_names", []))
     st.divider()

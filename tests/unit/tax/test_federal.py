@@ -113,3 +113,41 @@ def test_standard_deduction_figure_is_verified_against_rev_proc_2025_32():
     deduction_figure = next(f for f in result.figures_used if f.name == "standard_deduction_mfj")
     assert deduction_figure.verified is True
     assert "Rev. Proc. 2025-32" in deduction_figure.citation
+
+
+# -- rp-bm8.3: previously-discarded intermediate values, now retained --
+
+
+def test_taxable_income_and_standard_deduction_used_are_retained_single_bracket():
+    income = IncomeComponents(ordinary_income=40_000, social_security_gross_benefit=0)
+    result = compute_federal_tax(income, [40, 42], "married_filing_jointly", 2026)
+    assert result.standard_deduction_used == 32_200.0
+    assert result.taxable_income == 7_800.0  # 40,000 - 32,200
+    assert len(result.bracket_breakdown) == 1
+    row = result.bracket_breakdown[0]
+    assert (row.rate, row.income_in_bracket, row.tax_in_bracket) == (0.10, 7_800.0, 780.0)
+
+
+def test_bracket_breakdown_matches_the_multi_bracket_worked_example():
+    """Same worked example test_federal_tax_spans_multiple_brackets_mfj()
+    already covers ($134,800 taxable -> $19,080 owed) -- this asserts the
+    per-bracket rows retained alongside that total (rp-bm8.3)."""
+    income = IncomeComponents(ordinary_income=150_000, social_security_gross_benefit=20_000)
+    result = compute_federal_tax(income, [50, 52], "married_filing_jointly", 2026)
+
+    assert result.taxable_income == 134_800.0
+    assert result.standard_deduction_used == 32_200.0
+    rows = [(row.rate, row.income_in_bracket, row.tax_in_bracket) for row in result.bracket_breakdown]
+    assert rows == [
+        (0.10, 24_800.0, 2_480.0),
+        (0.12, 76_000.0, 9_120.0),
+        (0.22, 34_000.0, 7_480.0),
+    ]
+    assert sum(row.tax_in_bracket for row in result.bracket_breakdown) == result.federal_tax_owed
+
+
+def test_bracket_breakdown_is_empty_when_taxable_income_is_zero():
+    income = IncomeComponents(ordinary_income=1_000, social_security_gross_benefit=0)
+    result = compute_federal_tax(income, [70, 70], "married_filing_jointly", 2026)
+    assert result.taxable_income == 0.0
+    assert result.bracket_breakdown == []

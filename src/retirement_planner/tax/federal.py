@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .bracket_math import apply_progressive_brackets
+from .bracket_math import apply_progressive_brackets_detailed
 from .models import (
     BracketRow,
     BracketTable,
@@ -157,10 +157,13 @@ def compute_federal_tax(
     # max(0, ...): the standard deduction shields income, it never turns
     # into a negative taxable-income (let alone a refundable) figure.
     taxable_income = max(0.0, income.ordinary_income + taxable_social_security - standard_deduction)
-    federal_tax_owed = apply_progressive_brackets(taxable_income, brackets)
+    federal_tax_owed, bracket_breakdown = apply_progressive_brackets_detailed(taxable_income, brackets)
 
     return FederalTaxResult(
         federal_tax_owed=federal_tax_owed,
         taxable_social_security=taxable_social_security,
         figures_used=figures_used,
+        taxable_income=taxable_income,
+        standard_deduction_used=standard_deduction,
+        bracket_breakdown=bracket_breakdown,
     )

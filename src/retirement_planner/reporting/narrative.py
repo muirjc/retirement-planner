@@ -16,6 +16,7 @@ from retirement_planner.simulation import SimulationRun
 
 from .aggregation import unverified_figure_names
 from .models import NarrativeEntry, RunNarrative, YearStory
+from .year_detail import build_year_computation_detail
 
 _TAX_CHANGE_THRESHOLD = 0.15
 """spec.md Clarifications (2026-09-03): >=15% year-over-year change in
@@ -325,6 +326,9 @@ def build_year_stories(projection: PlanProjection, household: Household, referen
                 plan_year=year.plan_year,
                 tax_year=year.tax_year,
                 member_ages=member_ages,
+                # rp-bm8.3: the full "how was this computed" trace behind
+                # this year's story.
+                detail=build_year_computation_detail(year),
                 entries=entries,
                 # US3/FR-011 (research.md §4): this year's own unverified
                 # figures, via the same derivation SummaryStatistics uses.

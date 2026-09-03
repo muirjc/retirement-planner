@@ -43,6 +43,27 @@ def test_de_supports_a_realistic_multi_decade_plan_horizon():
     assert result_2050.state_tax_owed == result_2026.state_tax_owed == 1_600.0
 
 
+def test_de_retains_taxable_income_exclusion_applied_and_bracket_breakdown():
+    """rp-bm8.3: same worked example as
+    test_de_bracket_math_with_age_60_exclusion_both_filers() ($60,000
+    ordinary income, both filers 60+ -> $25,000 exclusion, $35,000
+    taxable, $1,600.00 owed)."""
+    income = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
+    result = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+
+    assert result.exclusion_applied == 25_000.0  # 2 filers x $12,500
+    assert result.taxable_income == 35_000.0  # 60,000 - 25,000
+    rows = [(row.rate, row.income_in_bracket, row.tax_in_bracket) for row in result.bracket_breakdown]
+    assert rows == [
+        (0.022, 5_000.0, 110.0),
+        (0.039, 5_000.0, 195.0),
+        (0.048, 10_000.0, 480.0),
+        (0.052, 5_000.0, 260.0),
+        (0.0555, 10_000.0, 555.0),
+    ]
+    assert sum(row.tax_in_bracket for row in result.bracket_breakdown) == result.state_tax_owed
+
+
 def test_de_ignores_government_pension_income():
     """027-nc-bailey-exclusion: government_pension_income is a NC-only
     (Bailey settlement) field -- DE never reads it, so a nonzero value

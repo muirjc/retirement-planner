@@ -142,6 +142,38 @@ def test_nc_bailey_exclusion_floors_taxable_base_at_zero():
     assert result.state_tax_owed == 0.0
 
 
+def test_nc_retains_taxable_income_exclusion_applied_and_bracket_breakdown():
+    """rp-bm8.3: same worked example as
+    test_nc_bailey_qualifying_income_is_excluded_from_taxable_base()
+    ($40k Bailey-qualifying excluded from $70k ordinary income -> $30k
+    taxable at the flat 3.99% rate)."""
+    income = IncomeComponents(
+        ordinary_income=70_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=40_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="married_filing_jointly", tax_year=2026)
+
+    assert result.exclusion_applied == 40_000.0
+    assert result.taxable_income == 30_000.0
+    assert len(result.bracket_breakdown) == 1
+    row = result.bracket_breakdown[0]
+    assert (row.rate, row.income_in_bracket) == (0.0399, 30_000.0)
+    assert row.tax_in_bracket == pytest.approx(30_000.0 * 0.0399)
+    assert result.bracket_breakdown[0].tax_in_bracket == result.state_tax_owed
+
+
+def test_nc_bracket_breakdown_is_empty_when_fully_excluded():
+    income = IncomeComponents(
+        ordinary_income=50_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=50_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2026)
+    assert result.taxable_income == 0.0
+    assert result.bracket_breakdown == []
+
+
 def test_nc_bailey_exclusion_figures_used_unchanged():
     """No new SourcedFigure is introduced for the Bailey exclusion
     (research.md §4) -- figures_used still cites only the flat rate."""

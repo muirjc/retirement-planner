@@ -9,7 +9,7 @@ calculator that takes income components directly (see spec.md Assumptions).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Generic, Literal, TypeVar
 
@@ -96,6 +96,20 @@ BracketTable = tuple[BracketRow, ...]
 
 
 @dataclass
+class BracketContribution:
+    """One bracket's contribution to a progressive-tax computation (rp-bm8.3):
+    retains what apply_progressive_brackets_detailed() (bracket_math.py)
+    already computes internally -- a dollar-for-dollar breakdown of how a
+    taxable-income figure became a tax-owed figure, previously discarded
+    after being summed. Never changes the computed total; a pure retention
+    of an already-verified computation's own intermediate values."""
+
+    rate: float
+    income_in_bracket: float
+    tax_in_bracket: float
+
+
+@dataclass
 class FigureUsage:
     """A snapshot of one SourcedFigure's citation metadata for the year
     actually used in a computation — one entry in a result's provenance
@@ -155,6 +169,19 @@ class FederalTaxResult:
     federal_tax_owed: float
     taxable_social_security: float
     figures_used: list[FigureUsage]
+    taxable_income: float = 0.0
+    """rp-bm8.3: ordinary_income + taxable_social_security - standard_deduction_used,
+    floored at $0 -- compute_federal_tax()'s own already-computed local
+    variable, simply no longer discarded after producing federal_tax_owed.
+    Defaults to 0.0 so the one existing direct construction site
+    (tests/unit/comparison/test_projection.py) is unaffected."""
+    standard_deduction_used: float = 0.0
+    """rp-bm8.3: the actual dollar amount subtracted this year (base +
+    age-65 addition per qualifying filer) -- same retention discipline as
+    taxable_income above."""
+    bracket_breakdown: list[BracketContribution] = field(default_factory=list)
+    """rp-bm8.3: apply_progressive_brackets_detailed()'s own per-row
+    output for this computation -- sums to federal_tax_owed exactly."""
 
 
 @dataclass
@@ -164,6 +191,18 @@ class StateTaxResult:
     state: str
     state_tax_owed: float
     figures_used: list[FigureUsage]
+    taxable_income: float = 0.0
+    """rp-bm8.3: same retention discipline as FederalTaxResult.taxable_income
+    -- each state module's own already-computed local, no longer discarded.
+    0.0 for FL (no state income tax, no taxable base)."""
+    exclusion_applied: float = 0.0
+    """rp-bm8.3: the total dollar amount excluded from ordinary_income before
+    bracket math -- SC/DE's age-65/60 exclusion, NC's Bailey exclusion
+    (income.government_pension_income), or 0.0 (FL, or no exclusion
+    applicable this year)."""
+    bracket_breakdown: list[BracketContribution] = field(default_factory=list)
+    """rp-bm8.3: same as FederalTaxResult.bracket_breakdown. Empty for FL
+    (no bracket math runs at all)."""
 
 
 @dataclass

@@ -23,6 +23,7 @@ from .errors import (
     InvalidScenarioError,
     PathIndexOutOfRangeError,
     ScenarioNotFoundError,
+    SurvivalCurveAgeOutOfRangeError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
     UnsupportedTaxYearError,
@@ -53,7 +54,7 @@ def _request(method: str, path: str, *, json: object = None, params: dict | None
 
 
 def _raise_for_error_response(resp: httpx.Response) -> None:
-    """Maps one of 007's 6 documented error shapes (contracts/bff-api.md)
+    """Maps one of 007's documented error shapes (contracts/bff-api.md)
     to its typed exception, by branching on the response's own stable
     `error` field (contracts/bff-api.md's "Consumption expectations" note)
     -- never by string-matching a free-text message. Anything else
@@ -88,6 +89,11 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
         raise PathIndexOutOfRangeError(
             requested=body.get("requested", 0),
             path_count=body.get("path_count", 0),
+        )
+    if error == "survival_curve_age_out_of_range":
+        raise SurvivalCurveAgeOutOfRangeError(
+            person_name=body.get("person_name", ""),
+            age=body.get("age", 0),
         )
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 

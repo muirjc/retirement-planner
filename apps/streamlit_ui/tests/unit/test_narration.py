@@ -14,6 +14,7 @@ from rp_ui.narration import narrate_metrics
 _MONTE_CARLO_SUMMARY = {
     "candidate_label": "base_case",
     "success_rate": 0.82,
+    "survival_adjusted_success_rate": None,
     "ending_balance": 1_250_000.0,
     "percentile_bands": [{"plan_year": 1, "percentiles": {"0.5": 1_000_000.0}}],
     "median_depletion_age": None,
@@ -30,6 +31,7 @@ _MONTE_CARLO_SUMMARY_WITH_DEPLETION = {**_MONTE_CARLO_SUMMARY, "success_rate": 0
 _DETERMINISTIC_SUMMARY = {
     "candidate_label": "no_conversion",
     "success_rate": None,
+    "survival_adjusted_success_rate": None,
     "ending_balance": 900_000.0,
     "percentile_bands": None,
     "median_depletion_age": None,
@@ -91,6 +93,25 @@ def test_median_depletion_age_shown_when_present_for_monte_carlo():
     entries = narrate_metrics(_MONTE_CARLO_SUMMARY_WITH_DEPLETION)
     depletion = next(e for e in entries if e["label"] == "Median depletion age")
     assert depletion["value"] == "84"
+
+
+def test_survival_adjusted_success_rate_omitted_when_none():
+    entries = narrate_metrics(_MONTE_CARLO_SUMMARY)  # survival_adjusted_success_rate is None
+    labels = [e["label"] for e in entries]
+    assert "Survival-adjusted success rate" not in labels
+
+
+def test_survival_adjusted_success_rate_shown_when_present():
+    summary = {**_MONTE_CARLO_SUMMARY, "survival_adjusted_success_rate": 0.91}
+    entries = narrate_metrics(summary)
+    survival = next(e for e in entries if e["label"] == "Survival-adjusted success rate")
+    assert survival["value"] == "91.0%"
+
+
+def test_survival_adjusted_success_rate_never_shown_for_deterministic():
+    entries = narrate_metrics(_DETERMINISTIC_SUMMARY)  # always None for a deterministic summary
+    labels = [e["label"] for e in entries]
+    assert "Survival-adjusted success rate" not in labels
 
 
 def test_tax_irmaa_niit_entries_always_present_and_currency_formatted():

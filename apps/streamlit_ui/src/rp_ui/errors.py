@@ -77,6 +77,19 @@ class PathIndexOutOfRangeError(RpUiError):
         super().__init__(f"Path index {requested} is out of range (this run has {path_count} path(s))")
 
 
+class SurvivalCurveAgeOutOfRangeError(RpUiError):
+    """007 returned 422 {"error": "survival_curve_age_out_of_range",
+    "person_name": ..., "age": ...} -- rp-9vl's opt-in survival-adjusted
+    scoring only covers ages 50-110 (simulation.survival_data.SURVIVAL_TABLE's
+    illustrative curves); this household's ages/horizon reach outside that
+    range for the named member."""
+
+    def __init__(self, *, person_name: str, age: int) -> None:
+        self.person_name = person_name
+        self.age = age
+        super().__init__(f"No survival curve coverage for {person_name!r} at age {age}")
+
+
 class CostBudgetExceededError(RpUiError):
     """007 returned 413 {"error": "estimated_cost_exceeds_budget", "estimated_seconds": ..., "budget_seconds": ...}."""
 

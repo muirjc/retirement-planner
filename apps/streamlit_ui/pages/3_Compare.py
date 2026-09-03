@@ -30,6 +30,7 @@ from rp_ui.errors import (
     CostBudgetExceededError,
     RpUiError,
     ScenarioNotFoundError,
+    SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
     UnsupportedTaxYearError,
 )
@@ -85,6 +86,18 @@ st.selectbox(
         "section for the full explanation."
     ),
 )
+
+if st.session_state.get("compare_engine") != "Deterministic":
+    st.checkbox(
+        "Score success using survival-adjusted probability",
+        key="compare_survival_adjusted",
+        help=(
+            "Monte Carlo only. Also reports each candidate's share of paths that never ran out "
+            "of money while at least one household member is presumed alive, using an "
+            "illustrative, not-yet-verified survival curve (rp-9vl) -- see the verification "
+            "notice below when shown."
+        ),
+    )
 
 c1, c2, c3 = st.columns(3)
 c1.number_input(
@@ -236,6 +249,11 @@ def _build_body() -> dict:
         "start_tax_year": st.session_state["compare_start_tax_year"],
         "axis": axis,
         "candidates": _build_candidates(),
+        # rp-9vl: the checkbox above only renders for Monte Carlo (the
+        # deterministic route ignores this field regardless) -- `.get`
+        # covers a Deterministic-engine submission, where the widget was
+        # never drawn and so has no session_state entry at all.
+        "survival_adjusted": st.session_state.get("compare_survival_adjusted", False),
     }
 
 
@@ -264,6 +282,13 @@ if st.button(
                 f"enter a year between {min(years)} and {max(years)}." if years else
                 f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
             )
+        except SurvivalCurveAgeOutOfRangeError as err:
+            st.error(
+                f"Survival-adjusted scoring isn't available for {err.person_name!r} at age {err.age} -- "
+                "the illustrative survival curve this feature uses only covers ages 50-110. Uncheck "
+                "'Score success using survival-adjusted probability' above, or adjust this household's "
+                "ages/Plan to age so every age reached during the run stays in that range."
+            )
         except CostBudgetExceededError as err:
             st.error(
                 f"This request is too large (estimated {err.estimated_seconds:.0f}s "
@@ -290,6 +315,11 @@ if "compare_last_result" in st.session_state:
             {
                 "candidate_label": s.get("candidate_label"),
                 "success_rate": f"{s['success_rate'] * 100:.1f}%" if s.get("success_rate") is not None else "n/a",
+                "survival_adjusted_success_rate": (
+                    f"{s['survival_adjusted_success_rate'] * 100:.1f}%"
+                    if s.get("survival_adjusted_success_rate") is not None
+                    else "n/a"
+                ),
                 "ending_balance": format_currency(s.get("ending_balance")),
                 "median_lifetime_tax_paid": format_currency(s.get("median_lifetime_tax_paid")),
                 "median_lifetime_irmaa_paid": format_currency(s.get("median_lifetime_irmaa_paid")),

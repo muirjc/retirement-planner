@@ -19,6 +19,7 @@ from rp_ui.errors import (
     PathIndexOutOfRangeError,
     RpUiError,
     ScenarioNotFoundError,
+    SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
     UnsupportedTaxYearError,
 )
@@ -74,6 +75,19 @@ c3.number_input(
     help="The calendar tax year the first plan year corresponds to -- normally the same as Reference tax year.",
 )
 
+st.checkbox(
+    "Score success using survival-adjusted probability",
+    key="run_survival_adjusted",
+    help=(
+        "Also reports the share of simulated paths that never ran out of money while at least "
+        "one household member is presumed alive -- a shortfall after every member is more "
+        "likely dead than alive counts as a success here, unlike Success rate below. Uses an "
+        "illustrative, not-yet-verified survival curve (rp-9vl) -- see the verification notice "
+        "below when shown. Requires every household member's age to stay within roughly 50-110 "
+        "for this run's full horizon, or the run is rejected with an error naming the member/age."
+    ),
+)
+
 with st.expander("Advanced overrides"):
     st.checkbox(
         "Override scenario defaults",
@@ -119,6 +133,7 @@ def _build_run_body() -> dict:
         # only selects which single path's detail table to display, not
         # a scenario-level setting with its own saved default to override.
         "detail_path_index": st.session_state["run_detail_path_index"],
+        "survival_adjusted": st.session_state["run_survival_adjusted"],
     }
     if st.session_state.get("run_override_advanced"):
         body["n_paths"] = st.session_state["run_n_paths_override"]
@@ -151,6 +166,13 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
                 f"Detail path index {err.requested} is out of range -- this run only has "
                 f"{err.path_count} path(s). Enter a value from 0 to {err.path_count - 1}."
             )
+        except SurvivalCurveAgeOutOfRangeError as err:
+            st.error(
+                f"Survival-adjusted scoring isn't available for {err.person_name!r} at age {err.age} -- "
+                "the illustrative survival curve this feature uses only covers ages 50-110. Uncheck "
+                "'Score success using survival-adjusted probability' above, or adjust this household's "
+                "ages/Plan to age so every age reached during the run stays in that range."
+            )
         except CostBudgetExceededError as err:
             st.error(
                 f"This request is too large (estimated {err.estimated_seconds:.0f}s "
@@ -167,7 +189,16 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
 if "run_last_result" in st.session_state:
     run = st.session_state["run_last_result"]["run"]
     summary = st.session_state["run_last_result"]["summary"]
-    st.metric("Success rate", f"{summary['success_rate'] * 100:.1f}%" if summary["success_rate"] is not None else "n/a")
+    if summary.get("survival_adjusted_success_rate") is not None:
+        m1, m2 = st.columns(2)
+        m1.metric("Success rate", f"{summary['success_rate'] * 100:.1f}%")
+        m2.metric(
+            "Survival-adjusted success rate",
+            f"{summary['survival_adjusted_success_rate'] * 100:.1f}%",
+            help="Uses an illustrative, not-yet-verified survival curve -- see the notice below.",
+        )
+    else:
+        st.metric("Success rate", f"{summary['success_rate'] * 100:.1f}%" if summary["success_rate"] is not None else "n/a")
     st.plotly_chart(fan_chart(summary["percentile_bands"] or []))
     # rp-r07: the numbers behind the chart above, in plain language --
     # path_count comes from this same response (every path's own result

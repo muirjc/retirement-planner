@@ -97,7 +97,9 @@ def _percentile_bands_from_projections(projections):
     return bands
 
 
-def _run_from_projections(path_results, success_rate, percentile_bands=None, candidate_label="test"):
+def _run_from_projections(
+    path_results, success_rate, percentile_bands=None, candidate_label="test", survival_adjusted_success_rate=None
+):
     return SimulationRun(
         candidate_label=candidate_label,
         strategy=_STRATEGY,
@@ -105,7 +107,7 @@ def _run_from_projections(path_results, success_rate, percentile_bands=None, can
         path_results=path_results,
         success_rate=success_rate,
         percentile_bands=percentile_bands if percentile_bands is not None else _percentile_bands_from_projections(path_results),
-        survival_adjusted_success_rate=None,
+        survival_adjusted_success_rate=survival_adjusted_success_rate,
         figures_used=[fig for p in path_results for year in p.years for fig in year.figures_used],
     )
 
@@ -124,6 +126,21 @@ def test_success_rate_and_percentile_bands_pass_through_unchanged():
     assert summary.success_rate == run.success_rate
     assert summary.percentile_bands == run.percentile_bands
     assert summary.candidate_label is None
+
+
+def test_survival_adjusted_success_rate_passes_through_unchanged():
+    """rp-9vl: 1:1 pass-through of SimulationRun.survival_adjusted_success_rate,
+    whether it's a real float (survival_curves was given to run_simulation())
+    or None (it wasn't) -- summarize_run() never derives this value itself."""
+    from retirement_planner.reporting.aggregation import summarize_run
+
+    without = _run_from_projections([_PROJECTION_A, _PROJECTION_B], success_rate=1.0)
+    with_it = _run_from_projections(
+        [_PROJECTION_A, _PROJECTION_B], success_rate=1.0, survival_adjusted_success_rate=0.75
+    )
+
+    assert summarize_run(without, household=_HOUSEHOLD, reference_tax_year=2026).survival_adjusted_success_rate is None
+    assert summarize_run(with_it, household=_HOUSEHOLD, reference_tax_year=2026).survival_adjusted_success_rate == 0.75
 
 
 def test_median_depletion_age_computed_only_from_depleted_paths():
@@ -259,6 +276,7 @@ def test_summarize_deterministic_comparison_marks_monte_carlo_fields_not_applica
     assert len(summaries) == 2
     for summary in summaries:
         assert summary.success_rate is None
+        assert summary.survival_adjusted_success_rate is None  # rp-9vl: no Monte Carlo distribution to score
         assert summary.percentile_bands is None
         assert isinstance(summary.ending_balance, float)
     # Candidate labels come from StrategyConfiguration.label -- both share

@@ -3,7 +3,7 @@
 Uses httpx.MockTransport fixtures built from 007's actual documented
 response shapes (specs/007-bff-api-service/contracts/bff-api.md), not
 guessed shapes, per research.md §2's testing decision. Covers: each of
-007's 6 documented error responses raises the corresponding rp_ui.errors
+007's documented error responses raises the corresponding rp_ui.errors
 type; a connection failure raises BackendUnreachableError; an
 unrecognized non-2xx raises UnexpectedBackendError; and a 2xx response
 returns its parsed JSON body (or CSV text for the export endpoints).
@@ -19,6 +19,7 @@ from rp_ui.errors import (
     CostBudgetExceededError,
     InvalidScenarioError,
     ScenarioNotFoundError,
+    SurvivalCurveAgeOutOfRangeError,
     UnexpectedBackendError,
     UnknownReferenceValueError,
     UnsupportedTaxYearError,
@@ -142,6 +143,21 @@ def test_unsupported_tax_year_raises_unsupported_tax_year_error():
     assert exc_info.value.figure_name == "rmd_start_age"
     assert exc_info.value.requested_year == 1900
     assert exc_info.value.documented_years == [2020, 2026]
+
+
+def test_survival_curve_age_out_of_range_raises_survival_curve_age_out_of_range_error():
+    """rp-9vl: the opt-in survival_adjusted flag's own 422 shape."""
+
+    def handler(request):
+        return httpx.Response(
+            422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10}
+        )
+
+    _install(handler)
+    with pytest.raises(SurvivalCurveAgeOutOfRangeError) as exc_info:
+        api_client.run_simulation({"scenario_name": "base_case", "survival_adjusted": True})
+    assert exc_info.value.person_name == "you"
+    assert exc_info.value.age == 10
 
 
 def test_cost_budget_exceeded_raises_cost_budget_exceeded_error():

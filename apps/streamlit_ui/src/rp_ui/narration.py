@@ -31,10 +31,11 @@ from .formatting import format_currency
 
 def narrate_metrics(summary: dict, *, path_count: int | None = None) -> list[dict[str, str]]:
     """Builds one entry per metric present in `summary` (007's own
-    SummaryStatistics JSON shape: success_rate, ending_balance,
-    percentile_bands, median_depletion_age, median_lifetime_tax_paid,
-    median_lifetime_irmaa_paid, median_lifetime_niit_paid), each a
-    {"label", "value", "explanation"} dict. Whether summary came from the
+    SummaryStatistics JSON shape: success_rate, survival_adjusted_success_rate
+    (rp-9vl), ending_balance, percentile_bands, median_depletion_age,
+    median_lifetime_tax_paid, median_lifetime_irmaa_paid,
+    median_lifetime_niit_paid), each a {"label", "value", "explanation"}
+    dict. Whether summary came from the
     Monte Carlo or deterministic engine is read from success_rate being
     present or None (SummaryStatistics' own documented convention,
     reporting/models.py) -- never passed as a separate flag. A metric is
@@ -69,6 +70,20 @@ def narrate_metrics(summary: dict, *, path_count: int | None = None) -> list[dic
                 ),
             }
         )
+        if summary.get("survival_adjusted_success_rate") is not None:
+            entries.append(
+                {
+                    "label": "Survival-adjusted success rate",
+                    "value": f"{summary['survival_adjusted_success_rate'] * 100:.1f}%",
+                    "explanation": (
+                        "A path also counts as a success here if it ran short of money only after "
+                        "every household member is more likely dead than alive, per an illustrative "
+                        "survival curve (see the verification notice below) -- unlike Success rate "
+                        "above, which counts any shortfall before the plan horizon ends as a failure "
+                        "regardless of age at the time."
+                    ),
+                }
+            )
         entries.append(
             {
                 "label": "Ending balance (median)",

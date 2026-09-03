@@ -265,9 +265,9 @@ Four independent layers, outermost to innermost:
 ```mermaid
 graph TD
     E2E["e2e/ — 16 tests<br/>real BFF + real UI subprocesses, real headless Chromium"]
-    UI["apps/streamlit_ui/tests/ — 110 tests<br/>Streamlit-script-level UI logic, mocked BFF client"]
-    BFF["services/bff/tests/ — 76 tests<br/>HTTP contract, route/resolution logic"]
-    CORE["tests/ — 514 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
+    UI["apps/streamlit_ui/tests/ — 126 tests<br/>Streamlit-script-level UI logic, mocked BFF client"]
+    BFF["services/bff/tests/ — 81 tests<br/>HTTP contract, route/resolution logic"]
+    CORE["tests/ — 520 tests<br/>pure engine logic: tax math, mechanics, comparison, simulation"]
 
     E2E --> UI
     E2E --> BFF

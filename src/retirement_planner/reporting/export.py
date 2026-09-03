@@ -77,6 +77,7 @@ def run_to_csv_text(run: SimulationRun) -> str:
 _SUMMARY_FIELDNAMES = [
     "candidate_label",
     "success_rate",
+    "survival_adjusted_success_rate",  # rp-9vl
     "ending_balance",
     "median_depletion_age",
     "median_lifetime_tax_paid",
@@ -95,6 +96,9 @@ def _summary_to_row(summary: SummaryStatistics) -> dict:
     return {
         "candidate_label": "" if summary.candidate_label is None else _csv_safe(summary.candidate_label),
         "success_rate": "" if summary.success_rate is None else summary.success_rate,
+        "survival_adjusted_success_rate": (
+            "" if summary.survival_adjusted_success_rate is None else summary.survival_adjusted_success_rate
+        ),
         "ending_balance": summary.ending_balance,
         "median_depletion_age": "" if summary.median_depletion_age is None else summary.median_depletion_age,
         "median_lifetime_tax_paid": summary.median_lifetime_tax_paid,

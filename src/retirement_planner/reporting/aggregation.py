@@ -71,6 +71,7 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
     return SummaryStatistics(
         candidate_label=None,
         success_rate=run.success_rate,
+        survival_adjusted_success_rate=run.survival_adjusted_success_rate,
         ending_balance=ending_balance,
         percentile_bands=run.percentile_bands,
         median_depletion_age=median_depletion_age,
@@ -107,6 +108,7 @@ def _summarize_plan_projection(
     return SummaryStatistics(
         candidate_label=projection.strategy.label,
         success_rate=None,
+        survival_adjusted_success_rate=None,  # no Monte Carlo distribution to score (research.md §2)
         ending_balance=projection.outcome.ending_balance,
         percentile_bands=None,
         median_depletion_age=_depletion_age(projection, household, reference_tax_year),

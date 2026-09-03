@@ -31,10 +31,14 @@ from ..dependencies import get_scenarios_dir
 from ..resolution import (
     BlockingValidationFlagsError,
     ResolvedRunContext,
+    SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
+    build_survival_curves,
     check_run_cost,
     resolve_run_context,
+    survival_curve_age_out_of_range_error,
     unsupported_tax_year_error,
+    validate_survival_curve_coverage,
 )
 from ..serialization import to_jsonable
 
@@ -58,6 +62,13 @@ class SimulationRequest(BaseModel):
     """015-per-account-projection-detail (contracts/bff-api.md): which
     path's account_detail to compute -- defaults to 0 (export.py's own
     "path 0 is representative" precedent) when omitted."""
+    survival_adjusted: bool = False
+    """rp-9vl: opt-in flag for SimulationRun.survival_adjusted_success_rate
+    -- when True, every household member is given a per-member
+    SurvivalCurve built from simulation.SURVIVAL_TABLE's illustrative
+    "primary"/"spouse" curves (there is no per-scenario user-entered
+    survival-curve data; a v1 needs none). False (the default) reproduces
+    every existing request's exact current behavior byte-for-byte."""
 
 
 def resolve_and_run_simulation(
@@ -118,6 +129,18 @@ def resolve_and_run_simulation(
         start_plan_year=body.start_plan_year,
         seed=context.seed,
     )
+
+    # rp-9vl: opt-in, so every existing request (survival_adjusted omitted
+    # or False) reaches run_simulation() with survival_curves=None,
+    # reproducing its exact prior behavior byte-for-byte.
+    survival_curves = None
+    if body.survival_adjusted:
+        survival_curves = build_survival_curves(context.household)
+        try:
+            validate_survival_curve_coverage(context.household, survival_curves, context.plan_to_age, owner.current_age)
+        except SurvivalCurveAgeOutOfRangeError as exc:
+            raise survival_curve_age_out_of_range_error(exc)
+
     try:
         run = run_simulation(
             household=context.household,
@@ -133,6 +156,7 @@ def resolve_and_run_simulation(
             return_paths=return_paths,
             candidate_label=body.scenario_name,
             inherited_accounts=context.inherited_accounts,
+            survival_curves=survival_curves,
         )
     except UnsupportedTaxYearError as exc:
         raise unsupported_tax_year_error(exc)

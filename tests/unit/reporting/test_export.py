@@ -64,7 +64,10 @@ _PERCENTILE_BANDS = [
 ]
 
 
-def _run(path_results=None, percentile_bands=None, candidate_label="test", figures_used=None):
+def _run(
+    path_results=None, percentile_bands=None, candidate_label="test", figures_used=None,
+    survival_adjusted_success_rate=None,
+):
     path_results = path_results if path_results is not None else [_PROJECTION_A, _PROJECTION_B]
     return SimulationRun(
         candidate_label=candidate_label,
@@ -73,7 +76,7 @@ def _run(path_results=None, percentile_bands=None, candidate_label="test", figur
         path_results=path_results,
         success_rate=0.5,
         percentile_bands=percentile_bands if percentile_bands is not None else _PERCENTILE_BANDS,
-        survival_adjusted_success_rate=None,
+        survival_adjusted_success_rate=survival_adjusted_success_rate,
         figures_used=figures_used if figures_used is not None else [],
     )
 
@@ -145,6 +148,22 @@ def test_simulation_comparison_to_csv_text_has_one_row_per_candidate_clearly_lab
 
     assert len(rows) == 2
     assert {row["candidate_label"] for row in rows} == {"candidate_a", "candidate_b"}
+
+
+def test_simulation_comparison_to_csv_text_includes_survival_adjusted_success_rate():
+    """rp-9vl: present as a real column value when the run computed one,
+    blank (never 0 or a fabricated value) when it didn't."""
+    from retirement_planner.reporting.export import simulation_comparison_to_csv_text
+
+    run_a = _run(path_results=[_PROJECTION_A], candidate_label="with_survival", survival_adjusted_success_rate=0.8)
+    run_b = _run(path_results=[_PROJECTION_B], candidate_label="without_survival")
+    comparison = SimulationComparisonResult(axis="state", return_paths=[], runs=[run_a, run_b])
+
+    text = simulation_comparison_to_csv_text(comparison, household=_HOUSEHOLD, reference_tax_year=2026)
+    rows = {row["candidate_label"]: row for row in _rows(text)}
+
+    assert float(rows["with_survival"]["survival_adjusted_success_rate"]) == pytest.approx(0.8)
+    assert rows["without_survival"]["survival_adjusted_success_rate"] == ""
 
 
 def test_deterministic_comparison_to_csv_text_leaves_success_rate_blank():

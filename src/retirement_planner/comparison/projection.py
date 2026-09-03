@@ -10,6 +10,7 @@ specs/004-strategy-comparison-layer/research.md and contracts/comparison-api.md.
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from retirement_planner.mechanics import (
@@ -17,6 +18,8 @@ from retirement_planner.mechanics import (
     InheritedAccountBalance,
     RothConversionLot,
     WithdrawalPlan,
+    compute_earnings_test_recredit,
+    compute_earnings_test_withholding,
     compute_hsa_contribution,
     compute_hsa_eligibility,
     compute_income_stream_amount,
@@ -66,9 +69,7 @@ def deemed_rmd_owner(household: Household) -> HouseholdMember:
     return max(household.members, key=lambda member: member.current_age)
 
 
-def _household_death_tax_year(
-    household: Household, reference_tax_year: int
-) -> tuple[HouseholdMember, int] | None:
+def _household_death_tax_year(household: Household, reference_tax_year: int) -> tuple[HouseholdMember, int] | None:
     """018-survivor-scenario-projection (rp-g8y): for a married_filing_jointly
     household of exactly two members where at least one has predicted_death_age
     configured (017-ss-spousal-survivor-benefits), returns (dying_member,
@@ -84,11 +85,7 @@ def _household_death_tax_year(
     if household.filing_status != "married_filing_jointly" or len(household.members) != 2:
         return None
 
-    candidates = [
-        (member, reference_tax_year + (member.predicted_death_age - member.current_age))
-        for member in household.members
-        if member.predicted_death_age is not None
-    ]
+    candidates = [(member, reference_tax_year + (member.predicted_death_age - member.current_age)) for member in household.members if member.predicted_death_age is not None]
     if not candidates:
         return None
     return min(candidates, key=lambda pair: pair[1])
@@ -107,15 +104,20 @@ def _approximate_magi(income: IncomeComponents, federal_tax: FederalTaxResult) -
 
 
 def _member_gross_social_security_benefits(
-    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int], tax_year: int
-) -> tuple[dict[str, float], list[FigureUsage]]:
+    household: Household,
+    ages_this_year: dict[str, int],
+    claiming_ages: dict[str, int],
+    tax_year: int,
+    member_earned_income: dict[str, float] | None = None,
+    cumulative_earnings_test_months_withheld: dict[str, int] | None = None,
+) -> tuple[dict[str, float], dict[str, float], dict[str, int], list[FigureUsage]]:
     """Each member's own actual annual Social Security benefit received
     this year, counted only once that member's translated age reaches
     their configured claiming age (data-model.md § Relationships) -- 0.0
     before then, never omitted (015-per-account-projection-detail
-    data-model.md § PlanYearProjection extension). Summing the dict's
-    values reproduces _household_gross_social_security_benefit()'s own
-    total exactly.
+    data-model.md § PlanYearProjection extension). Summing the first
+    return value's values reproduces _household_gross_social_security_benefit()'s
+    own total exactly.
 
     016-ss-claiming-age-actuarial-adjustment: the amount for a member who
     has reached their claiming age is no longer member.ss_annual_benefit
@@ -123,7 +125,7 @@ def _member_gross_social_security_benefits(
     that field (now the member's PIA), member.full_retirement_age, and
     this comparison's own claiming_ages[member.person_name], so claiming
     earlier or later actually changes the amount, not just when it starts
-    (rp-n44). Each such call's figures_used is collected into the second
+    (rp-n44). Each such call's figures_used is collected into the fourth
     return value, threaded by the caller into this plan year's overall
     figures_used list (research.md Decision 2).
 
@@ -147,32 +149,105 @@ def _member_gross_social_security_benefits(
     member's raw PIA) whenever that exceeds their own claiming-age-
     adjusted benefit -- never reduced, never summed with it. A
     "single"-filing-status household, or an MFJ household where one
-    member hasn't yet claimed, is completely unaffected (FR-004)."""
+    member hasn't yet claimed, is completely unaffected (FR-004).
+
+    025-ss-earnings-test (rp-acq): member_earned_income and
+    cumulative_earnings_test_months_withheld both default to {} (an empty
+    dict, meaning "no earnings test applies to anyone") so every existing
+    caller/test that doesn't pass them behaves exactly as before this
+    feature (_household_gross_social_security_benefit() below in
+    particular). The earnings test only ever applies to a member who
+    claimed genuinely EARLY (claiming_ages[member] < full_retirement_age)
+    -- a member claiming at or after their own FRA has no "before FRA"
+    period as a claimant at all, regardless of what their age happens to
+    be in any given plan year. For such an early-claiming member, while
+    their translated age this year is at or before floor(full_retirement_age)
+    -- i.e. this year is at or before their FRA-attainment year --
+    compute_earnings_test_withholding() applies against that member's own
+    member_earned_income entry: the stricter below-FRA rule (FR-003)
+    while age < floor(FRA), the more lenient FRA-attainment-year rule
+    (FR-004) exactly at age == floor(FRA) (this engine has no mid-year
+    granularity -- research.md Decision 3). Each such year's own
+    deduction_months_this_year
+    accumulates into the returned (updated) cumulative-months-withheld
+    dict. Strictly after the FRA-attainment year (age > floor(FRA)),
+    once that member's accumulated total is nonzero,
+    compute_earnings_test_recredit() permanently raises the benefit from
+    that year forward (FR-007) -- deliberately one plan year after the
+    FRA-attainment year itself, since that year can still generate its
+    own withholding under FR-004 and this engine has no mid-year
+    granularity to apply both a withholding and its own recredit within
+    one annual snapshot (a documented simplification, not silently
+    absorbed). The spousal-benefit floor below is unaffected by this
+    feature's own logic -- it reads whatever (possibly withheld, possibly
+    recredited) benefit this feature already produced, per this
+    feature's explicit scope boundary (spec.md Assumptions)."""
 
     def _resolved_full_retirement_age(member: HouseholdMember) -> float:
         return member.full_retirement_age if member.full_retirement_age is not None else float(member.ss_claim_age)
 
+    member_earned_income = member_earned_income or {}
+    updated_months_withheld: dict[str, int] = dict(cumulative_earnings_test_months_withheld or {})
+
     benefits: dict[str, float] = {}
+    withheld_amounts: dict[str, float] = {}
     figures_used: list[FigureUsage] = []
     for member in household.members:
         if ages_this_year[member.person_name] >= claiming_ages[member.person_name]:
+            full_retirement_age = _resolved_full_retirement_age(member)
+            floor_fra = math.floor(full_retirement_age)
+            age = ages_this_year[member.person_name]
+
             result = compute_social_security_benefit(
                 primary_insurance_amount=member.ss_annual_benefit,
-                full_retirement_age=_resolved_full_retirement_age(member),
+                full_retirement_age=full_retirement_age,
                 claiming_age=claiming_ages[member.person_name],
                 tax_year=tax_year,
             )
-            benefits[member.person_name] = result.annual_benefit
             figures_used.extend(result.figures_used)
+
+            months_withheld_so_far = updated_months_withheld.get(member.person_name, 0)
+            # FR-002: the earnings test only ever applies to a genuinely
+            # EARLY claim (claiming before FRA) -- a member claiming
+            # exactly at or after their own FRA never has a "before FRA"
+            # period at all, so age <= floor_fra alone isn't the right
+            # gate: it would wrongly catch the one plan year a
+            # claim-at-FRA member's age equals floor(FRA) too.
+            is_early_claim = claiming_ages[member.person_name] < full_retirement_age
+
+            if is_early_claim and age <= floor_fra:
+                withholding = compute_earnings_test_withholding(
+                    annual_benefit=result.annual_benefit,
+                    primary_insurance_amount=member.ss_annual_benefit,
+                    earned_income=member_earned_income.get(member.person_name, 0.0),
+                    is_fra_attainment_year=(age == floor_fra),
+                    tax_year=tax_year,
+                )
+                figures_used.extend(withholding.figures_used)
+                benefits[member.person_name] = withholding.benefit_after_withholding
+                withheld_amounts[member.person_name] = withholding.withheld_amount
+                updated_months_withheld[member.person_name] = months_withheld_so_far + withholding.deduction_months_this_year
+            elif months_withheld_so_far > 0:
+                recredit = compute_earnings_test_recredit(
+                    primary_insurance_amount=member.ss_annual_benefit,
+                    claiming_age=claiming_ages[member.person_name],
+                    full_retirement_age=full_retirement_age,
+                    cumulative_months_withheld=months_withheld_so_far,
+                    tax_year=tax_year,
+                )
+                figures_used.extend(recredit.figures_used)
+                benefits[member.person_name] = recredit.recredited_annual_benefit
+                withheld_amounts[member.person_name] = 0.0
+            else:
+                benefits[member.person_name] = result.annual_benefit
+                withheld_amounts[member.person_name] = 0.0
         else:
             benefits[member.person_name] = 0.0
+            withheld_amounts[member.person_name] = 0.0
 
     if household.filing_status == "married_filing_jointly" and len(household.members) == 2:
         member_a, member_b = household.members
-        both_have_claimed = (
-            ages_this_year[member_a.person_name] >= claiming_ages[member_a.person_name]
-            and ages_this_year[member_b.person_name] >= claiming_ages[member_b.person_name]
-        )
+        both_have_claimed = ages_this_year[member_a.person_name] >= claiming_ages[member_a.person_name] and ages_this_year[member_b.person_name] >= claiming_ages[member_b.person_name]
         if both_have_claimed:
             for member, other in ((member_a, member_b), (member_b, member_a)):
                 spousal_result = compute_spousal_benefit_floor(
@@ -184,25 +259,25 @@ def _member_gross_social_security_benefits(
                 benefits[member.person_name] = max(benefits[member.person_name], spousal_result.spousal_amount)
                 figures_used.extend(spousal_result.figures_used)
 
-    return benefits, figures_used
+    return benefits, withheld_amounts, updated_months_withheld, figures_used
 
 
-def _household_gross_social_security_benefit(
-    household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int], tax_year: int
-) -> float:
+def _household_gross_social_security_benefit(household: Household, ages_this_year: dict[str, int], claiming_ages: dict[str, int], tax_year: int) -> float:
     """Sums each member's actual annual Social Security benefit (see
     _member_gross_social_security_benefits()), counted only once that
     member's translated age reaches their configured claiming age
     (data-model.md § Relationships). Discards figures_used -- callers
     that need the audit trail use _member_gross_social_security_benefits()
-    directly, as run_plan_projection() does below."""
-    benefits, _ = _member_gross_social_security_benefits(household, ages_this_year, claiming_ages, tax_year)
+    directly, as run_plan_projection() does below. Passes no
+    member_earned_income/cumulative_earnings_test_months_withheld --
+    both default to {} in _member_gross_social_security_benefits(), so
+    this helper (and every existing caller of it) is unaffected by
+    025-ss-earnings-test."""
+    benefits, _, _, _ = _member_gross_social_security_benefits(household, ages_this_year, claiming_ages, tax_year)
     return sum(benefits.values())
 
 
-def _member_income_stream_amounts(
-    household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int
-) -> tuple[dict[str, float], list[FigureUsage]]:
+def _member_income_stream_amounts(household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int) -> tuple[dict[str, float], list[FigureUsage]]:
     """021-pension-annuity-income (rp-pid): each member's own summed gross
     income-stream amount this year, across every pension/annuity/earned-
     income stream that member has configured -- 0.0 for a member with
@@ -230,9 +305,7 @@ def _member_income_stream_amounts(
     return amounts, figures_used
 
 
-def _member_earned_income_amounts(
-    household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int
-) -> dict[str, float]:
+def _member_earned_income_amounts(household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int) -> dict[str, float]:
     """022-fica-payroll-tax (rp-elp): each member's own summed gross
     earned_income-type stream amount this year -- unlike
     _member_income_stream_amounts() above, which pools every stream type
@@ -245,6 +318,20 @@ def _member_earned_income_amounts(
     (constitution Principle VI), so recomputation is not a real
     performance concern. Never omits a member, even one with no
     earned_income streams at all (0.0).
+
+    025-ss-earnings-test (rp-acq): run_plan_projection() now calls this
+    once per plan year (moved earlier in the loop than 022's own original
+    call site) and shares the one result between the earnings test and
+    022's own FICA call later in the same iteration -- narrower than the
+    "recompute rather than thread" precedent above specifically because
+    both now need the exact same per-member total in the same plan year
+    (025 contracts/mechanics-api.md); _member_income_stream_amounts()
+    remains a separate, still-independent recomputation.
+
+    NOTE: the "recomputes rather than reuses" framing above refers only to
+    this function's relationship with _member_income_stream_amounts();
+    within a single run_plan_projection() call, this function's own
+    result is itself now computed once and reused across call sites.
 
     Deliberately returns no figures_used of its own: any fixed_nominal
     earned_income stream's INFLATION_RATE usage is already collected once
@@ -395,20 +482,36 @@ def run_plan_projection(
     # inherited_accounts, nothing can ever leak between candidates/paths.
     roth_conversion_lots: list[RothConversionLot] = []
 
+    # 025-ss-earnings-test (rp-acq): purely local, per-member running
+    # state -- mirrors roth_conversion_lots' own precedent immediately
+    # above exactly (never a function parameter, never threaded through
+    # comparison.compare or simulation.monte_carlo, since each already
+    # calls run_plan_projection() fresh per candidate/path). Tracks whole
+    # "deduction months" of benefit withheld pre-FRA per member, consumed
+    # once that member's age passes their FRA-attainment year to compute
+    # their permanent post-FRA recredit (research.md Decision 4).
+    cumulative_earnings_test_months_withheld: dict[str, int] = {}
+
     years: list[PlanYearProjection] = []
     current_balances = accounts
     plan_year = start_plan_year
     tax_year = start_tax_year
 
     while True:
-        ages_this_year = {
-            member.person_name: member_age_in_tax_year(member, tax_year, reference_tax_year)
-            for member in household.members
-        }
+        ages_this_year = {member.person_name: member_age_in_tax_year(member, tax_year, reference_tax_year) for member in household.members}
         deemed_owner_age = ages_this_year[deemed_owner.person_name]
 
         if deemed_owner_age > plan_to_age:
             break
+
+        # 022-fica-payroll-tax / 025-ss-earnings-test: each member's own
+        # earned_income-type stream total this year, computed once and
+        # shared by both the earnings test below and the FICA call
+        # later in this same loop iteration -- narrower than 022's own
+        # "recompute rather than thread" precedent specifically because
+        # this feature now needs the same result earlier in the loop too
+        # (025 contracts/mechanics-api.md).
+        member_earned_income = _member_earned_income_amounts(household, ages_this_year, tax_year, reference_tax_year)
 
         # 015-per-account-projection-detail: the per-member breakdown is
         # retained (below, threaded into PlanYearProjection), not just the
@@ -417,8 +520,18 @@ def run_plan_projection(
         # 016-ss-claiming-age-actuarial-adjustment: each member's own
         # amount is now claiming-age-adjusted (rp-n44), and this call's
         # figures_used feeds into this year's overall figures_used below.
-        member_ss_benefits, ss_benefit_figures_used = _member_gross_social_security_benefits(
-            household, ages_this_year, strategy.claiming_ages, tax_year
+        # 025-ss-earnings-test: member_earned_income and this loop's own
+        # running cumulative_earnings_test_months_withheld now also feed
+        # in, and the latter is reassigned from this call's own updated
+        # return value below (mirrors roth_conversion_lots' own
+        # reassignment pattern, not in-place mutation).
+        member_ss_benefits, member_ss_earnings_test_withheld, cumulative_earnings_test_months_withheld, ss_benefit_figures_used = _member_gross_social_security_benefits(
+            household,
+            ages_this_year,
+            strategy.claiming_ages,
+            tax_year,
+            member_earned_income=member_earned_income,
+            cumulative_earnings_test_months_withheld=cumulative_earnings_test_months_withheld,
         )
         household_ss_benefit = sum(member_ss_benefits.values())
 
@@ -455,20 +568,14 @@ def run_plan_projection(
             ss_benefit_figures_used = [*ss_benefit_figures_used, *survivor_result.figures_used]
 
         effective_filing_status = "single" if is_post_death else household.filing_status
-        effective_spending_need = (
-            annual_spending_need * (1.0 - household.survivor_spending_reduction_pct)
-            if is_post_death
-            else annual_spending_need
-        )
+        effective_spending_need = annual_spending_need * (1.0 - household.survivor_spending_reduction_pct) if is_post_death else annual_spending_need
 
         # 021-pension-annuity-income (rp-pid): each member's own pension/
         # annuity/earned-income streams, summed into this year's
         # income_stream_total (passed into compute_plan_year_mechanics()
         # below) and retained per-member (like member_ss_benefits above)
         # for PlanYearProjection.member_income_stream_amounts.
-        member_income_streams, income_stream_figures_used = _member_income_stream_amounts(
-            household, ages_this_year, tax_year, reference_tax_year
-        )
+        member_income_streams, income_stream_figures_used = _member_income_stream_amounts(household, ages_this_year, tax_year, reference_tax_year)
         household_income_stream_total = sum(member_income_streams.values())
 
         # 011-per-owner-accounts: one compute_rmd() call per member with a
@@ -551,11 +658,7 @@ def run_plan_projection(
                     # already expects (it asserts a real age when one is
                     # actually needed) without passing a non-str key into
                     # a dict[str, int].get() call.
-                    beneficiary_current_age=(
-                        ages_this_year.get(inherited_account.beneficiary_person_name)
-                        if inherited_account.beneficiary_person_name is not None
-                        else None
-                    ),
+                    beneficiary_current_age=(ages_this_year.get(inherited_account.beneficiary_person_name) if inherited_account.beneficiary_person_name is not None else None),
                     depletion_deadline_year=inherited_account.depletion_deadline_year,
                 )
                 distribution = min(inherited_result.required_amount, inherited_account.balance)
@@ -570,20 +673,12 @@ def run_plan_projection(
         # irmaa/niit follow), using this year's own ages/coverage/Medicare-
         # enrollment status -- never the prior or a future year's.
         hsa_eligibility = compute_hsa_eligibility(
-            members=[
-                (member.person_name, ages_this_year[member.person_name], member.hdhp_coverage)
-                for member in household.members
-            ],
-            medicare_enrolled={
-                member.person_name: ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE
-                for member in household.members
-            },
+            members=[(member.person_name, ages_this_year[member.person_name], member.hdhp_coverage) for member in household.members],
+            medicare_enrolled={member.person_name: ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE for member in household.members},
         )
         hsa_contribution = compute_hsa_contribution(
             hsa_eligibility,
-            configured_annual_amount=(
-                strategy.hsa_contribution.annual_amount if strategy.hsa_contribution is not None else 0.0
-            ),
+            configured_annual_amount=(strategy.hsa_contribution.annual_amount if strategy.hsa_contribution is not None else 0.0),
             tax_year=tax_year,
         )
 
@@ -623,26 +718,16 @@ def run_plan_projection(
         # compute_plan_year_mechanics()'s own "withdrawal before
         # conversion" sequencing one level up (contracts/comparison-
         # api.md).
-        roth_draw_amount = sum(
-            item.amount
-            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
-            if item.account_type == "roth"
-        )
-        non_lot_roth_balance = max(
-            0.0, current_balances.roth - sum(lot.balance for lot in roth_conversion_lots)
-        )
+        roth_draw_amount = sum(item.amount for item in mechanics_result.withdrawal_plan.sequence_withdrawals if item.account_type == "roth")
+        non_lot_roth_balance = max(0.0, current_balances.roth - sum(lot.balance for lot in roth_conversion_lots))
         age_condition_active = any(age <= 59 for age in ages_this_year.values())
-        ladder_result = compute_roth_ladder_consumption(
-            roth_conversion_lots, non_lot_roth_balance, roth_draw_amount, tax_year, age_condition_active
-        )
+        ladder_result = compute_roth_ladder_consumption(roth_conversion_lots, non_lot_roth_balance, roth_draw_amount, tax_year, age_condition_active)
         roth_conversion_lots = ladder_result.updated_lots
 
         if mechanics_result.conversion.amount_converted > 0:
             roth_conversion_lots = [
                 *roth_conversion_lots,
-                RothConversionLot(
-                    conversion_tax_year=tax_year, balance=mechanics_result.conversion.amount_converted
-                ),
+                RothConversionLot(conversion_tax_year=tax_year, balance=mechanics_result.conversion.amount_converted),
             ]
 
         income = IncomeComponents(
@@ -665,9 +750,7 @@ def run_plan_projection(
         else:
             irmaa_magi = _approximate_magi(income, federal_tax)
             income_basis = "current_year_proxy"
-        enrolled_member_count = sum(
-            1 for member in household.members if ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE
-        )
+        enrolled_member_count = sum(1 for member in household.members if ages_this_year[member.person_name] >= _MEDICARE_ENROLLMENT_AGE)
         irmaa = compute_irmaa_surcharge(
             magi=irmaa_magi,
             income_basis=income_basis,
@@ -683,11 +766,7 @@ def run_plan_projection(
         # tax-funding withdrawal computed below (which happens only after
         # tax is already determined and isn't itself part of this year's
         # taxable income).
-        investment_income = sum(
-            item.amount
-            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
-            if item.account_type == "taxable"
-        )
+        investment_income = sum(item.amount for item in mechanics_result.withdrawal_plan.sequence_withdrawals if item.account_type == "taxable")
         niit = compute_niit(
             magi=_approximate_magi(income, federal_tax),
             investment_income=investment_income,
@@ -706,15 +785,9 @@ def run_plan_projection(
         # already gated that flag). rmd_drawn and inherited-account
         # distributions are structurally excluded -- neither is ever part
         # of sequence_withdrawals (research.md Decision 4).
-        traditional_sequence_draw = sum(
-            item.amount
-            for item in mechanics_result.withdrawal_plan.sequence_withdrawals
-            if item.account_type == "traditional"
-        )
+        traditional_sequence_draw = sum(item.amount for item in mechanics_result.withdrawal_plan.sequence_withdrawals if item.account_type == "traditional")
         under_59_traditional_share = sum(
-            traditional_ownership_shares[member.person_name] * traditional_sequence_draw
-            for member in household.members
-            if ages_this_year[member.person_name] <= 59
+            traditional_ownership_shares[member.person_name] * traditional_sequence_draw for member in household.members if ages_this_year[member.person_name] <= 59
         )
         taxable_early_distribution_base = under_59_traditional_share + ladder_result.unseasoned_amount_flagged
         early_withdrawal_penalty = compute_early_withdrawal_penalty(
@@ -724,14 +797,15 @@ def run_plan_projection(
 
         # 022-fica-payroll-tax (rp-elp): employee-side FICA on this
         # year's earned_income-type stream amounts only -- never
-        # pension/annuity (_member_earned_income_amounts() above already
-        # excludes them). Uses effective_filing_status (018's own
-        # mid-horizon switch), so a household that switches to "single"
-        # after a configured death also switches which Additional
-        # Medicare Tax threshold applies from that year forward,
-        # consistent with every other filing-status-dependent
+        # pension/annuity. member_earned_income was already computed
+        # earlier this same loop iteration (025-ss-earnings-test now
+        # needs it too, before the Social Security benefit call above) --
+        # reused here rather than recomputed. Uses effective_filing_status
+        # (018's own mid-horizon switch), so a household that switches to
+        # "single" after a configured death also switches which
+        # Additional Medicare Tax threshold applies from that year
+        # forward, consistent with every other filing-status-dependent
         # computation in this loop.
-        member_earned_income = _member_earned_income_amounts(household, ages_this_year, tax_year, reference_tax_year)
         fica_tax = compute_fica_tax(
             member_earned_income=member_earned_income,
             filing_status=effective_filing_status,
@@ -756,14 +830,7 @@ def run_plan_projection(
         # existing meaning (federal + state income tax only) is
         # unaffected -- that reporting figure is a separate computation
         # in _derive_outcome(), untouched by this local funding variable.
-        tax_owed = (
-            federal_tax.federal_tax_owed
-            + state_tax.state_tax_owed
-            + irmaa.surcharge_owed
-            + niit.surtax_owed
-            + early_withdrawal_penalty.penalty_owed
-            + fica_tax.total_fica_tax
-        )
+        tax_owed = federal_tax.federal_tax_owed + state_tax.state_tax_owed + irmaa.surcharge_owed + niit.surtax_owed + early_withdrawal_penalty.penalty_owed + fica_tax.total_fica_tax
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
             spending_need=tax_owed,
             rmd_amount=0.0,
@@ -797,9 +864,7 @@ def run_plan_projection(
         # account still on the books this year, including one that fully
         # depleted this year (balance 0.0, still present so a consumer can
         # see it reached zero rather than silently disappearing).
-        inherited_account_balances = {
-            inherited_account.account_id: inherited_account.balance for inherited_account in inherited_accounts
-        }
+        inherited_account_balances = {inherited_account.account_id: inherited_account.balance for inherited_account in inherited_accounts}
 
         # mechanics_result.figures_used already includes hsa_contribution's
         # own figures_used (compute_plan_year_mechanics() folds it in), so
@@ -841,6 +906,7 @@ def run_plan_projection(
                 filing_status=effective_filing_status,
                 effective_spending_need=effective_spending_need,
                 unseasoned_roth_withdrawal=ladder_result.unseasoned_amount_flagged,
+                member_ss_earnings_test_withheld=member_ss_earnings_test_withheld,
             )
         )
 
@@ -869,14 +935,10 @@ def _derive_outcome(years: list[PlanYearProjection]) -> PlanOutcome:
 
     first_shortfall_plan_year = next((year.plan_year for year in years if year.shortfall > 0), None)
 
-    cumulative_tax_paid = sum(
-        year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in years
-    )
+    cumulative_tax_paid = sum(year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in years)
     cumulative_irmaa_paid = sum(year.irmaa.surcharge_owed for year in years)
     cumulative_niit_paid = sum(year.niit.surtax_owed for year in years)
-    cumulative_early_withdrawal_penalty_paid = sum(
-        year.early_withdrawal_penalty.penalty_owed for year in years
-    )
+    cumulative_early_withdrawal_penalty_paid = sum(year.early_withdrawal_penalty.penalty_owed for year in years)
     cumulative_fica_tax_paid = sum(year.fica_tax.total_fica_tax for year in years)
 
     return PlanOutcome(

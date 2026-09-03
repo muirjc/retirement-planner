@@ -153,6 +153,18 @@ class PlanYearProjection:
     household with no Roth conversion configured at all. Always populated
     by run_plan_projection(); 0.0 only if some other caller constructs a
     PlanYearProjection directly without setting it."""
+    member_ss_earnings_test_withheld: dict[str, float] = field(default_factory=dict)
+    """025-ss-earnings-test (rp-acq) data-model.md: person_name -> that
+    member's own SSA retirement-earnings-test withholding this year --
+    already subtracted out of member_social_security_benefits above, not
+    an additional deduction the caller must apply. 0.0 for a member the
+    earnings test doesn't apply to this year (not yet claimed, no
+    earned_income, earnings at/below the exempt threshold, or already
+    past their FRA-attainment year), never omitted. Mirrors
+    member_social_security_benefits' own "always present, 0.0 when
+    inapplicable" convention. No lifetime cumulative field is added
+    (PlanOutcome) -- unlike a tax, withheld Social Security is fully
+    recovered via the FRA recredit, not a genuine lifetime cost."""
 
 
 @dataclass

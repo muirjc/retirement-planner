@@ -14,6 +14,8 @@ from .models import (
     AccountBalances,
     AccountType,
     ConversionResult,
+    EarningsTestRecreditResult,
+    EarningsTestWithholdingResult,
     HsaContributionResult,
     HsaEligibility,
     IncomeStreamAmountResult,
@@ -41,6 +43,8 @@ from .roth_conversion import (
 )
 from .roth_conversion_ladder import ROTH_CONVERSION_SEASONING_YEARS, compute_roth_ladder_consumption
 from .social_security_benefit import (
+    compute_earnings_test_recredit,
+    compute_earnings_test_withholding,
     compute_social_security_benefit,
     compute_spousal_benefit_floor,
     compute_survivor_benefit,
@@ -52,6 +56,8 @@ __all__ = [
     "AccountType",
     "CONVERSION_STRATEGIES",
     "ConversionResult",
+    "EarningsTestRecreditResult",
+    "EarningsTestWithholdingResult",
     "HsaContributionResult",
     "HsaEligibility",
     "INFLATION_RATE",
@@ -77,6 +83,8 @@ __all__ = [
     "compute_hsa_contribution",
     "compute_hsa_eligibility",
     "compute_income_stream_amount",
+    "compute_earnings_test_recredit",
+    "compute_earnings_test_withholding",
     "compute_inherited_rmd",
     "compute_plan_year_mechanics",
     "compute_rmd",

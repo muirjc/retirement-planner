@@ -89,24 +89,16 @@ def test_household_gross_social_security_benefit_counts_only_after_claiming_age(
     # separate claiming-age-adjustment magnitude logic (that math has its
     # own dedicated coverage in test_social_security_benefit.py and
     # test_compare_claiming_age_grid.py).
-    household = _mfj_household(
-        you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=70.0
-    )
+    household = _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=70.0)
     claiming_ages = {"you": 67, "spouse": 70}
 
-    before_anyone_claims = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 65, "spouse": 63}, claiming_ages=claiming_ages, tax_year=2026
-    )
+    before_anyone_claims = _household_gross_social_security_benefit(household, ages_this_year={"you": 65, "spouse": 63}, claiming_ages=claiming_ages, tax_year=2026)
     assert before_anyone_claims == 0.0
 
-    after_you_claim = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 67, "spouse": 65}, claiming_ages=claiming_ages, tax_year=2026
-    )
+    after_you_claim = _household_gross_social_security_benefit(household, ages_this_year={"you": 67, "spouse": 65}, claiming_ages=claiming_ages, tax_year=2026)
     assert after_you_claim == 32_000.0
 
-    after_both_claim = _household_gross_social_security_benefit(
-        household, ages_this_year={"you": 70, "spouse": 70}, claiming_ages=claiming_ages, tax_year=2026
-    )
+    after_both_claim = _household_gross_social_security_benefit(household, ages_this_year={"you": 70, "spouse": 70}, claiming_ages=claiming_ages, tax_year=2026)
     assert after_both_claim == 56_000.0
 
 
@@ -549,9 +541,7 @@ def test_two_inherited_accounts_from_different_decedents_computed_independently(
     strategy = _strategy(claiming_ages={"you": 99})
 
     account_a = _inherited_account(account_id="traditional-1", balance=250_000, death_year=2023, decedent_age_at_death=80)
-    account_b = _inherited_account(
-        account_id="traditional-2", balance=90_000, death_year=2020, decedent_age_at_death=75, depletion_deadline_year=2030
-    )
+    account_b = _inherited_account(account_id="traditional-2", balance=90_000, death_year=2020, decedent_age_at_death=75, depletion_deadline_year=2030)
 
     result_both = run_plan_projection(
         household=household,
@@ -862,14 +852,20 @@ def test_income_streams_are_independent_per_member():
     household = _mfj_household(you_age=62, spouse_age=62)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Your pension", stream_type="pension", start_age=62,
-            annual_amount=10_000.0, inflation_adjustment="cola_adjusted",
+            label="Your pension",
+            stream_type="pension",
+            start_age=62,
+            annual_amount=10_000.0,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     household.members[1].income_streams = [
         IncomeStream(
-            label="Spouse annuity", stream_type="annuity", start_age=65,
-            annual_amount=4_000.0, inflation_adjustment="cola_adjusted",
+            label="Spouse annuity",
+            stream_type="annuity",
+            start_age=65,
+            annual_amount=4_000.0,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
@@ -909,8 +905,12 @@ def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
     household = _single_member_household(current_age=63)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Part-time consulting", stream_type="earned_income", start_age=63, end_age=65,
-            annual_amount=25_000.0, inflation_adjustment="fixed_nominal",
+            label="Part-time consulting",
+            stream_type="earned_income",
+            start_age=63,
+            end_age=65,
+            annual_amount=25_000.0,
+            inflation_adjustment="fixed_nominal",
         )
     ]
     accounts = AccountBalances(traditional=0, roth=0, taxable=500_000)
@@ -940,8 +940,12 @@ def _earned_income_household(annual_amount, current_age=63, start_age=63, end_ag
     household = _single_member_household(current_age=current_age)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Consulting", stream_type="earned_income", start_age=start_age, end_age=end_age,
-            annual_amount=annual_amount, inflation_adjustment="cola_adjusted",
+            label="Consulting",
+            stream_type="earned_income",
+            start_age=start_age,
+            end_age=end_age,
+            annual_amount=annual_amount,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     return household
@@ -981,12 +985,18 @@ def test_pension_and_annuity_streams_never_incur_fica():
     household = _single_member_household(current_age=63)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Pension", stream_type="pension", start_age=63,
-            annual_amount=40_000.0, inflation_adjustment="cola_adjusted",
+            label="Pension",
+            stream_type="pension",
+            start_age=63,
+            annual_amount=40_000.0,
+            inflation_adjustment="cola_adjusted",
         ),
         IncomeStream(
-            label="Annuity", stream_type="annuity", start_age=63,
-            annual_amount=10_000.0, inflation_adjustment="fixed_nominal",
+            label="Annuity",
+            stream_type="annuity",
+            start_age=63,
+            annual_amount=10_000.0,
+            inflation_adjustment="fixed_nominal",
         ),
     ]
     result = run_plan_projection(
@@ -1060,14 +1070,20 @@ def test_additional_medicare_tax_applies_to_combined_mfj_earned_income_in_a_runn
     household = _mfj_household(you_age=63, spouse_age=63)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Consulting", stream_type="earned_income", start_age=63,
-            annual_amount=150_000.0, inflation_adjustment="cola_adjusted",
+            label="Consulting",
+            stream_type="earned_income",
+            start_age=63,
+            annual_amount=150_000.0,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     household.members[1].income_streams = [
         IncomeStream(
-            label="Consulting", stream_type="earned_income", start_age=63,
-            annual_amount=150_000.0, inflation_adjustment="cola_adjusted",
+            label="Consulting",
+            stream_type="earned_income",
+            start_age=63,
+            annual_amount=150_000.0,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     result = run_plan_projection(
@@ -1094,9 +1110,7 @@ def test_full_retirement_age_equal_to_claim_age_reproduces_pre_feature_flat_bene
     scenario predating this feature resolves to -- receives exactly their
     configured ss_annual_benefit once claimed, with zero adjustment,
     identical to this feature's absence."""
-    household = _mfj_household(
-        you_age=65, spouse_age=65, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=67.0
-    )
+    household = _mfj_household(you_age=65, spouse_age=65, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=67.0)
     strategy = _strategy(claiming_ages={"you": 67, "spouse": 67})
     result = run_plan_projection(
         household=household,
@@ -1182,9 +1196,7 @@ def test_spousal_floor_uses_the_spousal_specific_reduction_rate():
     specific rate (25/36 of 1%/month), not the worker's-own-benefit rate
     (5/9 of 1%/month) 016 already models -- so the two reduced amounts
     differ even though both start from the same PIA base."""
-    household = _mfj_household(
-        you_age=67, spouse_age=65, you_benefit=30_000, spouse_benefit=6_000, you_fra=67.0, spouse_fra=67.0
-    )
+    household = _mfj_household(you_age=67, spouse_age=65, you_benefit=30_000, spouse_benefit=6_000, you_fra=67.0, spouse_fra=67.0)
     strategy = _strategy(claiming_ages={"you": 67, "spouse": 65})  # spouse claims 24 months before their own FRA
     result = run_plan_projection(
         household=household,
@@ -1317,9 +1329,7 @@ def test_predicted_death_age_beyond_the_horizon_has_zero_effect_on_projection_ou
                     full_retirement_age=67.0,
                     predicted_death_age=predicted_death_age,
                 ),
-                HouseholdMember(
-                    person_name="spouse", current_age=67, ss_claim_age=67, ss_annual_benefit=24_000, full_retirement_age=67.0
-                ),
+                HouseholdMember(person_name="spouse", current_age=67, ss_claim_age=67, ss_annual_benefit=24_000, full_retirement_age=67.0),
             ],
         )
 
@@ -1454,8 +1464,11 @@ def test_fica_additional_medicare_tax_threshold_switches_with_mid_horizon_filing
     household = _death_household(spouse_death_age=70)
     household.members[0].income_streams = [
         IncomeStream(
-            label="Consulting", stream_type="earned_income", start_age=67,
-            annual_amount=220_000.0, inflation_adjustment="cola_adjusted",
+            label="Consulting",
+            stream_type="earned_income",
+            start_age=67,
+            annual_amount=220_000.0,
+            inflation_adjustment="cola_adjusted",
         )
     ]
     result = _run_death_projection(household)
@@ -1656,9 +1669,7 @@ def test_inherited_account_balances_and_distributions_are_snapshotted_per_accoun
     # test_inherited_account_annual_distribution_included_in_withdrawal_plan
     # above for the full "longer of" hand check.
     assert year.inherited_account_distributions == {"traditional-1": pytest.approx(250_000 / 31.4)}
-    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(
-        year.mechanics.withdrawal_plan.inherited_distribution_drawn
-    )
+    assert year.inherited_account_distributions["traditional-1"] == pytest.approx(year.mechanics.withdrawal_plan.inherited_distribution_drawn)
     assert year.inherited_account_balances["traditional-1"] == pytest.approx(inherited.balance)
 
 
@@ -1667,9 +1678,7 @@ def test_two_inherited_accounts_have_independently_keyed_snapshots():
     accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
     strategy = _strategy(claiming_ages={"you": 99})
     account_a = _inherited_account(account_id="traditional-1", balance=250_000, death_year=2023, decedent_age_at_death=80)
-    account_b = _inherited_account(
-        account_id="traditional-2", balance=90_000, death_year=2020, decedent_age_at_death=75, depletion_deadline_year=2030
-    )
+    account_b = _inherited_account(account_id="traditional-2", balance=90_000, death_year=2020, decedent_age_at_death=75, depletion_deadline_year=2030)
 
     result = run_plan_projection(
         household=household,
@@ -1688,9 +1697,7 @@ def test_two_inherited_accounts_have_independently_keyed_snapshots():
 
     year = result.years[0]
     assert set(year.inherited_account_distributions) == {"traditional-1", "traditional-2"}
-    assert sum(year.inherited_account_distributions.values()) == pytest.approx(
-        year.mechanics.withdrawal_plan.inherited_distribution_drawn
-    )
+    assert sum(year.inherited_account_distributions.values()) == pytest.approx(year.mechanics.withdrawal_plan.inherited_distribution_drawn)
     # account_a's own snapshot is unaffected by account_b's presence.
     # rp-kn5: 31.4, the beneficiary's own divisor (see the hand check in
     # test_inherited_account_annual_distribution_included_in_withdrawal_plan).
@@ -1847,9 +1854,7 @@ def test_no_numeric_output_changes_because_of_this_feature():
     # 019's own logic: the withdrawal/conversion step alone (before any tax
     # funding) reduces Roth by exactly this year's own draw -- unaffected by
     # whether unseasoned_roth_withdrawal is 0 or positive.
-    assert year_2027.mechanics.ending_balances.roth == pytest.approx(
-        year_2027.starting_balances.roth - _roth_draw(year_2027)
-    )
+    assert year_2027.mechanics.ending_balances.roth == pytest.approx(year_2027.starting_balances.roth - _roth_draw(year_2027))
     # 020's own logic: any further reduction down to the FINAL ending
     # balance is fully explained by the tax-funding withdrawal's own
     # roth-sourced draw (federal/state tax owed is $0 in this low-income
@@ -1858,9 +1863,7 @@ def test_no_numeric_output_changes_because_of_this_feature():
         (item.amount for item in year_2027.tax_funding_withdrawal.sequence_withdrawals if item.account_type == "roth"),
         0.0,
     )
-    assert year_2027.ending_balances.roth == pytest.approx(
-        year_2027.mechanics.ending_balances.roth - roth_funding_draw
-    )
+    assert year_2027.ending_balances.roth == pytest.approx(year_2027.mechanics.ending_balances.roth - roth_funding_draw)
     assert roth_funding_draw == pytest.approx(year_2027.early_withdrawal_penalty.penalty_owed)
 
 
@@ -2121,12 +2124,8 @@ def test_penalty_actually_reduces_ending_balance_versus_an_unaffected_household(
     assert younger_year.early_withdrawal_penalty.penalty_owed > 0
     assert older_year.early_withdrawal_penalty.penalty_owed == 0.0
 
-    younger_total = (
-        younger_year.ending_balances.traditional + younger_year.ending_balances.roth + younger_year.ending_balances.taxable
-    )
-    older_total = (
-        older_year.ending_balances.traditional + older_year.ending_balances.roth + older_year.ending_balances.taxable
-    )
+    younger_total = younger_year.ending_balances.traditional + younger_year.ending_balances.roth + younger_year.ending_balances.taxable
+    older_total = older_year.ending_balances.traditional + older_year.ending_balances.roth + older_year.ending_balances.taxable
     assert younger_total < older_total
 
 
@@ -2224,9 +2223,7 @@ def test_combined_traditional_and_roth_exposure_in_the_same_year_is_one_penalty(
     traditional_draw = _traditional_draw(year_2028)
     assert traditional_draw == pytest.approx(6_110.0)
     assert year_2028.unseasoned_roth_withdrawal == pytest.approx(8_890.0)
-    assert year_2028.early_withdrawal_penalty.penalty_owed == pytest.approx(
-        (traditional_draw + year_2028.unseasoned_roth_withdrawal) * 0.10
-    )
+    assert year_2028.early_withdrawal_penalty.penalty_owed == pytest.approx((traditional_draw + year_2028.unseasoned_roth_withdrawal) * 0.10)
     assert year_2028.early_withdrawal_penalty.penalty_owed == pytest.approx(1_500.0)
 
 
@@ -2298,11 +2295,7 @@ def test_irmaa_and_niit_are_included_in_the_actually_funded_tax_withdrawal():
 
     actually_funded = sum(item.amount for item in year.tax_funding_withdrawal.sequence_withdrawals)
     assert actually_funded == pytest.approx(
-        year.federal_tax.federal_tax_owed
-        + year.state_tax.state_tax_owed
-        + year.irmaa.surcharge_owed
-        + year.niit.surtax_owed
-        + year.early_withdrawal_penalty.penalty_owed
+        year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed + year.irmaa.surcharge_owed + year.niit.surtax_owed + year.early_withdrawal_penalty.penalty_owed
     )
 
 
@@ -2334,11 +2327,154 @@ def test_cumulative_tax_paid_meaning_is_unchanged_by_the_irmaa_niit_funding_fix(
         strategy=strategy,
         return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
     )
-    expected_cumulative_tax_paid = sum(
-        year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in result.years
-    )
+    expected_cumulative_tax_paid = sum(year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in result.years)
     assert result.outcome.cumulative_tax_paid == pytest.approx(expected_cumulative_tax_paid)
-    assert result.outcome.cumulative_irmaa_paid == pytest.approx(
-        sum(year.irmaa.surcharge_owed for year in result.years)
-    )
+    assert result.outcome.cumulative_irmaa_paid == pytest.approx(sum(year.irmaa.surcharge_owed for year in result.years))
     assert result.outcome.cumulative_niit_paid == pytest.approx(sum(year.niit.surtax_owed for year in result.years))
+
+
+# --- 025-ss-earnings-test (rp-acq) --------------------------------------
+
+
+def _early_claiming_earnings_test_household(annual_amount, claim_age=62, fra=67.0, benefit=20_000, start_age=None, end_age=None):
+    household = Household(
+        filing_status="single",
+        members=[
+            HouseholdMember(
+                person_name="you",
+                current_age=claim_age,
+                ss_claim_age=claim_age,
+                ss_annual_benefit=benefit,
+                full_retirement_age=fra,
+            )
+        ],
+    )
+    household.members[0].income_streams = [
+        IncomeStream(
+            label="Consulting",
+            stream_type="earned_income",
+            start_age=start_age if start_age is not None else claim_age,
+            end_age=end_age,
+            annual_amount=annual_amount,
+            inflation_adjustment="fixed_nominal",
+        )
+    ]
+    return household
+
+
+def _run_earnings_test_projection(household, plan_to_age):
+    return run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=plan_to_age,
+        strategy=_strategy(claiming_ages={"you": household.members[0].ss_claim_age}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+
+def test_earnings_test_withholding_reduces_near_term_benefit_in_a_running_projection():
+    """025-ss-earnings-test (rp-acq) US1: a member claiming at 62 (FRA 67)
+    with earned income above the below-FRA exempt amount ($24,480 for
+    2026) sees their reported Social Security benefit reduced by the
+    earnings test, not the full unwithheld claiming-age-adjusted amount."""
+    household = _early_claiming_earnings_test_household(30_000, end_age=66)
+    result = _run_earnings_test_projection(household, plan_to_age=63)
+
+    year_62 = result.years[0]
+    # PIA 20,000 at 62-vs-67 FRA -> 0.70 factor -> 14,000 unwithheld.
+    # Excess earnings: 30,000 - 24,480 = 5,520; withheld = 2,760.
+    assert year_62.member_ss_earnings_test_withheld["you"] == pytest.approx(2_760.0)
+    assert year_62.member_social_security_benefits["you"] == pytest.approx(14_000.0 - 2_760.0)
+
+
+def test_earnings_at_or_below_exempt_threshold_withholds_nothing():
+    household = _early_claiming_earnings_test_household(24_480, end_age=66)
+    result = _run_earnings_test_projection(household, plan_to_age=63)
+
+    year_62 = result.years[0]
+    assert year_62.member_ss_earnings_test_withheld["you"] == pytest.approx(0.0)
+    assert year_62.member_social_security_benefits["you"] == pytest.approx(14_000.0)
+
+
+def test_no_earned_income_stream_never_triggers_the_earnings_test():
+    household = _single_member_household(current_age=62)
+    household.members[0].ss_claim_age = 62
+    household.members[0].ss_annual_benefit = 20_000
+    result = _run_earnings_test_projection(household, plan_to_age=68)
+
+    for year in result.years:
+        assert year.member_ss_earnings_test_withheld == {"you": 0.0}
+    # Unaffected -- every year pays the plain claiming-age-adjusted amount.
+    assert all(year.member_social_security_benefits["you"] == pytest.approx(14_000.0) for year in result.years)
+
+
+def test_member_at_or_past_own_fra_is_never_subject_to_the_earnings_test():
+    """A member who hasn't claimed early (claiming at FRA itself) is
+    unaffected by the earnings test regardless of earned income."""
+    household = _early_claiming_earnings_test_household(200_000, claim_age=67, fra=67.0)
+    result = _run_earnings_test_projection(household, plan_to_age=68)
+
+    for year in result.years:
+        assert year.member_ss_earnings_test_withheld["you"] == pytest.approx(0.0)
+        assert year.member_social_security_benefits["you"] == pytest.approx(20_000.0)  # full PIA, unreduced
+
+
+def test_fra_attainment_year_uses_the_lenient_rule_not_the_stricter_below_fra_rule():
+    """025-ss-earnings-test (rp-acq) US3: $40,000 earned income is above
+    the below-FRA exempt amount ($24,480) but below the FRA-attainment-
+    year exempt amount ($65,160) -- the stricter rule would withhold
+    (40,000 - 24,480) / 2 = $7,760; the correct, more lenient rule
+    withholds nothing."""
+    household = _early_claiming_earnings_test_household(40_000, start_age=67, end_age=67)
+    result = _run_earnings_test_projection(household, plan_to_age=67)
+
+    fra_year = next(y for y in result.years if y.tax_year == 2031)  # member turns 67 in plan year 6
+    assert fra_year.member_ss_earnings_test_withheld["you"] == pytest.approx(0.0)
+    assert fra_year.member_social_security_benefits["you"] == pytest.approx(14_000.0)
+
+
+def test_earnings_test_recredit_permanently_raises_benefit_after_fra_year():
+    """025-ss-earnings-test (rp-acq) US2: a member withheld across every
+    pre-FRA year they claimed shows a permanently higher benefit starting
+    the plan year after their FRA-attainment year -- SSA's ARF recredit,
+    not a modeled permanent loss."""
+    household = _early_claiming_earnings_test_household(60_000, end_age=None)
+    result = _run_earnings_test_projection(household, plan_to_age=69)
+
+    by_age = {62 + i: year for i, year in enumerate(result.years)}
+
+    # Ages 62-66: below-FRA rule: excess = 60,000 - 24,480 = 35,520;
+    # withheld = 17,760, capped at the 14,000 unwithheld benefit -> fully
+    # withheld every one of these years.
+    for age in range(62, 67):
+        assert by_age[age].member_social_security_benefits["you"] == pytest.approx(0.0)
+
+    # Age 67 (FRA-attainment year): lenient rule, exempt 65,160 > 60,000
+    # earned -> no withholding this year; benefit is still the ORIGINAL
+    # (not-yet-recredited) 14,000 -- this engine applies the recredit
+    # starting the year AFTER the FRA-attainment year (module docstring
+    # simplification: the FRA-attainment year can still itself generate
+    # withholding, so it isn't also the year the recredit first appears).
+    assert by_age[67].member_ss_earnings_test_withheld["you"] == pytest.approx(0.0)
+    assert by_age[67].member_social_security_benefits["you"] == pytest.approx(14_000.0)
+
+    # Age 68+: permanently recredited, higher than the original 14,000.
+    assert by_age[68].member_social_security_benefits["you"] > 14_000.0
+    assert by_age[69].member_social_security_benefits["you"] == pytest.approx(by_age[68].member_social_security_benefits["you"])  # persists unchanged into the next year too
+
+
+def test_never_withheld_member_sees_no_step_up_at_fra():
+    """025-ss-earnings-test (rp-acq) US2 edge case: a member who claimed
+    before FRA but was never withheld (earned income always at/below the
+    exempt threshold) sees no benefit change at their FRA year at all."""
+    household = _early_claiming_earnings_test_household(20_000, end_age=None)  # always below $24,480 threshold
+    result = _run_earnings_test_projection(household, plan_to_age=69)
+
+    for year in result.years:
+        assert year.member_social_security_benefits["you"] == pytest.approx(14_000.0)

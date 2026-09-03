@@ -16,24 +16,38 @@ modules) -- this is not a SourcedFigure, it's simply never read.
 
 Unlike SC's age-65 and DE's age-60 exclusion, this module defines **no**
 age-based exclusion `SourcedFigure`. North Carolina has no general age-based
-retirement-income exclusion at all. Its only comparable real-world
-mechanism -- the Bailey settlement (Bailey v. State of North Carolina,
-1998) -- exempts retirement benefits from qualifying government
-defined-benefit plans (and a separate, newer carve-out for military
-retirement pay), but *only* for income identified by its source (which
-pension plan it came from) and, for Bailey specifically, whether the
-retiree was vested as of August 12, 1989. `IncomeComponents` carries a
-single blended `ordinary_income` figure with no income-source or
-vesting-date breakdown, and adding one would mean changing
-`comparison/`/`simulation/`'s income-assembly logic and every other state
-module's shared input -- out of scope for this module. Approximating Bailey
-with an age threshold (reusing SC's/DE's shape) was deliberately rejected:
-it would be actively wrong in both directions (a 70-year-old NC retiree
-living on a private 401(k) owes full NC tax; a 55-year-old NC retiree
-drawing a pre-1989-vested state pension owes none) -- see
-024-nc-state-tax spec.md Assumptions / research.md §3 for the full
-reasoning. This module therefore taxes 100% of `ordinary_income`, honestly
-omitting Bailey rather than silently mismodeling it.
+retirement-income exclusion at all. Its real-world analogue -- the Bailey
+settlement (Bailey v. State of North Carolina, 1998; N.C. Gen. Stat.
+§105-134.6 history) -- instead exempts retirement benefits from qualifying
+government defined-benefit plans, but *only* for income identified by its
+source (which pension plan it came from) and whether the retiree was
+vested as of August 12, 1989. Approximating Bailey with an age threshold
+(reusing SC's/DE's shape) was deliberately rejected: it would be actively
+wrong in both directions (a 70-year-old NC retiree living on a private
+401(k) owes full NC tax; a 55-year-old NC retiree drawing a pre-1989-vested
+state pension owes none) -- see 024-nc-state-tax spec.md Assumptions /
+research.md §3 for the full reasoning.
+
+024-nc-state-tax shipped this module taxing 100% of `ordinary_income`,
+honestly omitting Bailey rather than silently mismodeling it with an age
+proxy, because `IncomeComponents` then carried no income-source breakdown.
+027-nc-bailey-exclusion closes that gap: `IncomeComponents.
+government_pension_income` (populated by `comparison/projection.py` from
+each household member's `IncomeStream.bailey_qualifying`-flagged streams --
+a household attestation, not something this module infers or verifies) is
+now excluded from the taxable base before `apply_progressive_brackets()`
+runs, in full (no partial exclusion, no phase-out) -- see
+`compute_tax()` below. This is still not a `SourcedFigure`: Bailey is a
+categorical, 100%-or-nothing legal exemption with no rate, threshold, or
+dollar amount to schedule by tax year -- the same reason NC's
+never-taxes-Social-Security fact (above) isn't one either. The citation
+(N.C. Gen. Stat. §105-134.6 history; Bailey v. State of North Carolina,
+1998) lives here, in this docstring and in test_state_nc.py, rather than in
+a `SourcedFigure.citation` field, honestly reflecting that shape (research.md §4).
+The separate, newer post-2021 NC military-retirement exemption
+(S.L. 2021-180, no 1989 vesting cutoff) remains unmodeled -- a different
+mechanism, out of scope for this feature too (027-nc-bailey-exclusion
+spec.md Assumptions).
 
 The flat-rate figure below is a real, confirmed figure, not a placeholder:
 4.25% for tax year 2025 and 3.99% for tax year 2026 onward are both
@@ -95,12 +109,20 @@ def compute_tax(
     every state module conforms to (FR-005). `filer_ages` and
     `filing_status` are accepted (contract-required) but unused: NC's flat
     rate depends on neither age nor filing status, mirroring fl.py's own
-    "accepts but ignores every parameter it doesn't need" precedent."""
+    "accepts but ignores every parameter it doesn't need" precedent.
+
+    027-nc-bailey-exclusion: `income.government_pension_income` (a
+    household-attested subset of `income.ordinary_income` -- see this
+    module's docstring) is excluded from the taxable base in full before
+    the flat rate applies, floored at $0.0 like every other floor in this
+    module (never negative)."""
     brackets = _NC_FLAT_RATE.value_for_year(tax_year)  # raises UnsupportedTaxYearError
     figures_used = [_NC_FLAT_RATE.usage_for_year(tax_year)]
 
+    taxable_income = max(0.0, income.ordinary_income - income.government_pension_income)
+
     return StateTaxResult(
         state="NC",
-        state_tax_owed=apply_progressive_brackets(income.ordinary_income, brackets),
+        state_tax_owed=apply_progressive_brackets(taxable_income, brackets),
         figures_used=figures_used,
     )

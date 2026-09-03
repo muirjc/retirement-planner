@@ -264,9 +264,9 @@ a nominal-dollar inflation schedule this tool has no separate model for.
 | Florida (FL) | No state income tax — always returns $0, consults no figures | Trivially exact by definition; no citation needed (`tax/state/fl.py`) |
 | South Carolina (SC) | Graduated brackets + age-65 retirement-income exclusion | **Unverified placeholder** — round numbers in the right order of magnitude, not the real SC Code figures (`tax/state/sc.py`) |
 | Delaware (DE) | Graduated brackets + age-60 retirement-income exclusion | **Unverified placeholder** — same status as SC (`tax/state/de.py`) |
-| North Carolina (NC) | Flat rate (4.25% tax year 2025, 3.99% 2026 onward), no age-based exclusion | **Verified** — confirmed against NCDOR's Tax Rate Schedules and N.C. Gen. Stat. §105-153.7 as amended by S.L. 2023-134 (`tax/state/nc.py`, `024-nc-state-tax`). Does **not** model North Carolina's Bailey-settlement retirement-income exclusion (pre-8/12/1989-vested government/military pension income only) — that mechanism keys off income source and pension vesting date, neither of which `IncomeComponents` carries; see `specs/024-nc-state-tax/spec.md` Assumptions. |
+| North Carolina (NC) | Flat rate (4.25% tax year 2025, 3.99% 2026 onward), no age-based exclusion, full exclusion of household-attested Bailey-settlement-qualifying government/military pension income | **Verified** — flat rate confirmed against NCDOR's Tax Rate Schedules and N.C. Gen. Stat. §105-153.7 as amended by S.L. 2023-134 (`tax/state/nc.py`, `024-nc-state-tax`). The Bailey settlement (N.C. Gen. Stat. §105-134.6 history; *Bailey v. State of North Carolina*, 1998) is now modeled: a household marks a pension/annuity `IncomeStream` as `bailey_qualifying` (a household attestation of pre-8/12/1989 vesting in a qualifying government/military plan — not independently verified or derived by the engine), and `tax/state/nc.py` excludes that income from NC's taxable base in full (`027-nc-bailey-exclusion`). This is a categorical, cited structural rule, not a `SourcedFigure` — there is no rate/threshold/dollar figure to schedule by tax year. The separate, newer post-2021 NC military-retirement exemption (S.L. 2021-180, no 1989 vesting cutoff) remains unmodeled. |
 
-South Carolina and Delaware were **not** in scope for `014-figure-verification` — that effort covered only the 8 federal figures a specific run flagged. Verifying SC/DE against South Carolina and Delaware statutory text is tracked as separate, not-yet-scheduled follow-on work. North Carolina's flat rate was verified directly as part of `024-nc-state-tax`, not inherited as placeholder debt.
+South Carolina and Delaware were **not** in scope for `014-figure-verification` — that effort covered only the 8 federal figures a specific run flagged. Verifying SC/DE against South Carolina and Delaware statutory text is tracked as separate, not-yet-scheduled follow-on work. North Carolina's flat rate was verified directly as part of `024-nc-state-tax`, not inherited as placeholder debt; its Bailey-settlement exclusion (`027-nc-bailey-exclusion`) is likewise a cited, real rule, not a placeholder.
 
 ### 5.5 Inherited retirement accounts (SECURE Act / SECURE 2.0)
 
@@ -802,10 +802,13 @@ survival-adjusted scoring already was.
   `compute_state_tax()` interface.
 - South Carolina's and Delaware's bracket/exclusion figures remain
   unverified placeholders (§5.4).
-- North Carolina's module does not model the Bailey settlement
-  (§5.4) — a household whose income includes a pre-8/12/1989-vested
-  government/military pension will see it taxed as ordinary income,
-  overstating their true NC tax liability.
+- North Carolina's module models the Bailey settlement (§5.4,
+  `027-nc-bailey-exclusion`) but not the separate, newer post-2021
+  military-retirement exemption (S.L. 2021-180, no 1989 vesting cutoff) —
+  a household whose only qualifying income is a post-2021-exempt military
+  pension that would *not* separately qualify under Bailey will still see
+  it taxed as ordinary income by this tool, understating their true NC
+  benefit.
 - The historical return series and survival/mortality curves used by the
   simulation engine are synthetic, not real published data (§6.9).
 - The Joint Life and Last Survivor RMD table covers only a handful of age

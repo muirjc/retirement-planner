@@ -41,3 +41,14 @@ def test_de_supports_a_realistic_multi_decade_plan_horizon():
     result_2026 = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
     result_2050 = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2050)
     assert result_2050.state_tax_owed == result_2026.state_tax_owed == 1_600.0
+
+
+def test_de_ignores_government_pension_income():
+    """027-nc-bailey-exclusion: government_pension_income is a NC-only
+    (Bailey settlement) field -- DE never reads it, so a nonzero value
+    changes nothing (spec.md FR-006)."""
+    with_field = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000, government_pension_income=40_000)
+    without_field = IncomeComponents(ordinary_income=60_000, social_security_gross_benefit=20_000)
+    result_with = compute_tax(with_field, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+    result_without = compute_tax(without_field, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+    assert result_with.state_tax_owed == result_without.state_tax_owed

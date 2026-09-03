@@ -61,7 +61,9 @@ def _account_to_dict(account: Account) -> dict:
 
 def _income_stream_to_dict(stream: IncomeStream) -> dict:
     """021-pension-annuity-income (rp-pid): every IncomeStream field
-    round-trips like every other Account/HouseholdMember field."""
+    round-trips like every other Account/HouseholdMember field.
+    027-nc-bailey-exclusion: bailey_qualifying follows the same
+    discipline."""
     return {
         "label": stream.label,
         "stream_type": stream.stream_type,
@@ -69,6 +71,7 @@ def _income_stream_to_dict(stream: IncomeStream) -> dict:
         "annual_amount": stream.annual_amount,
         "inflation_adjustment": stream.inflation_adjustment,
         "end_age": stream.end_age,
+        "bailey_qualifying": stream.bailey_qualifying,
     }
 
 

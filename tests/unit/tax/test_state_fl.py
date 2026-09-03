@@ -25,3 +25,12 @@ def test_fl_zero_tax_regardless_of_tax_year():
     income = IncomeComponents(ordinary_income=500_000, social_security_gross_benefit=50_000)
     result = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2075)
     assert result.state_tax_owed == 0.0
+
+
+def test_fl_ignores_government_pension_income():
+    """027-nc-bailey-exclusion: government_pension_income is a NC-only
+    (Bailey settlement) field -- FL never reads it, so a nonzero value
+    changes nothing (spec.md FR-006)."""
+    income = IncomeComponents(ordinary_income=500_000, social_security_gross_benefit=50_000, government_pension_income=100_000)
+    result = compute_tax(income, filer_ages=[67, 65], filing_status="married_filing_jointly", tax_year=2026)
+    assert result.state_tax_owed == 0.0

@@ -144,6 +144,29 @@ def test_income_streams_survive_a_save_load_round_trip(scenario_store_dir):
     assert reloaded.household.members[0].income_streams == scenario.household.members[0].income_streams
 
 
+def test_bailey_qualifying_income_stream_survives_a_save_load_round_trip(scenario_store_dir):
+    """027-nc-bailey-exclusion: bailey_qualifying follows the same
+    round-trip discipline as every other IncomeStream field -- the
+    surrounding test above already covers the False default via dataclass
+    equality; this covers an explicit True."""
+    scenario = _scenario("bailey_case")
+    scenario.household.members[0].income_streams = [
+        IncomeStream(
+            label="State Teachers' Pension",
+            stream_type="pension",
+            start_age=62,
+            annual_amount=40_000.0,
+            inflation_adjustment="cola_adjusted",
+            bailey_qualifying=True,
+        ),
+    ]
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("bailey_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].income_streams[0].bailey_qualifying is True
+
+
 def test_income_streams_default_to_empty_list_after_a_save_load_round_trip(scenario_store_dir):
     scenario = _scenario("no_pension_case")
     assert scenario.household.members[0].income_streams == []

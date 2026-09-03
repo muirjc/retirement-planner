@@ -81,7 +81,12 @@ def _build_income_stream(data: object, source: str, context: str) -> IncomeStrea
     via _require() if any is missing, same discipline as every other
     required field); label and end_age are optional -- label defaults to
     ""  (display-only, never validated), end_age defaults to None (a
-    lifetime stream, data-model.md)."""
+    lifetime stream, data-model.md).
+
+    027-nc-bailey-exclusion: bailey_qualifying is likewise optional,
+    defaulting to False -- every scenario written before this feature
+    parses to the same IncomeStream it did before (contracts/scenario-
+    api.md)."""
     return IncomeStream(
         label=data.get("label", "") if isinstance(data, dict) else "",
         stream_type=_require(data, "stream_type", source, context),
@@ -89,6 +94,7 @@ def _build_income_stream(data: object, source: str, context: str) -> IncomeStrea
         annual_amount=_require(data, "annual_amount", source, context),
         inflation_adjustment=_require(data, "inflation_adjustment", source, context),
         end_age=data.get("end_age") if isinstance(data, dict) else None,
+        bailey_qualifying=data.get("bailey_qualifying", False) if isinstance(data, dict) else False,
     )
 
 

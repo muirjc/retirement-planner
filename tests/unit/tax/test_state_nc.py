@@ -92,3 +92,64 @@ def test_nc_supports_a_realistic_multi_decade_plan_horizon():
     income = IncomeComponents(ordinary_income=80_000.0, social_security_gross_benefit=0.0)
     result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2050)
     assert result.state_tax_owed == pytest.approx(80_000.0 * 0.0399)
+
+
+# --- 027-nc-bailey-exclusion ---------------------------------------------
+
+
+def test_nc_bailey_qualifying_income_is_excluded_from_taxable_base():
+    """spec.md Acceptance Scenario 1: $40k Bailey-qualifying pension + $30k
+    other ordinary income -- only the $30k is taxed."""
+    income = IncomeComponents(
+        ordinary_income=70_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=40_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="married_filing_jointly", tax_year=2026)
+    assert result.state_tax_owed == pytest.approx(30_000.0 * 0.0399)
+
+
+def test_nc_fully_bailey_qualifying_income_is_untaxed():
+    """spec.md Acceptance Scenario 2: 100% Bailey-qualifying -> $0 NC tax."""
+    income = IncomeComponents(
+        ordinary_income=50_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=50_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2026)
+    assert result.state_tax_owed == 0.0
+
+
+def test_nc_no_bailey_qualifying_income_is_unchanged_from_original_behavior():
+    """spec.md Acceptance Scenario 3 / FR-002: government_pension_income left
+    at its 0.0 default reproduces 024-nc-state-tax's original behavior
+    exactly."""
+    income = IncomeComponents(ordinary_income=80_000.0, social_security_gross_benefit=0.0)
+    result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2026)
+    assert result.state_tax_owed == pytest.approx(80_000.0 * 0.0399)
+
+
+def test_nc_bailey_exclusion_floors_taxable_base_at_zero():
+    """Edge Cases: government_pension_income exceeding ordinary_income (e.g.
+    a stream that hasn't fully wound down while other income has) never
+    produces a negative taxable base."""
+    income = IncomeComponents(
+        ordinary_income=20_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=25_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2026)
+    assert result.state_tax_owed == 0.0
+
+
+def test_nc_bailey_exclusion_figures_used_unchanged():
+    """No new SourcedFigure is introduced for the Bailey exclusion
+    (research.md §4) -- figures_used still cites only the flat rate."""
+    income = IncomeComponents(
+        ordinary_income=70_000.0,
+        social_security_gross_benefit=0.0,
+        government_pension_income=40_000.0,
+    )
+    result = compute_tax(income, filer_ages=[67], filing_status="single", tax_year=2026)
+    figure_names = {f.name for f in result.figures_used}
+    assert figure_names == {"nc_flat_rate"}

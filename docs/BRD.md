@@ -167,6 +167,8 @@ methodology this table's federal rows were most recently produced by.
 | Social Security claiming-age early-reduction/delayed-credit rates | 42 U.S.C. §402(q)/(w); 20 C.F.R. §404.410/§404.313 (fixed by regulation, not annually revised) | `mechanics/social_security_benefit.py` |
 | Social Security spousal-benefit early-claiming reduction rate (25/36 of 1%/month first 36 months, 5/12 of 1%/month beyond; no delayed credit) | 42 U.S.C. §402(b)/(c); 20 C.F.R. §404.410 (wife's/husband's-benefit paragraph, fixed by regulation) | `mechanics/social_security_benefit.py` |
 | Social Security survivor-benefit rule (higher of the two benefits continues, the lower stops) | 42 U.S.C. §402(e)/(f); 20 C.F.R. §404.335/§404.336 | `mechanics/social_security_benefit.py` |
+| Social Security retirement earnings test — exempt amounts ($24,480/yr below FRA, $65,160/yr in the FRA-attainment year, 2026) and withholding ratios ($1-for-$2 / $1-for-$3) | 42 U.S.C. §403(b)/(f); 20 C.F.R. §404.430/§404.434; SSA, "2026 Cost-of-Living Adjustment (COLA) Fact Sheet" | `mechanics/social_security_benefit.py` |
+| Social Security earnings-test recredit (Adjustment of the Reduction Factor, ARF) at FRA | SSA POMS RS 00615.480/RS 00615.482; 20 C.F.R. §404.410 (same reduction-factor regulation the early-claiming row above already cites) | `mechanics/social_security_benefit.py` |
 | Non-COLA'd ("fixed-nominal") income-stream real-dollar erosion rate (2.40%/year) | SSA, *2025 Annual Report of the Boards of Trustees of the OASI and DI Trust Funds*, "Long-Range Economic Assumptions," intermediate assumption, ultimate CPI increase — a planning assumption, not binding law, unlike every other row above | `mechanics/income_streams.py` |
 | FICA OASDI rate (6.2%), Medicare/HI rate (1.45%, uncapped), 2026 OASDI wage base ($184,500) | SSA, "2026 Cost-of-Living Adjustment (COLA) Fact Sheet" (ssa.gov/news/en/cola/factsheets/2026.html); cross-checked against SSA's own Contribution and Benefit Base page (ssa.gov/oact/cola/cbb.html) | `tax/fica.py` |
 | Additional Medicare Tax rate (0.9%) and thresholds ($200,000 single / $250,000 MFJ, fixed since 2013, not inflation-indexed) | 26 U.S.C. §3101(b)(2); IRS, "Questions and Answers for the Additional Medicare Tax" | `tax/fica.py` |
@@ -231,10 +233,13 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   most post-2015 cases, not a genuine free choice modeled here), and the
   widow(er)'s-own early-claiming reduction and statutory "widow's limit"
   cap on the survivor-benefit calculation itself.
-- **Social Security earnings test** — a member who claims while still
-  working before FRA is not subject to the benefit withholding the
-  earnings test would impose; the tool assumes full, unwithheld payment
-  from the configured claiming age on.
+- **Social Security earnings test — now modeled (rp-acq)**: see §6.2a.
+  What remains a documented simplification rather than a gap: this
+  engine's whole-plan-year granularity means the FRA-attainment year's
+  earnings test is evaluated against that member's entire year of earned
+  income (not just earnings before the real FRA birthday month), and the
+  ARF recredit takes effect the plan year after the FRA-attainment year
+  rather than partway through it.
 - **Itemized deductions and the temporary OBBBA senior bonus deduction**
   (an additional $6,000/qualifying taxpayer for age 65+, phased out above
   $75k/$150k MAGI, tax years 2025-2028) — every household is modeled as
@@ -338,10 +343,37 @@ received the same flat PIA for a different number of years, which
 structurally could never show delaying as the better choice even when it
 genuinely was.
 
-Explicitly not modeled here: the Social Security earnings test for a
-member who claims while still working before FRA — tracked as a known
-gap, not silently assumed away. Spousal and survivor benefits are now
-modeled — see §6.2b.
+**Earnings test (rp-acq)**: a member who claims genuinely early (before
+their own FRA) while still working an `earned_income` stream now has
+their benefit withheld above an annual exempt-earnings threshold, per 42
+U.S.C. §403(b)/(f) and 20 C.F.R. §404.430/§404.434 — $1 withheld per $2
+earned above $24,480/yr (2026) for a year fully before the member's
+FRA-attainment year, or the more lenient $1-for-$3 ratio above a higher
+$65,160/yr threshold (2026) specifically in the plan year the member
+reaches FRA. Withheld amounts are not a permanent loss: starting the
+plan year *after* the member's FRA-attainment year, SSA's Adjustment of
+the Reduction Factor (ARF, POMS RS 00615.480/RS 00615.482) permanently
+raises the benefit to reflect every prior year's accumulated withholding
+— capped so it can restore at most 100% of PIA (ARF eliminates
+early-claiming reduction, it never manufactures delayed-retirement
+credit). A member who claims at or after their own FRA is never subject
+to this at all, regardless of earned income.
+
+Two whole-plan-year simplifications, since this engine has no mid-year
+granularity: (1) the FRA-attainment year's *entire* earned income is
+tested against the lenient rule, rather than only the real-world
+"earnings in months before the FRA birthday" — this engine cannot
+isolate that sub-year period; (2) the recredit is applied starting the
+year *after* the FRA-attainment year, not within that same year's own
+snapshot, since the FRA-attainment year can itself still generate
+withholding and this engine has no way to apply both a withholding and
+its own resulting recredit within one annual figure. Both are documented
+in `mechanics/social_security_benefit.py`'s own module docstring.
+
+Spousal and survivor benefits are now modeled — see §6.2b; the spousal
+floor is unaffected by the earnings test's own logic beyond reading
+whichever (possibly withheld, possibly recredited) benefit this feature
+already produced.
 
 ### 6.2b Social Security spousal and survivor benefits (rp-52n)
 

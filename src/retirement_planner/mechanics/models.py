@@ -270,6 +270,59 @@ class SurvivorBenefitResult:
 
 
 @dataclass
+class EarningsTestWithholdingResult:
+    """025-ss-earnings-test data-model.md § EarningsTestWithholdingResult.
+    One member's one plan-year SSA retirement-earnings-test computation."""
+
+    withheld_amount: float
+    """$1-for-$2 (or $1-for-$3 in the FRA-attainment year) of that
+    member's earned income above the applicable exempt threshold, capped
+    so it never exceeds that year's own claiming-age-adjusted benefit
+    (never negative benefit). 0.0 whenever earned income is at or below
+    the threshold."""
+    benefit_after_withholding: float
+    """The member's claiming-age-adjusted benefit for the year minus
+    withheld_amount -- never negative."""
+    deduction_months_this_year: int
+    """min(12, ceil(withheld_amount / (primary_insurance_amount / 12))),
+    or 0 when withheld_amount is 0 -- whole "deduction months" credited
+    toward this member's eventual FRA recredit (research.md Decision 4);
+    a month with only partial withholding still counts as one full
+    month, per SSA's own crediting rule (POMS RS 00615.482)."""
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
+class EarningsTestRecreditResult:
+    """025-ss-earnings-test data-model.md § EarningsTestRecreditResult.
+    One member's one-time, permanent benefit recalculation at their
+    FRA-attainment year, reflecting SSA's Adjustment of the Reduction
+    Factor (ARF, POMS RS 00615.480) -- the accumulated deduction-months
+    total from every pre-FRA year this member was withheld converts into
+    a permanently smaller early-claiming reduction from this year
+    forward."""
+
+    recredited_annual_benefit: float
+    """primary_insurance_amount * recredited_adjustment_factor -- the
+    member's new, permanently higher benefit from the FRA-attainment
+    year forward. Equals the member's original claiming-age-adjusted
+    benefit unchanged when cumulative_months_withheld is 0 (no earlier
+    withholding occurred)."""
+    recredited_adjustment_factor: float
+    """The original adjustment_factor (compute_social_security_benefit())
+    plus however much of the early-claiming reduction the credited
+    months eliminate -- capped at 1.0 (100% of PIA). Never exceeds 1.0:
+    ARF eliminates reduction, it does not manufacture delayed-retirement
+    credit (research.md Decision 4)."""
+    months_recredited: int
+    """min(cumulative_months_withheld, months originally reduced for
+    early claiming) -- the portion of the accumulated deduction-months
+    total actually consumed; any surplus beyond full 100%-of-PIA
+    restoration has no further effect."""
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
 class IncomeStreamAmountResult:
     """021-pension-annuity-income (rp-pid) data-model.md §
     IncomeStreamAmountResult. One IncomeStream's own gross amount for one

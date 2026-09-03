@@ -6,8 +6,8 @@ from retirement_planner.tax import IncomeComponents
 from retirement_planner.tax.state import STATE_MODULES, compute_state_tax
 
 
-def test_state_modules_registry_has_sc_de_fl():
-    assert set(STATE_MODULES.keys()) == {"SC", "DE", "FL"}
+def test_state_modules_registry_has_sc_de_fl_nc():
+    assert set(STATE_MODULES.keys()) == {"SC", "DE", "FL", "NC"}
 
 
 def test_compute_state_tax_dispatches_by_state_code():

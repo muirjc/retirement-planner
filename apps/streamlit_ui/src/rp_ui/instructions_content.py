@@ -51,7 +51,19 @@ SECTIONS: list[Section] = [
             "claiming age; use the FRA amount here. If you don't yet know your real FRA, "
             "leaving this field at its default (equal to your claiming age) is a safe "
             "fallback -- it simply means the tool won't reduce or increase the entered amount "
-            "for claiming early or late."
+            "for claiming early or late.\n\n"
+            "Each party can also carry zero or more **income streams** -- a pension, an "
+            "annuity payout, or phased-retirement earned income (a salary someone still "
+            "receives for part of the plan). All three are taxed the same way: fully taxable "
+            "ordinary income, added on top of everything else. Every income stream, `earned_income` "
+            "included, follows Social Security's own cash-flow rule -- its cash is **never** added "
+            "to an account balance and **never** reduces the amount withdrawn to meet the Spending "
+            "section's annual spending need below. This is easy to overlook for `earned_income` "
+            "specifically: if you're modeling a spouse who keeps a salary for a few more years, "
+            "that salary is probably already paying for part of the household's living costs, so "
+            "your annual spending need entry must already be net of that amount -- otherwise the "
+            "tool double-counts it, withdrawing the full spending need from savings *and* taxing "
+            "the salary on top, with nothing to offset it."
         ),
     ),
     Section(
@@ -72,7 +84,10 @@ SECTIONS: list[Section] = [
             "Enter your annual spending need in **today's dollars** -- what it would cost "
             "to live your planned lifestyle right now, not a number you've already "
             "inflated forward to some future year. Enter it **before taxes**; the tool "
-            "calculates the taxes owed on top of this figure itself."
+            "calculates the taxes owed on top of this figure itself. If a household member "
+            "has an `earned_income` income stream configured (see the Household section), "
+            "make sure this figure is already net of whatever part of living costs that "
+            "income covers -- the tool has no way to detect a missed adjustment here."
         ),
     ),
     Section(

@@ -59,11 +59,32 @@ def test_household_section_states_benefit_must_match_claiming_age():
     assert "full retirement age" in body
 
 
+def test_household_section_warns_earned_income_must_be_netted_from_spending():
+    """rp-uaf: an earned_income stream's cash never reduces annual spending
+    need (mirrors Social Security's own cash-flow treatment), so a scenario
+    author has to net it out manually -- the Household section (where
+    income streams are introduced) must say so explicitly, not just imply
+    it via the general pension/annuity cash-flow rule."""
+    body = _body_for("Household")
+    assert "income streams" in body.lower()
+    assert "`earned_income`" in body
+    assert "never" in body.lower()
+    assert "double-count" in body.lower()
+
+
 def test_spending_section_states_todays_dollars_and_pre_tax():
     """FR-005."""
     body = _body_for("Spending")
     assert "today's dollars" in body
     assert "before taxes" in body
+
+
+def test_spending_section_cross_references_earned_income_netting():
+    """rp-uaf: the field where the netting must actually happen also names
+    the trap, not just the Household section where streams are configured."""
+    body = _body_for("Spending")
+    assert "`earned_income`" in body
+    assert "net" in body.lower()
 
 
 def test_state_section_names_no_specific_state_code():

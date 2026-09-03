@@ -468,6 +468,33 @@ same way Social Security already is. This keeps the two income sources
 internally consistent rather than introducing a different cash-flow rule
 for one and not the other.
 
+**The `earned_income` double-counting trap (rp-uaf)**: this rule is a much
+easier trap to fall into for `earned_income` than for `pension`/`annuity`.
+A household typically configures Social Security and a pension consistently
+from the start (both are "extra income on top"), but a scenario author
+modeling "my spouse keeps their $60k salary for 3 more years" naturally
+thinks of that salary as *already covering* part of the household's living
+costs — and has to remember to manually reduce `annual_need_real` by
+whatever portion of spending that salary already funds. Nothing in the
+engine validates, warns, or otherwise catches a scenario where a large
+`annual_need_real` and a large `earned_income` stream coexist without that
+manual netting: the full spending need is withdrawn from accounts *and*
+the salary is taxed on top, with no offsetting cash inflow anywhere. This
+is not a bug — `annual_need_real`'s own definition ("the net amount that
+must come from savings") is correct and, per the paragraph above,
+consistent with how Social Security is already treated — but it is a
+usability gap. Decision: fixed as documentation/UX only (rp-uaf), not an
+engine change — see the `earned_income`-specific warning in the Type
+field's help text and the Spending field's help text on the Streamlit
+Scenarios page (`apps/streamlit_ui/pages/1_Scenarios.py`), and the
+Household/Spending sections of the Instructions page
+(`apps/streamlit_ui/src/rp_ui/instructions_content.py`). A soft validation
+warning was considered and rejected: the engine has no way to tell whether
+an author already netted a stream's contribution out of `annual_need_real`,
+so a rule that fires whenever a nonzero `earned_income` stream is present
+would just repeat the help text on every such scenario rather than
+detecting an actual problem.
+
 Streams round-trip through the scenario YAML and the BFF API, and the
 Streamlit Scenarios page now offers real per-member add/edit/remove
 widgets for them (`rp-5cq`) — not just silent preservation of an

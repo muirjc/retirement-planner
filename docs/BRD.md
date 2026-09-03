@@ -692,20 +692,30 @@ own independent random paths.
   consuming one `random.Random(seed)` instance in a fixed, deterministic
   order (path 0's years, then path 1's, ...) — same seed always produces
   the same paths.
-- **Historical-bootstrap mode**: moving-block resampling from an annual
-  real-return series, instead of only parametric normal draws, to capture
-  fat tails and genuine historical sequencing. Not yet exposed through the
-  BFF or Streamlit UI (rp-xxp) — every BFF-triggered run uses parametric
-  mode only; usable today only by a caller reaching
-  `retirement_planner.simulation.generate_historical_bootstrap_paths()`
-  directly.
-- **Sequence-of-returns stress overlay**: a configurable shock (magnitude,
-  duration, and starting point within the plan) layered onto either
-  return-generation mode, since a bad early sequence of returns is a
-  materially different risk than the same average return spread evenly.
-  Not yet exposed through the BFF or Streamlit UI (rp-xxp) — usable today
-  only by a caller reaching
-  `retirement_planner.simulation.apply_stress_scenario()` directly.
+- **Historical-bootstrap mode** (opt-in, rp-741): moving-block resampling
+  from an annual real-return series, instead of only parametric normal
+  draws, to capture fat tails and genuine historical sequencing. Exposed
+  via `generation_mode: "historical_bootstrap"` (plus `historical_block_length`)
+  on a `/simulations` or `/comparisons/simulated` request, or the "Return
+  generation mode" control in the Run Simulation/Compare pages' Advanced
+  overrides — parametric mode remains the default, reproducing every
+  existing request's exact prior behavior. The series it resamples from is
+  synthetic placeholder data, not real historical returns (§6.9); a result
+  using this mode is flagged via the same verification-indicator machinery
+  every other unverified figure already uses, never presented as settled.
+- **Sequence-of-returns stress overlay** (opt-in, rp-2bn): a configurable
+  shock (magnitude, duration, and starting point within the plan) layered
+  onto either return-generation mode, since a bad early sequence of returns
+  is a materially different risk than the same average return spread
+  evenly. Exposed via an optional `stress_scenario` object on a
+  `/simulations` or `/comparisons/simulated` request, or the "Apply a
+  sequence-of-returns stress overlay" control in the Run Simulation/Compare
+  pages' Advanced overrides — off by default. A configured window extending
+  past the run's own horizon is rejected with a clear `invalid_simulation_options`
+  error, not a bare failure. Both this and historical-bootstrap mode above
+  are Monte-Carlo-only — a Deterministic comparison accepts either field
+  (no validation error) but is completely unaffected by it, mirroring
+  `survival_adjusted`'s own precedent for that route.
 - **Survival-adjusted scoring** (optional, rp-9vl): success rate can be
   expressed as "probability of not running out of money while at least
   one spouse is alive," using per-member actuarial survival curves,
@@ -739,8 +749,9 @@ own independent random paths.
   identical to how return paths are already shared across candidates.
   Not yet exposed through the BFF or Streamlit UI — usable only by a
   caller reaching the core `retirement_planner.simulation` package
-  directly, the same current limitation as historical-bootstrap return
-  generation and the sequence-of-returns stress overlay above.
+  directly (unlike historical-bootstrap return generation and the
+  sequence-of-returns stress overlay above, both now exposed via
+  `026-advanced-simulation-options`).
 
 ### 6.9 What's synthetic, not real, in the simulation engine
 
@@ -816,18 +827,12 @@ survival-adjusted scoring already was.
   surcharge above the standard Medicare premium is. A household must
   estimate and fold both into `annual_need_real` itself; a follow-up
   feature may model either directly in the future (rp-1pp).
-- **Two Monte Carlo capabilities are engine-complete but not yet reachable
-  through the app itself** (rp-xxp full-surface audit; a third,
-  survival-adjusted success scoring, was closed by rp-9vl — see §6.8):
-  historical-bootstrap return generation and the sequence-of-returns
-  stress overlay both exist in `retirement_planner.simulation` and are
-  exercised by that package's own tests, but `services/bff`'s request
-  schemas never accept a `generation_mode` or a stress-scenario
-  configuration, and no Streamlit page offers a control for either — a
-  user of the deployed app can only ever run parametric, unstressed
-  simulations today. Follow-on work (rp-741, rp-2bn) is scheduled to
-  expose both behind an "Advanced" section, a shock/return-model choice
-  most single households won't need on a first run.
+- Per-path probabilistic death draws (rp-vgv, §6.8) remain engine-complete
+  but not yet reachable through the app itself — the last of `rp-xxp`'s
+  full-surface audit findings still open (historical-bootstrap return
+  generation and the sequence-of-returns stress overlay, the other two, were
+  closed by `026-advanced-simulation-options`; survival-adjusted success
+  scoring was closed earlier by `rp-9vl`).
 
 ## 8. Non-Functional Requirements
 

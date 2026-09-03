@@ -140,9 +140,7 @@ def make_fake_bff():
             name = parts[4]
             body = json.loads(request.content)
             flags = compute_flags(body)
-            return httpx.Response(
-                200, json={"validation_flags": flags, "is_usable": not any(f["severity"] == "blocking" for f in flags)}
-            )
+            return httpx.Response(200, json={"validation_flags": flags, "is_usable": not any(f["severity"] == "blocking" for f in flags)})
 
         if len(parts) == 5 and parts[3] == "scenarios":
             name = parts[4]
@@ -233,9 +231,7 @@ def test_us2_married_household_renders_per_member_account_fields_with_structural
     saved_accounts = store["couple"]["accounts"]
     assert len(saved_accounts) == 6
     you_traditional = next(a for a in saved_accounts if a["owner"] == "you" and a["account_type"] == "traditional")
-    spouse_traditional = next(
-        a for a in saved_accounts if a["owner"] == "spouse" and a["account_type"] == "traditional"
-    )
+    spouse_traditional = next(a for a in saved_accounts if a["owner"] == "spouse" and a["account_type"] == "traditional")
     assert you_traditional["balance"] == 900_000.0
     assert spouse_traditional["balance"] == 300_000.0
 
@@ -431,8 +427,13 @@ def test_hsa_and_hdhp_load_round_trip_and_survive_an_untouched_save():
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
         "market_assumptions": {
-            "equity_allocation": 0.6, "equity_return_mean_real": 0.05, "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4, "bond_return_mean_real": 0.02, "bond_return_std_real": 0.05, "correlation": 0.0,
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.05,
+            "equity_return_std_real": 0.15,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.02,
+            "bond_return_std_real": 0.05,
+            "correlation": 0.0,
         },
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
@@ -494,8 +495,12 @@ def test_income_stream_loads_into_editing_widgets_and_round_trips_unedited():
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
         "market_assumptions": {
-            "equity_allocation": 0.6, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
-            "bond_allocation": 0.4, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.065,
+            "equity_return_std_real": 0.17,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.015,
+            "bond_return_std_real": 0.06,
             "correlation": -0.10,
         },
         "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
@@ -726,15 +731,17 @@ def test_us3_loading_a_stale_owner_account_leaves_its_balance_absent_not_guessed
         "spending": {"annual_need_real": 90_000.0},
         "state": "FL",
         "market_assumptions": {
-            "equity_allocation": 0.6, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
-            "bond_allocation": 0.4, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.065,
+            "equity_return_std_real": 0.17,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.015,
+            "bond_return_std_real": 0.06,
             "correlation": -0.10,
         },
         "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
-        "validation_flags": [
-            {"field": "accounts[1].owner", "message": "does not match any household member", "severity": "blocking"}
-        ],
+        "validation_flags": [{"field": "accounts[1].owner", "message": "does not match any household member", "severity": "blocking"}],
         "is_usable": False,
     }
 
@@ -873,8 +880,13 @@ def test_inherited_ira_load_round_trip_populates_fields_without_double_counting(
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
         "market_assumptions": {
-            "equity_allocation": 0.6, "equity_return_mean_real": 0.05, "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4, "bond_return_mean_real": 0.02, "bond_return_std_real": 0.05, "correlation": 0.0,
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.05,
+            "equity_return_std_real": 0.15,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.02,
+            "bond_return_std_real": 0.05,
+            "correlation": 0.0,
         },
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
@@ -1022,9 +1034,7 @@ _RUN_PERCENTILE_BANDS = [
 def _run_reference_routes(scenarios=("base_case",), withdrawal_strategies=("rmd_taxable_traditional_roth",)):
     return {
         ("GET", "/api/v1/scenarios"): httpx.Response(200, json={"scenarios": list(scenarios)}),
-        ("GET", "/api/v1/reference/withdrawal-strategies"): httpx.Response(
-            200, json={"withdrawal_strategies": list(withdrawal_strategies)}
-        ),
+        ("GET", "/api/v1/reference/withdrawal-strategies"): httpx.Response(200, json={"withdrawal_strategies": list(withdrawal_strategies)}),
     }
 
 
@@ -1130,9 +1140,7 @@ def test_us2_run_displays_survival_adjusted_success_rate_next_to_success_rate():
 
 def test_us2_survival_curve_age_out_of_range_shows_specific_message():
     def sim_response(request):
-        return httpx.Response(
-            422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10}
-        )
+        return httpx.Response(422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10})
 
     routes = _run_reference_routes()
     routes[("POST", "/api/v1/simulations")] = sim_response
@@ -1172,9 +1180,7 @@ def test_us2_cost_budget_exceeded_shows_specific_message():
     """Acceptance Scenario US2.3."""
 
     def sim_response(request):
-        return httpx.Response(
-            413, json={"error": "estimated_cost_exceeds_budget", "estimated_seconds": 180.0, "budget_seconds": 30.0}
-        )
+        return httpx.Response(413, json={"error": "estimated_cost_exceeds_budget", "estimated_seconds": 180.0, "budget_seconds": 30.0})
 
     routes = _run_reference_routes()
     routes[("POST", "/api/v1/simulations")] = sim_response
@@ -1229,22 +1235,147 @@ def test_us2_run_button_wrapped_in_spinner():
     assert spinner_index < run_call_index
 
 
+# -- 026-advanced-simulation-options (rp-2bn): opt-in stress overlay --
+
+
+def test_run_stress_overlay_unchecked_sends_no_stress_scenario_key():
+    captured = {}
+
+    def sim_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "run": {"path_results": [{}]},
+                "summary": {"success_rate": 1.0, "percentile_bands": [], "unverified_figure_names": []},
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    assert at.checkbox(key="run_apply_stress").value is False
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert "stress_scenario" not in captured["body"]
+
+
+def test_run_stress_overlay_checked_sends_the_configured_window():
+    captured = {}
+
+    def sim_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "run": {"path_results": [{}]},
+                "summary": {"success_rate": 1.0, "percentile_bands": [], "unverified_figure_names": []},
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.checkbox(key="run_apply_stress").set_value(True)
+    at.number_input(key="run_stress_magnitude").set_value(-0.3)
+    at.number_input(key="run_stress_duration_years").set_value(3)
+    at.number_input(key="run_stress_start_plan_year").set_value(1)
+    at.run()
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["stress_scenario"] == {"magnitude": -0.3, "duration_years": 3, "start_plan_year": 1}
+
+
+def test_run_invalid_simulation_options_shows_the_backend_detail_message():
+    def sim_response(request):
+        return httpx.Response(422, json={"error": "invalid_simulation_options", "detail": "stress window ends at plan year 15, beyond the horizon's last plan year 10"})
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert any("beyond the horizon" in e.value for e in at.error)
+
+
+# -- 026-advanced-simulation-options (rp-741): opt-in historical-bootstrap mode --
+
+
+def test_run_generation_mode_defaults_to_parametric_and_is_always_sent():
+    captured = {}
+
+    def sim_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "run": {"path_results": [{}]},
+                "summary": {"success_rate": 1.0, "percentile_bands": [], "unverified_figure_names": []},
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    assert at.selectbox(key="run_generation_mode").value == "parametric"
+    assert at.number_input(key="run_historical_block_length").value == 10
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["generation_mode"] == "parametric"
+    assert captured["body"]["historical_block_length"] == 10
+
+
+def test_run_historical_bootstrap_mode_shows_the_unverified_figure_warning():
+    def sim_response(request):
+        body = json.loads(request.content)
+        assert body["generation_mode"] == "historical_bootstrap"
+        return httpx.Response(
+            200,
+            json={
+                "run": {"path_results": [{}]},
+                "summary": {
+                    "success_rate": 0.9,
+                    "percentile_bands": [],
+                    "unverified_figure_names": ["historical_annual_real_returns"],
+                },
+            },
+        )
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = sim_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.selectbox(key="run_generation_mode").set_value("historical_bootstrap")
+    at.run()
+    at.button(key="run_button").click().run()
+
+    assert not at.exception
+    assert any("historical_annual_real_returns" in w.value for w in at.warning)
+
+
 # -- User Story 3: Compare candidates (T020-T023) -----------------------------
 
 
 def _compare_reference_routes():
     return {
         ("GET", "/api/v1/scenarios"): httpx.Response(200, json={"scenarios": ["base_case"]}),
-        ("GET", "/api/v1/reference/comparison-axes"): httpx.Response(
-            200, json={"axes": ["state", "roth_conversion_strategy", "withdrawal_sequencing", "claiming_age_grid"]}
-        ),
+        ("GET", "/api/v1/reference/comparison-axes"): httpx.Response(200, json={"axes": ["state", "roth_conversion_strategy", "withdrawal_sequencing", "claiming_age_grid"]}),
         ("GET", "/api/v1/reference/states"): httpx.Response(200, json={"states": ["DE", "FL", "SC"]}),
-        ("GET", "/api/v1/reference/conversion-strategies"): httpx.Response(
-            200, json={"conversion_strategies": ["bracket_fill"]}
-        ),
-        ("GET", "/api/v1/reference/withdrawal-strategies"): httpx.Response(
-            200, json={"withdrawal_strategies": ["rmd_taxable_traditional_roth"]}
-        ),
+        ("GET", "/api/v1/reference/conversion-strategies"): httpx.Response(200, json={"conversion_strategies": ["bracket_fill"]}),
+        ("GET", "/api/v1/reference/withdrawal-strategies"): httpx.Response(200, json={"withdrawal_strategies": ["rmd_taxable_traditional_roth"]}),
     }
 
 
@@ -1317,6 +1448,144 @@ def test_compare_survival_adjusted_defaults_off_and_is_sent_in_request_body():
     assert captured["body"]["survival_adjusted"] is False
 
 
+# -- 026-advanced-simulation-options (rp-2bn): opt-in stress overlay on Compare --
+
+
+def test_compare_stress_overlay_checkbox_hidden_for_deterministic_engine():
+    """research.md Decision 6: the new Advanced-overrides expander lives
+    inside the same Monte-Carlo-only gate as compare_survival_adjusted --
+    never drawn at all for Deterministic, not merely disabled."""
+    _install(_route(_compare_reference_routes()))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    assert at.checkbox(key="compare_apply_stress") is not None  # default engine is Monte Carlo
+
+    at.radio(key="compare_engine").set_value("Deterministic")
+    at.run()
+    with pytest.raises(KeyError):
+        at.checkbox(key="compare_apply_stress")
+
+
+def test_compare_stress_overlay_checked_sends_the_configured_window():
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "state", "summaries": [_simulated_summary("SC")]})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.checkbox(key="compare_apply_stress").set_value(True)
+    at.number_input(key="compare_stress_magnitude").set_value(-0.3)
+    at.number_input(key="compare_stress_duration_years").set_value(3)
+    at.number_input(key="compare_stress_start_plan_year").set_value(1)
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["stress_scenario"] == {"magnitude": -0.3, "duration_years": 3, "start_plan_year": 1}
+
+
+def test_compare_deterministic_engine_omits_stress_scenario_from_body():
+    """The expander never renders for Deterministic, so _build_stress_scenario()'s
+    own .get()-safe check must not KeyError."""
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "withdrawal_sequencing", "summaries": [_deterministic_summary("default")]})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/deterministic")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.radio(key="compare_engine").set_value("Deterministic")
+    at.selectbox(key="compare_axis").set_value("withdrawal_sequencing")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert "stress_scenario" not in captured["body"]
+
+
+def test_compare_invalid_simulation_options_shows_the_backend_detail_message():
+    def compare_response(request):
+        return httpx.Response(422, json={"error": "invalid_simulation_options", "detail": "stress window ends at plan year 15, beyond the horizon's last plan year 10"})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert any("beyond the horizon" in e.value for e in at.error)
+
+
+# -- 026-advanced-simulation-options (rp-741): opt-in historical-bootstrap mode on Compare --
+
+
+def test_compare_generation_mode_defaults_to_parametric_and_is_always_sent():
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "state", "summaries": [_simulated_summary("SC")]})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/simulated")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    assert at.selectbox(key="compare_generation_mode").value == "parametric"
+    at.selectbox(key="compare_axis").set_value("state")
+    at.run()
+    at.selectbox(key="compare_candidate_0_state").set_value("SC")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["generation_mode"] == "parametric"
+    assert captured["body"]["historical_block_length"] == 10
+
+
+def test_compare_deterministic_engine_omits_generation_mode_override_uses_default():
+    """The generation-mode selectbox never renders for Deterministic, so
+    _build_body()'s own .get()-safe defaults must still send the correct
+    (harmless, ignored) parametric/10 values."""
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "withdrawal_sequencing", "summaries": [_deterministic_summary("default")]})
+
+    routes = _compare_reference_routes()
+    routes[("POST", "/api/v1/comparisons/deterministic")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.radio(key="compare_engine").set_value("Deterministic")
+    at.selectbox(key="compare_axis").set_value("withdrawal_sequencing")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    assert captured["body"]["generation_mode"] == "parametric"
+    assert captured["body"]["historical_block_length"] == 10
+
+
 def test_us3_simulated_comparison_shows_survival_adjusted_success_rate_column():
     summaries = [
         {**_simulated_summary("SC"), "survival_adjusted_success_rate": 0.95},
@@ -1348,9 +1617,7 @@ def test_us3_simulated_comparison_shows_survival_adjusted_success_rate_column():
 
 def test_us3_survival_curve_age_out_of_range_shows_specific_message():
     def compare_response(request):
-        return httpx.Response(
-            422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10}
-        )
+        return httpx.Response(422, json={"error": "survival_curve_age_out_of_range", "person_name": "you", "age": 10})
 
     routes = _compare_reference_routes()
     routes[("POST", "/api/v1/comparisons/simulated")] = compare_response

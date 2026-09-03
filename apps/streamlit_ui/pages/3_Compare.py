@@ -28,6 +28,7 @@ from rp_ui.errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
+    InvalidSimulationOptionsError,
     RpUiError,
     ScenarioNotFoundError,
     SurvivalCurveAgeOutOfRangeError,
@@ -55,9 +56,7 @@ if not scenario_names:
     st.info("No saved scenarios yet -- create one on the Scenarios page first.")
     st.stop()
 
-st.selectbox(
-    "Scenario", options=scenario_names, key="compare_scenario_select", help="Which saved scenario to compare candidates against."
-)
+st.selectbox("Scenario", options=scenario_names, key="compare_scenario_select", help="Which saved scenario to compare candidates against.")
 st.radio(
     "Engine",
     options=["Monte Carlo", "Deterministic"],
@@ -99,6 +98,64 @@ if st.session_state.get("compare_engine") != "Deterministic":
         ),
     )
 
+    with st.expander("Advanced overrides"):
+        g1, g2 = st.columns(2)
+        g1.selectbox(
+            "Return generation mode",
+            options=["parametric", "historical_bootstrap"],
+            key="compare_generation_mode",
+            help=(
+                "`parametric` (default) -- correlated-normal draws from this scenario's own market "
+                "assumptions. `historical_bootstrap` -- resamples contiguous blocks from a "
+                "documented historical annual-return series instead, to capture fat tails and real "
+                "historical clustering. That series is currently SYNTHETIC PLACEHOLDER DATA, not "
+                "real market history (docs/BRD.md §6.9) -- flagged below as relying on an "
+                "unverified figure, the same way every other unverified figure in this tool already is."
+            ),
+        )
+        g2.number_input(
+            "Historical block length (years)",
+            min_value=1,
+            step=1,
+            value=10,
+            key="compare_historical_block_length",
+            help="Only used in `historical_bootstrap` mode -- how many consecutive years are resampled together each time.",
+        )
+
+        st.checkbox(
+            "Apply a sequence-of-returns stress overlay",
+            key="compare_apply_stress",
+            help=(
+                "A bad early sequence of returns is a materially different risk than the same "
+                "average return spread evenly across the whole horizon -- this overrides every "
+                "candidate's simulated paths to the fixed return below for the configured window, "
+                "identically across every candidate (this tool's paired-draw methodology). Off by "
+                "default (rp-2bn)."
+            ),
+        )
+        s1, s2, s3 = st.columns(3)
+        s1.number_input(
+            "Shock magnitude",
+            step=0.01,
+            format="%.2f",
+            key="compare_stress_magnitude",
+            help="The fixed annual return every path is overridden to for the window below -- e.g. -0.30 for a 30% single-year decline.",
+        )
+        s2.number_input(
+            "Duration (years)",
+            min_value=1,
+            step=1,
+            key="compare_stress_duration_years",
+            help="How many consecutive plan years the shock lasts.",
+        )
+        s3.number_input(
+            "Starting plan year",
+            min_value=1,
+            step=1,
+            key="compare_stress_start_plan_year",
+            help="The first plan year the shock applies to -- must fit within this run's own horizon.",
+        )
+
 c1, c2, c3 = st.columns(3)
 c1.number_input(
     "Reference tax year",
@@ -139,20 +196,19 @@ for i in range(count):
     if axis == "state":
         options = [""] + states
         st.selectbox(
-            "State", options=options, key=f"compare_candidate_{i}_state",
+            "State",
+            options=options,
+            key=f"compare_candidate_{i}_state",
             help="See the Instructions page's State section for what differs between states.",
         )
     elif axis == "roth_conversion_strategy":
         cc1, cc2, cc3, cc4 = st.columns(4)
-        cc1.text_input(
-            "Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table."
-        )
+        cc1.text_input("Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table.")
         cc2.selectbox(
-            "Conversion strategy", options=[""] + conversion_strategies, key=f"compare_candidate_{i}_strategy",
-            help=(
-                "`fill_to_bracket` -- fills up to the ceiling below. `fixed_amount` -- converts "
-                "that flat amount every year. See the Instructions page's Roth Conversion section."
-            ),
+            "Conversion strategy",
+            options=[""] + conversion_strategies,
+            key=f"compare_candidate_{i}_strategy",
+            help=("`fill_to_bracket` -- fills up to the ceiling below. `fixed_amount` -- converts that flat amount every year. See the Instructions page's Roth Conversion section."),
         )
         cc3.number_input(
             "Bracket ceiling/amount ($)",
@@ -161,19 +217,15 @@ for i in range(count):
         )
         w1, w2 = cc4.columns(2)
         _CANDIDATE_WINDOW_HELP = "The plan years this candidate's conversion strategy is active -- outside this window, no conversions happen."
-        w1.number_input(
-            "Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start", help=_CANDIDATE_WINDOW_HELP
-        )
-        w2.number_input(
-            "Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end", help=_CANDIDATE_WINDOW_HELP
-        )
+        w1.number_input("Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start", help=_CANDIDATE_WINDOW_HELP)
+        w2.number_input("Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end", help=_CANDIDATE_WINDOW_HELP)
     elif axis == "withdrawal_sequencing":
         cc1, cc2 = st.columns(2)
-        cc1.text_input(
-            "Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table."
-        )
+        cc1.text_input("Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table.")
         cc2.selectbox(
-            "Withdrawal strategy", options=withdrawal_strategies, key=f"compare_candidate_{i}_strategy",
+            "Withdrawal strategy",
+            options=withdrawal_strategies,
+            key=f"compare_candidate_{i}_strategy",
             help="See the Instructions page's Run Simulation section for what each option draws down first.",
         )
     elif axis == "claiming_age_grid":
@@ -241,6 +293,22 @@ def _build_candidates() -> list:
     return candidates
 
 
+def _build_stress_scenario() -> dict:
+    # rp-2bn: same Deterministic-safe .get() pattern as survival_adjusted
+    # below -- the expander only renders for Monte Carlo, and only sent
+    # when the checkbox is on (mirrors 2_Run_Simulation.py's own
+    # conditional-inclusion precedent).
+    if not st.session_state.get("compare_apply_stress"):
+        return {}
+    return {
+        "stress_scenario": {
+            "magnitude": st.session_state["compare_stress_magnitude"],
+            "duration_years": st.session_state["compare_stress_duration_years"],
+            "start_plan_year": st.session_state["compare_stress_start_plan_year"],
+        }
+    }
+
+
 def _build_body() -> dict:
     return {
         "scenario_name": st.session_state["compare_scenario_select"],
@@ -254,12 +322,15 @@ def _build_body() -> dict:
         # covers a Deterministic-engine submission, where the widget was
         # never drawn and so has no session_state entry at all.
         "survival_adjusted": st.session_state.get("compare_survival_adjusted", False),
+        # rp-741: same Deterministic-safe .get() pattern -- the expander
+        # (and these two widgets) only render for Monte Carlo.
+        "generation_mode": st.session_state.get("compare_generation_mode", "parametric"),
+        "historical_block_length": st.session_state.get("compare_historical_block_length", 10),
+        **_build_stress_scenario(),
     }
 
 
-if st.button(
-    "Compare", key="compare_button", help="Runs the selected engine once per candidate above and charts the results together."
-):
+if st.button("Compare", key="compare_button", help="Runs the selected engine once per candidate above and charts the results together."):
     with st.spinner("Comparing..."):
         engine = st.session_state.get("compare_engine")
         try:
@@ -278,9 +349,9 @@ if st.button(
         except UnsupportedTaxYearError as err:
             years = err.documented_years
             st.error(
-                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- "
-                f"enter a year between {min(years)} and {max(years)}." if years else
-                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
+                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- enter a year between {min(years)} and {max(years)}."
+                if years
+                else f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
             )
         except SurvivalCurveAgeOutOfRangeError as err:
             st.error(
@@ -290,10 +361,9 @@ if st.button(
                 "ages/Plan to age so every age reached during the run stays in that range."
             )
         except CostBudgetExceededError as err:
-            st.error(
-                f"This request is too large (estimated {err.estimated_seconds:.0f}s "
-                f"against a {err.budget_seconds:.0f}s budget) -- try fewer paths or candidates."
-            )
+            st.error(f"This request is too large (estimated {err.estimated_seconds:.0f}s against a {err.budget_seconds:.0f}s budget) -- try fewer paths or candidates.")
+        except InvalidSimulationOptionsError as err:
+            st.error(err.detail)
         except BackendUnreachableError as err:
             st.error(str(err))
         except RpUiError as err:
@@ -315,11 +385,7 @@ if "compare_last_result" in st.session_state:
             {
                 "candidate_label": s.get("candidate_label"),
                 "success_rate": f"{s['success_rate'] * 100:.1f}%" if s.get("success_rate") is not None else "n/a",
-                "survival_adjusted_success_rate": (
-                    f"{s['survival_adjusted_success_rate'] * 100:.1f}%"
-                    if s.get("survival_adjusted_success_rate") is not None
-                    else "n/a"
-                ),
+                "survival_adjusted_success_rate": (f"{s['survival_adjusted_success_rate'] * 100:.1f}%" if s.get("survival_adjusted_success_rate") is not None else "n/a"),
                 "ending_balance": format_currency(s.get("ending_balance")),
                 "median_lifetime_tax_paid": format_currency(s.get("median_lifetime_tax_paid")),
                 "median_lifetime_irmaa_paid": format_currency(s.get("median_lifetime_irmaa_paid")),
@@ -365,9 +431,7 @@ if "compare_last_result" in st.session_state:
         help="Fetches this comparison's full results as CSV, ready to download below.",
     ):
         try:
-            st.session_state["compare_csv_text"] = export_comparison_csv(
-                st.session_state["compare_last_body"], engine=engine_param
-            )
+            st.session_state["compare_csv_text"] = export_comparison_csv(st.session_state["compare_last_body"], engine=engine_param)
         except RpUiError as err:
             st.error(str(err))
     if "compare_csv_text" in st.session_state:

@@ -16,6 +16,7 @@ from rp_ui.errors import (
     BackendUnreachableError,
     BlockingValidationError,
     CostBudgetExceededError,
+    InvalidSimulationOptionsError,
     PathIndexOutOfRangeError,
     RpUiError,
     ScenarioNotFoundError,
@@ -95,12 +96,8 @@ with st.expander("Advanced overrides"):
         help="When checked, the Paths/Seed/Plan to age fields below replace this scenario's own saved Simulation Settings for this run only -- otherwise they're ignored even if changed.",
     )
     a1, a2, a3 = st.columns(3)
-    a1.number_input(
-        "Paths", min_value=1, step=100, key="run_n_paths_override", help="Overrides the scenario's saved Paths for this run only."
-    )
-    a2.number_input(
-        "Seed", min_value=0, step=1, key="run_seed_override", help="Overrides the scenario's saved Seed for this run only."
-    )
+    a1.number_input("Paths", min_value=1, step=100, key="run_n_paths_override", help="Overrides the scenario's saved Paths for this run only.")
+    a2.number_input("Seed", min_value=0, step=1, key="run_seed_override", help="Overrides the scenario's saved Seed for this run only.")
     a3.number_input(
         "Plan to age",
         min_value=1,
@@ -120,6 +117,62 @@ with st.expander("Advanced overrides"):
         ),
     )
 
+    g1, g2 = st.columns(2)
+    g1.selectbox(
+        "Return generation mode",
+        options=["parametric", "historical_bootstrap"],
+        key="run_generation_mode",
+        help=(
+            "`parametric` (default) -- correlated-normal draws from this scenario's own market "
+            "assumptions. `historical_bootstrap` -- resamples contiguous blocks from a documented "
+            "historical annual-return series instead, to capture fat tails and real historical "
+            "clustering. That series is currently SYNTHETIC PLACEHOLDER DATA, not real market "
+            "history (docs/BRD.md §6.9) -- a run using it is flagged below as relying on an "
+            "unverified figure, the same way every other unverified figure in this tool already is."
+        ),
+    )
+    g2.number_input(
+        "Historical block length (years)",
+        min_value=1,
+        step=1,
+        value=10,
+        key="run_historical_block_length",
+        help="Only used in `historical_bootstrap` mode -- how many consecutive years are resampled together each time.",
+    )
+
+    st.checkbox(
+        "Apply a sequence-of-returns stress overlay",
+        key="run_apply_stress",
+        help=(
+            "A bad early sequence of returns is a materially different risk than the same average "
+            "return spread evenly across the whole horizon -- this overrides every simulated "
+            "path's return to the fixed value below for the configured window, on top of whichever "
+            "return-generation mode is selected. Off by default (rp-2bn)."
+        ),
+    )
+    s1, s2, s3 = st.columns(3)
+    s1.number_input(
+        "Shock magnitude",
+        step=0.01,
+        format="%.2f",
+        key="run_stress_magnitude",
+        help="The fixed annual return every path is overridden to for the window below -- e.g. -0.30 for a 30% single-year decline.",
+    )
+    s2.number_input(
+        "Duration (years)",
+        min_value=1,
+        step=1,
+        key="run_stress_duration_years",
+        help="How many consecutive plan years the shock lasts.",
+    )
+    s3.number_input(
+        "Starting plan year",
+        min_value=1,
+        step=1,
+        key="run_stress_start_plan_year",
+        help="The first plan year the shock applies to -- must fit within this run's own horizon.",
+    )
+
 
 def _build_run_body() -> dict:
     body = {
@@ -134,11 +187,23 @@ def _build_run_body() -> dict:
         # a scenario-level setting with its own saved default to override.
         "detail_path_index": st.session_state["run_detail_path_index"],
         "survival_adjusted": st.session_state["run_survival_adjusted"],
+        # rp-741: always sent -- both have a meaningful default
+        # ("parametric"/10) rather than needing a separate override gate.
+        "generation_mode": st.session_state["run_generation_mode"],
+        "historical_block_length": st.session_state["run_historical_block_length"],
     }
     if st.session_state.get("run_override_advanced"):
         body["n_paths"] = st.session_state["run_n_paths_override"]
         body["seed"] = st.session_state["run_seed_override"]
         body["plan_to_age"] = st.session_state["run_plan_to_age_override"]
+    # rp-2bn: only sent when the checkbox is on -- otherwise stress_scenario
+    # stays omitted, reproducing every existing request's exact prior body.
+    if st.session_state.get("run_apply_stress"):
+        body["stress_scenario"] = {
+            "magnitude": st.session_state["run_stress_magnitude"],
+            "duration_years": st.session_state["run_stress_duration_years"],
+            "start_plan_year": st.session_state["run_stress_start_plan_year"],
+        }
     return body
 
 
@@ -157,15 +222,12 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
         except UnsupportedTaxYearError as err:
             years = err.documented_years
             st.error(
-                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- "
-                f"enter a year between {min(years)} and {max(years)}." if years else
-                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
+                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- enter a year between {min(years)} and {max(years)}."
+                if years
+                else f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
             )
         except PathIndexOutOfRangeError as err:
-            st.error(
-                f"Detail path index {err.requested} is out of range -- this run only has "
-                f"{err.path_count} path(s). Enter a value from 0 to {err.path_count - 1}."
-            )
+            st.error(f"Detail path index {err.requested} is out of range -- this run only has {err.path_count} path(s). Enter a value from 0 to {err.path_count - 1}.")
         except SurvivalCurveAgeOutOfRangeError as err:
             st.error(
                 f"Survival-adjusted scoring isn't available for {err.person_name!r} at age {err.age} -- "
@@ -174,10 +236,9 @@ if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for th
                 "ages/Plan to age so every age reached during the run stays in that range."
             )
         except CostBudgetExceededError as err:
-            st.error(
-                f"This request is too large (estimated {err.estimated_seconds:.0f}s "
-                f"against a {err.budget_seconds:.0f}s budget) -- try fewer paths."
-            )
+            st.error(f"This request is too large (estimated {err.estimated_seconds:.0f}s against a {err.budget_seconds:.0f}s budget) -- try fewer paths.")
+        except InvalidSimulationOptionsError as err:
+            st.error(err.detail)
         except BackendUnreachableError as err:
             st.error(str(err))
         except RpUiError as err:

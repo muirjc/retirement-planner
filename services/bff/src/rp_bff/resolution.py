@@ -23,7 +23,16 @@ from retirement_planner.mechanics import (
     WITHDRAWAL_STRATEGIES,
 )
 from retirement_planner.scenario import Household, Scenario, load_scenario
-from retirement_planner.simulation import SURVIVAL_TABLE, SurvivalCurve
+from retirement_planner.simulation import (
+    SURVIVAL_TABLE,
+    GenerationMode,
+    ReturnPath,
+    StressScenario,
+    SurvivalCurve,
+    apply_stress_scenario,
+    generate_historical_bootstrap_paths,
+    generate_return_paths,
+)
 from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
 
 from .cost_estimation import check_cost_within_budget
@@ -127,15 +136,10 @@ def build_survival_curves(household: Household) -> dict[str, SurvivalCurve]:
     in order, keyed by each member's own person_name -- the shape
     run_simulation()/simulation.compare_*() require (rp-9vl,
     specs/005-simulation-engine/research.md §5)."""
-    return {
-        member.person_name: SURVIVAL_TABLE[role]
-        for member, role in zip(household.members, _SURVIVAL_CURVE_ROLES)
-    }
+    return {member.person_name: SURVIVAL_TABLE[role] for member, role in zip(household.members, _SURVIVAL_CURVE_ROLES)}
 
 
-def validate_survival_curve_coverage(
-    household: Household, survival_curves: dict[str, SurvivalCurve], plan_to_age: int, owner_current_age: int
-) -> None:
+def validate_survival_curve_coverage(household: Household, survival_curves: dict[str, SurvivalCurve], plan_to_age: int, owner_current_age: int) -> None:
     """Pre-flight check for every age a completed run could ever look up in
     survival_curves (monte_carlo.run_simulation()'s own
     `member.current_age + (shortfall_year.tax_year - reference_tax_year)`
@@ -215,10 +219,7 @@ def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
         # is zero -- it can only ever stay zero (research.md §2), so every
         # member's RMD is $0 regardless of the value assigned here.
         return {person_name: 0.0 for person_name in per_member_traditional}
-    return {
-        person_name: balance / household_traditional_total
-        for person_name, balance in per_member_traditional.items()
-    }
+    return {person_name: balance / household_traditional_total for person_name, balance in per_member_traditional.items()}
 
 
 _MINOR_CHILD_MAJORITY_AGE = 21
@@ -260,10 +261,7 @@ def _inherited_accounts(scenario: Scenario, reference_tax_year: int) -> list[Inh
             continue
         details = account.inherited
         is_edb = details.beneficiary_classification != "non_eligible_designated_beneficiary"
-        is_minor_child = (
-            details.beneficiary_relationship == "minor_child"
-            and details.beneficiary_classification == "eligible_designated_beneficiary_other"
-        )
+        is_minor_child = details.beneficiary_relationship == "minor_child" and details.beneficiary_classification == "eligible_designated_beneficiary_other"
         if not is_edb:
             depletion_deadline_year = details.death_year + 10
         elif is_minor_child:
@@ -373,6 +371,64 @@ def check_run_cost(context: ResolvedRunContext, candidate_count: int = 1) -> Non
     cost exceeds the budget (FR-018)."""
     owner = deemed_rmd_owner(context.household)
     horizon_years = context.plan_to_age - owner.current_age + 1
-    check_cost_within_budget(
-        path_count=context.n_paths, candidate_count=candidate_count, horizon_years=horizon_years
-    )
+    check_cost_within_budget(path_count=context.n_paths, candidate_count=candidate_count, horizon_years=horizon_years)
+
+
+def generate_configured_return_paths(
+    context: ResolvedRunContext,
+    horizon_years: int,
+    start_plan_year: int,
+    generation_mode: GenerationMode,
+    historical_block_length: int,
+    stress_scenario: StressScenario | None,
+) -> list[ReturnPath]:
+    """Builds this run's return paths per generation_mode
+    (026-advanced-simulation-options, research.md Decision 1) --
+    generate_return_paths() for "parametric" (default, every existing
+    caller's exact prior behavior), generate_historical_bootstrap_paths()
+    for "historical_bootstrap" (rp-741, using historical_block_length) --
+    then applies apply_stress_scenario() on top when stress_scenario is not
+    None (rp-2bn), regardless of which generation_mode produced the
+    underlying paths. Shared by resolve_and_run_simulation()
+    (routes/simulations.py) and resolve_and_compare_simulated()
+    (routes/comparisons.py) so both endpoints dispatch identically --
+    mirrors build_survival_curves()'s own "one resolution.py helper, two
+    callers" integration shape. Raises ValueError, propagated unchanged
+    from whichever engine call raised it (a bad historical_block_length, or
+    a stress window past horizon_last_plan_year) -- callers translate via
+    invalid_simulation_options_error()."""
+    if generation_mode == "historical_bootstrap":
+        paths = generate_historical_bootstrap_paths(
+            market_assumptions=context.scenario.market_assumptions,
+            path_count=context.n_paths,
+            horizon_years=horizon_years,
+            start_plan_year=start_plan_year,
+            seed=context.seed,
+            block_length=historical_block_length,
+        )
+    else:
+        paths = generate_return_paths(
+            market_assumptions=context.scenario.market_assumptions,
+            path_count=context.n_paths,
+            horizon_years=horizon_years,
+            start_plan_year=start_plan_year,
+            seed=context.seed,
+        )
+
+    if stress_scenario is not None:
+        paths = apply_stress_scenario(paths, stress=stress_scenario, horizon_last_plan_year=start_plan_year + horizon_years - 1)
+
+    return paths
+
+
+def invalid_simulation_options_error(exc: ValueError) -> HTTPException:
+    """Translates a ValueError raised by generate_configured_return_paths()
+    into a 422 response (026-advanced-simulation-options research.md
+    Decision 5) -- mirrors survival_curve_age_out_of_range_error()'s own
+    "dedicated translator per resolution-layer exception" shape. A plain
+    str(exc) detail is enough here: generate_historical_bootstrap_paths()'s
+    and apply_stress_scenario()'s own ValueError messages already name the
+    specific problem in human-readable form, unlike
+    SurvivalCurveAgeOutOfRangeError's case, which needed person_name/age
+    broken out as separate fields for the UI to act on individually."""
+    return HTTPException(status_code=422, detail={"error": "invalid_simulation_options", "detail": str(exc)})

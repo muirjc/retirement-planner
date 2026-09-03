@@ -22,10 +22,15 @@ from retirement_planner.simulation import SimulationComparisonResult, Simulation
 from .models import SummaryStatistics
 
 
-def _unverified_figure_names(figures_used) -> list[str]:
+def unverified_figure_names(figures_used) -> list[str]:
     """Deduplicates by name (not (name, last_verified)) -- see research.md
     §5: a reader wants to know *which* figures are unverified, not how
-    many differently-dated citations of the same figure exist."""
+    many differently-dated citations of the same figure exist.
+
+    Renamed from private to public in 028-results-walkthrough
+    (research.md §4) so narrative.py's build_year_stories() can reuse this
+    exact derivation per plan year, rather than re-implementing it --
+    behavior unchanged."""
     return sorted({figure.name for figure in figures_used if not figure.verified})
 
 
@@ -80,7 +85,7 @@ def summarize_run(run: SimulationRun, household: Household, reference_tax_year: 
         median_lifetime_niit_paid=median_lifetime_niit_paid,
         median_lifetime_early_withdrawal_penalty_paid=median_lifetime_early_withdrawal_penalty_paid,
         median_lifetime_fica_tax_paid=median_lifetime_fica_tax_paid,
-        unverified_figure_names=_unverified_figure_names(run.figures_used),
+        unverified_figure_names=unverified_figure_names(run.figures_used),
     )
 
 
@@ -117,7 +122,7 @@ def _summarize_plan_projection(
         median_lifetime_niit_paid=projection.outcome.cumulative_niit_paid,
         median_lifetime_early_withdrawal_penalty_paid=projection.outcome.cumulative_early_withdrawal_penalty_paid,
         median_lifetime_fica_tax_paid=projection.outcome.cumulative_fica_tax_paid,
-        unverified_figure_names=_unverified_figure_names(figures),
+        unverified_figure_names=unverified_figure_names(figures),
     )
 
 

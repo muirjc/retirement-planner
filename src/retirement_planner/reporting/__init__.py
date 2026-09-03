@@ -14,21 +14,34 @@ from .account_attribution import (
     attribute_plan_projection,
     compute_account_shares,
 )
-from .aggregation import summarize_deterministic_comparison, summarize_run, summarize_simulation_comparison
+from .aggregation import (
+    summarize_deterministic_comparison,
+    summarize_run,
+    summarize_simulation_comparison,
+    unverified_figure_names,
+)
 from .export import deterministic_comparison_to_csv_text, run_to_csv_text, simulation_comparison_to_csv_text
-from .models import SummaryStatistics
+from .models import NarrativeEntry, RunNarrative, SummaryStatistics, YearStory
+from .narrative import build_narrative_for_run, build_year_stories, select_representative_path
 
 __all__ = [
     "AccountShare",
     "AccountYearDetail",
+    "NarrativeEntry",
     "PlanYearAccountDetail",
+    "RunNarrative",
     "SummaryStatistics",
+    "YearStory",
     "attribute_plan_projection",
+    "build_narrative_for_run",
+    "build_year_stories",
     "compute_account_shares",
     "deterministic_comparison_to_csv_text",
     "run_to_csv_text",
+    "select_representative_path",
     "simulation_comparison_to_csv_text",
     "summarize_deterministic_comparison",
     "summarize_run",
     "summarize_simulation_comparison",
+    "unverified_figure_names",
 ]

@@ -1,6 +1,6 @@
 # Solution Architecture: Retirement Planner
 
-**Status**: Living document — reflects the codebase as of `specs/001`–`023`
+**Status**: Living document — reflects the codebase as of `specs/001`–`028`
 
 > **Keeping this document current**: Every diagram and table here
 > describes what's actually in the repo today, not an aspiration. A
@@ -94,7 +94,7 @@ C4Component
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring, opt-in per-path probabilistic death draws (mortality.py). Wraps comparison's projection loop per path.")
-        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) — depends on all five other subpackages, none of them depend on it.")
+        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) + per-plan-year plain-language narrative (narrative.py, 028) — depends on all five other subpackages, none of them depend on it.")
     }
 
     Rel(tax, scenario, "reads config types from")
@@ -111,7 +111,7 @@ C4Component
 | `mechanics` | RMDs (own + inherited), Roth conversion, withdrawal sequencing, HSA, pension/annuity/earned-income streams | `compute_rmd()`, `compute_inherited_rmd()`, `compute_roth_conversion()`, `compute_income_stream_amount()` |
 | `comparison` | One-plan-year-at-a-time full-horizon projection; deterministic comparisons | `run_plan_projection()`, `compare_states()`, `compare_withdrawal_strategies()`, `compare_claiming_ages()` |
 | `simulation` | Monte Carlo core over `comparison`'s projection loop | `run_simulation()`, `run_simulation_comparison()`, `generate_return_paths()` |
-| `reporting` | Summary stats + CSV export + per-account attribution, shared by the BFF's JSON and CSV responses | `summarize_run()`, `run_to_csv_text()`, `compute_account_shares()`, `attribute_plan_projection()` |
+| `reporting` | Summary stats + CSV export + per-account attribution + per-plan-year narrative, shared by the BFF's JSON and CSV responses | `summarize_run()`, `run_to_csv_text()`, `compute_account_shares()`, `attribute_plan_projection()`, `build_narrative_for_run()` |
 
 ## 4. Components — the BFF
 
@@ -146,7 +146,7 @@ C4Component
 | GET/PUT/DELETE | `/scenarios`, `/scenarios/{name}` | List/save/load/delete named scenarios |
 | POST | `/scenarios/{name}/validate` | Run validation without executing a projection |
 | GET | `/reference/states`, `/reference/withdrawal-strategies`, `/reference/conversion-strategies`, `/reference/comparison-axes` | Live registries the UI populates its dropdowns from — never hardcoded client-side |
-| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) |
+| POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) — and `narrative` (028) — a plain-language story per plan year for the one path closest to the median outcome, independently selected from `detail_path_index` |
 | POST | `/comparisons/deterministic`, `/comparisons/simulated` | Deterministic (single-path) or simulated (Monte Carlo) comparison across one axis. Response includes `account_detail` (015) — one per candidate, same shape as `/simulations`' |
 | POST | `/reports/simulations.csv`, `/reports/comparisons.csv` | CSV export of the above |
 
@@ -158,7 +158,7 @@ C4Component
 
     Container_Boundary(ui, "apps/streamlit_ui") {
         Component(app, "app.py", "Streamlit entry point / landing page.")
-        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields and per-member income-stream add/edit/remove rows), 2_Run_Simulation, 3_Compare.")
+        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields and per-member income-stream add/edit/remove rows), 2_Run_Simulation, 3_Compare, 4_Walkthrough (028 — steps through 2_Run_Simulation's own stored result's narrative field three plan years at a time; no HTTP call of its own).")
         Component(client, "src/rp_ui", "HTTP client wrapping the BFF's OpenAPI-described contract, chart helpers (fan chart, comparison overlay), the verification.py 'needs verification' indicator renderer, the account_table.py per-account year-by-year detail table (015).")
     }
 

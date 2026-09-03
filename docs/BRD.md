@@ -110,9 +110,9 @@ married-filing-jointly household with Traditional IRA, Roth IRA, and
 Social Security income (two independent claiming ages), a defined Roth
 conversion bridge window, evaluated across a candidate set of states with
 materially different tax mechanics (zero-income-tax, exclusion-based,
-graduated-bracket). Only 3 of that original 9-state candidate set (South
-Carolina, Delaware, Florida) have real tax modules today — the rest
-(Georgia, North Carolina, Tennessee, Mississippi, Pennsylvania, New
+graduated-bracket, flat-rate). Only 4 of that original 9-state candidate set (South
+Carolina, Delaware, Florida, North Carolina) have real tax modules today — the rest
+(Georgia, Tennessee, Mississippi, Pennsylvania, New
 Hampshire) are named, scoped follow-on work against the same
 `compute_state_tax()` interface, not a redesign.
 
@@ -252,15 +252,16 @@ a nominal-dollar inflation schedule this tool has no separate model for.
   payroll-tax cost understated. Named follow-on work, not silently
   absorbed.
 
-### 5.4 State — South Carolina, Delaware, Florida
+### 5.4 State — South Carolina, Delaware, Florida, North Carolina
 
 | State | Structure | Verification status |
 |---|---|---|
 | Florida (FL) | No state income tax — always returns $0, consults no figures | Trivially exact by definition; no citation needed (`tax/state/fl.py`) |
 | South Carolina (SC) | Graduated brackets + age-65 retirement-income exclusion | **Unverified placeholder** — round numbers in the right order of magnitude, not the real SC Code figures (`tax/state/sc.py`) |
 | Delaware (DE) | Graduated brackets + age-60 retirement-income exclusion | **Unverified placeholder** — same status as SC (`tax/state/de.py`) |
+| North Carolina (NC) | Flat rate (4.25% tax year 2025, 3.99% 2026 onward), no age-based exclusion | **Verified** — confirmed against NCDOR's Tax Rate Schedules and N.C. Gen. Stat. §105-153.7 as amended by S.L. 2023-134 (`tax/state/nc.py`, `024-nc-state-tax`). Does **not** model North Carolina's Bailey-settlement retirement-income exclusion (pre-8/12/1989-vested government/military pension income only) — that mechanism keys off income source and pension vesting date, neither of which `IncomeComponents` carries; see `specs/024-nc-state-tax/spec.md` Assumptions. |
 
-South Carolina and Delaware were **not** in scope for `014-figure-verification` — that effort covered only the 8 federal figures a specific run flagged. Verifying SC/DE against South Carolina and Delaware statutory text is tracked as separate, not-yet-scheduled follow-on work.
+South Carolina and Delaware were **not** in scope for `014-figure-verification` — that effort covered only the 8 federal figures a specific run flagged. Verifying SC/DE against South Carolina and Delaware statutory text is tracked as separate, not-yet-scheduled follow-on work. North Carolina's flat rate was verified directly as part of `024-nc-state-tax`, not inherited as placeholder debt.
 
 ### 5.5 Inherited retirement accounts (SECURE Act / SECURE 2.0)
 
@@ -699,11 +700,15 @@ survival-adjusted scoring already was.
 
 ## 7. Known Limitations & Open Items
 
-- Only 3 of the 9 states the reference use case names (§2.3) have real
+- Only 4 of the 9 states the reference use case names (§2.3) have real
   tax modules; the rest are follow-on work against the existing
   `compute_state_tax()` interface.
 - South Carolina's and Delaware's bracket/exclusion figures remain
   unverified placeholders (§5.4).
+- North Carolina's module does not model the Bailey settlement
+  (§5.4) — a household whose income includes a pre-8/12/1989-vested
+  government/military pension will see it taxed as ordinary income,
+  overstating their true NC tax liability.
 - The historical return series and survival/mortality curves used by the
   simulation engine are synthetic, not real published data (§6.9).
 - The Joint Life and Last Survivor RMD table covers only a handful of age

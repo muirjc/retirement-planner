@@ -195,6 +195,13 @@ class IncomeComposition:
     income_streams: float
     """Summed member_income_stream_amounts (pensions, annuities, earned
     income) -- never Social Security, which is tracked separately below."""
+    earned_income: float
+    """rp-bm8.4: summed member_earned_income -- the wages-only subset of
+    income_streams above (never larger than it), broken out on its own
+    since it alone is the base compute_fica_tax() uses (see
+    YearComputationDetail.fica_tax_detail below). income_streams itself is
+    unchanged -- this is an additional "of which" figure, not a
+    replacement."""
     roth_conversion_added: float
     hsa_deduction: float
     ordinary_income_total: float
@@ -231,17 +238,45 @@ class TaxComputationDetail:
 
 
 @dataclass
+class FicaTaxDetail:
+    """rp-bm8.4: this plan year's employee-side FICA payroll tax -- a
+    direct, trivial pass-through of PlanYearProjection.fica_tax's own
+    already-complete fields (tax/models.py's FicaTaxResult). Unlike
+    TaxComputationDetail above, nothing here was ever discarded by the tax
+    module itself -- this dataclass exists only because year_detail.py/
+    the Walkthrough UI never surfaced it per plan year before now (it was
+    only ever shown as a run-level lifetime total on the Run Simulation/
+    Compare summary pages, never per-year here)."""
+
+    member_oasdi_tax: dict[str, float]
+    member_medicare_tax: dict[str, float]
+    additional_medicare_tax: float
+    total_fica_tax: float
+
+
+@dataclass
 class InheritedAccountDetail:
-    """rp-bm8.3: one inherited account's own distribution/ending balance
-    for one plan year -- from the already-stored, independently-tracked
-    inherited_account_distributions/inherited_account_balances dicts
-    (012-inherited-ira-rmd; never pooled with the ordinary account-type
-    waterfall above). Naturally absent for a household with no inherited
-    accounts."""
+    """rp-bm8.3/rp-bm8.4: one inherited account's own distribution/ending
+    balance for one plan year -- from the already-stored, independently-
+    tracked inherited_account_distributions/inherited_account_balances
+    dicts (012-inherited-ira-rmd; never pooled with the ordinary
+    account-type waterfall above). Naturally absent for a household with
+    no inherited accounts. distribution_reason/rmd_divisor/
+    depletion_deadline_year (rp-bm8.4) explain *why* distribution is what
+    it is -- previously computed by run_plan_projection()'s own inherited-
+    account loop and discarded the moment the dollar amount was known."""
 
     account_id: str
     distribution: float
     ending_balance: float
+    distribution_reason: Literal["annual_rmd", "no_rmd_required_yet", "ten_year_rule_deadline"] | None = None
+    """None only for an account that had already fully distributed in a
+    prior year (so it no longer appears in this year's source dicts at
+    all) -- never None for an account this table actually lists a
+    distribution/reason for."""
+    rmd_divisor: float | None = None
+    """Present only when distribution_reason == "annual_rmd"."""
+    depletion_deadline_year: int | None = None
 
 
 @dataclass
@@ -257,4 +292,5 @@ class YearComputationDetail:
     income_composition: IncomeComposition
     federal_tax_detail: TaxComputationDetail
     state_tax_detail: TaxComputationDetail
+    fica_tax_detail: FicaTaxDetail
     inherited_accounts: list[InheritedAccountDetail] = field(default_factory=list)

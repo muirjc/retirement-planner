@@ -1,15 +1,17 @@
 """Inherited-account distribution calculation (012-inherited-ira-rmd
-FR-002, FR-003; extended by 013-inherited-ira-edge-cases).
+FR-002, FR-003; extended by 013-inherited-ira-edge-cases and rp-bdb).
 
 Computes the annual required distribution for an inherited traditional or
 Roth account, covering: the original-owner-died-on/after-RBD, non-eligible
 designated beneficiary (10-year-rule) case (012's own original scope); the
 original-owner-died-before-RBD case and Roth accounts, both of which never
-require an annual distribution at all (013 research.md §1, §2); and the
+require an annual distribution at all (013 research.md §1, §2); the
 eligible-designated-beneficiary (EDB) annual "stretch" case, for both a
-spouse and a non-spouse beneficiary (013 research.md §3-§6). A trust/entity
-beneficiary is still caught by scenario.validation's blocking flags before
-ever reaching this module -- see 013's research.md §7/§8.
+spouse and a non-spouse beneficiary (013 research.md §3-§6); and a death
+before the SECURE Act's effective date (rp-bdb), grandfathered under the
+pre-Act stretch rules regardless of beneficiary_classification. A
+trust/entity beneficiary is still caught by scenario.validation's blocking
+flags before ever reaching this module -- see 013's research.md §7/§8.
 
 Deliberately a sibling module to rmd.py, not a branch inside compute_rmd()
 -- compute_rmd()'s signature is a locked contract (003's
@@ -40,6 +42,34 @@ from .models import InheritedRmdResult
 from .rmd import RMD_START_AGE
 
 _DOCUMENTED_YEARS = range(2000, 2075)
+
+_SECURE_ACT_EFFECTIVE_YEAR = 2020
+"""rp-bdb: the SECURE Act's 10-year rule (and the whole EDB/non-EDB
+beneficiary-classification scheme it created) applies only to an owner who
+died on or after this year -- Pub. L. 116-94 §401, effective for deaths on
+or after 2020-01-01. An owner who died before this year is grandfathered
+under the pre-Act rules: a designated beneficiary (this project never
+models the pre-Act 5-year-rule alternative some pre-RBD beneficiaries could
+instead elect, so life-expectancy stretch is assumed throughout) takes
+annual stretch distributions over their own life expectancy indefinitely --
+no 10-year forced-depletion deadline, and no "no annual distribution
+required" pre-RBD carve-out, since that carve-out is itself a SECURE Act
+creation (research.md §1). The pre-existing "longer of beneficiary's or
+owner's remaining life expectancy" post-RBD rule (Treas. Reg.
+1.401(a)(9)-5) predates the Act and is unaffected -- see the non-EDB
+post-RBD branch below, unchanged for a pre-Act death."""
+
+_NO_FORCED_DEPLETION_DEADLINE_YEARS = 200
+"""rp-bdb: added to death_year for the internal depletion_deadline_year
+default (used only when a caller omits it) on a pre-SECURE-Act death --
+a sentinel far beyond any plan_to_age this project can represent, standing
+in for "no 10-year deadline at all" without changing
+InheritedRmdResult.depletion_deadline_year's type to int | None. Mirrors
+services/bff/src/rp_bff/resolution.py's own same-named, same-value
+constant for the real EDB case -- that module is the actual caller for
+every real scenario (it always supplies depletion_deadline_year itself,
+so this default is only ever exercised by a caller that builds the call
+directly, e.g. a test)."""
 
 # Every age 0-120 (120 representing the IRS's "120+" terminal row) from IRS
 # Pub. 590-B (2025), Appendix B, Table I (Single Life Expectancy), p. 50-51
@@ -223,15 +253,18 @@ def compute_inherited_rmd(
     caller). For a spouse EDB, looked up fresh every single call instead
     (research.md §4 -- Pub. 590-B's own spousal recalculation rule).
 
-    depletion_deadline_year (research.md §5, §6): the caller's own
+    depletion_deadline_year (research.md §5, §6; rp-bdb): the caller's own
     already-computed authoritative deadline (InheritedAccountBalance's
     own field of the same name) -- when given, used as-is; when omitted
-    (None, the default), computed internally as death_year + 10,
-    reproducing 012's own only-ever case for every existing caller. This
-    function never itself enforces the forced full-depletion draw at
-    that deadline (data-model.md § Consumption, unchanged from 012) --
-    it only reports is_within_ten_year_window/depletion_deadline_year
-    for the caller's own use.
+    (None, the default), computed internally as death_year + 10 for a
+    death_year on/after the SECURE Act's effective year (reproducing
+    012's own only-ever case for every existing caller), or a far-future
+    sentinel (no forced-depletion deadline at all) for a pre-Act
+    death_year. This function never itself enforces the forced
+    full-depletion draw at that deadline (data-model.md § Consumption,
+    unchanged from 012) -- it only reports
+    is_within_ten_year_window/depletion_deadline_year for the caller's
+    own use.
 
     For beneficiary_classification="non_eligible_designated_beneficiary"
     when the owner died on/after RBD: required_amount is based on the
@@ -240,11 +273,18 @@ def compute_inherited_rmd(
     designated beneficiary" is not qualified to EDBs only -- 012's original
     decedent-only divisor here undercounted the shielding a beneficiary
     younger than the decedent is actually entitled to, overstating the
-    required distribution in the common case). Returns required_amount=0.0,
-    table_used=None, divisor=None for every year before the deadline when
-    the owner died before RBD or account_type="roth" (research.md §1, §2
-    -- no annual RMD required at all in that case, only the caller's own
-    forced full-depletion draw at the deadline).
+    required distribution in the common case; this rule predates the
+    SECURE Act (Treas. Reg. 1.401(a)(9)-5) so it is unchanged for a
+    pre-Act death_year too). Returns required_amount=0.0, table_used=None,
+    divisor=None for every year before the deadline when the owner died
+    before RBD or account_type="roth" AND death_year is on/after the
+    SECURE Act's effective year (research.md §1, §2 -- no annual RMD
+    required at all in that case, only the caller's own forced
+    full-depletion draw at the deadline). For a pre-Act death_year
+    (rp-bdb), that no-annual-RMD carve-out doesn't apply -- it is itself a
+    SECURE Act creation -- so a pre-RBD non-EDB instead takes the classic
+    annual stretch from year 1, using the beneficiary's own divisor alone
+    (the same formula as the pre-RBD non-spouse-EDB branch below).
 
     For an EDB (spouse or other): required_amount is based on the same
     "longer of" comparison when the owner died on/after RBD (research.md
@@ -262,8 +302,11 @@ def compute_inherited_rmd(
     Life Expectancy Table (or, for a pre-RBD spouse EDB, RMD_START_AGE)
     has no entry for a year this call needs.
     """
+    owner_died_before_secure_act = death_year < _SECURE_ACT_EFFECTIVE_YEAR
     if depletion_deadline_year is None:
-        depletion_deadline_year = death_year + 10
+        depletion_deadline_year = (
+            death_year + _NO_FORCED_DEPLETION_DEADLINE_YEARS if owner_died_before_secure_act else death_year + 10
+        )
     is_within_ten_year_window = tax_year <= depletion_deadline_year
 
     if inherited_balance <= 0:
@@ -283,8 +326,10 @@ def compute_inherited_rmd(
 
     def _no_annual_rmd_required() -> InheritedRmdResult:
         """research.md §1, §2, §4: the 10-year-rule non-EDB case (pre-RBD
-        or Roth) and a not-yet-required-to-start spouse EDB both return
-        this -- no table consulted, since none was needed this year."""
+        or Roth, and only for a death_year on/after the SECURE Act's
+        effective year -- rp-bdb) and a not-yet-required-to-start spouse
+        EDB both return this -- no table consulted, since none was needed
+        this year."""
         return InheritedRmdResult(
             required_amount=0.0,
             table_used=None,
@@ -302,10 +347,11 @@ def compute_inherited_rmd(
 
     def _beneficiary_decrement_divisor() -> float:
         """research.md §3, §5; rp-kn5: non-spouse EDB divisor, and (since
-        rp-kn5) a post-RBD non-EDB divisor's other "longer of" candidate --
-        looked up once at the beneficiary's own age in the initial divisor
-        year, then reduced by 1.0/year, mirroring _owner_divisor()'s own
-        method."""
+        rp-kn5) a post-RBD non-EDB divisor's other "longer of" candidate;
+        also (since rp-bdb) a pre-RBD non-EDB's sole divisor when
+        death_year predates the SECURE Act -- looked up once at the
+        beneficiary's own age in the initial divisor year, then reduced by
+        1.0/year, mirroring _owner_divisor()'s own method."""
         assert beneficiary_current_age is not None, "beneficiary_current_age is required here"
         beneficiary_age_at_initial_year = beneficiary_current_age - (tax_year - initial_divisor_year)
         initial = SINGLE_LIFE_EXPECTANCY_TABLE.value_for_year(initial_divisor_year)[beneficiary_age_at_initial_year]
@@ -319,19 +365,35 @@ def compute_inherited_rmd(
         return SINGLE_LIFE_EXPECTANCY_TABLE.value_for_year(tax_year)[beneficiary_current_age]
 
     if not is_edb:
-        if owner_died_before_rbd:
+        if owner_died_before_rbd and owner_died_before_secure_act:
+            # rp-bdb: the "no annual RMD until the 10-year deadline"
+            # treatment for a pre-RBD non-EDB is itself a SECURE Act
+            # creation (research.md §1) -- it didn't exist under the
+            # pre-Act rules this account is grandfathered into. A pre-Act
+            # designated beneficiary who elected the life-expectancy
+            # method (the only method this project models) instead took
+            # the classic annual stretch from year 1, using their own
+            # divisor alone -- the same formula as the pre-RBD
+            # non-spouse-EDB branch below, since "eligible designated
+            # beneficiary" wasn't yet a meaningful distinction.
+            divisor = _beneficiary_decrement_divisor()
+            figure_years = [initial_divisor_year]
+        elif owner_died_before_rbd:
             return _no_annual_rmd_required()
-        # rp-kn5: same "longer of" comparison as the EDB branches below --
-        # confirmed via 013 research.md §3's own primary-source reading
-        # (Pub. 590-B p.9's "longer of" rule is not qualified to EDBs
-        # only) plus independent cross-check against professional
-        # secondary sources describing the post-2024-final-regulations
-        # "at least as rapidly" requirement for any designated
-        # beneficiary. 012's original decedent-only divisor here
-        # overstated the required distribution whenever the beneficiary
-        # is younger than the decedent (the common case).
-        divisor = max(_beneficiary_decrement_divisor(), _owner_divisor())
-        figure_years = [initial_divisor_year]
+        else:
+            # rp-kn5: same "longer of" comparison as the EDB branches below --
+            # confirmed via 013 research.md §3's own primary-source reading
+            # (Pub. 590-B p.9's "longer of" rule is not qualified to EDBs
+            # only) plus independent cross-check against professional
+            # secondary sources describing the post-2024-final-regulations
+            # "at least as rapidly" requirement for any designated
+            # beneficiary -- this rule predates the SECURE Act (Treas.
+            # Reg. 1.401(a)(9)-5) so it applies unchanged for a pre-Act
+            # death_year too. 012's original decedent-only divisor here
+            # overstated the required distribution whenever the
+            # beneficiary is younger than the decedent (the common case).
+            divisor = max(_beneficiary_decrement_divisor(), _owner_divisor())
+            figure_years = [initial_divisor_year]
     elif is_spouse:
         if owner_died_before_rbd:
             decedent_rbd_age = RMD_START_AGE.value_for_year(initial_divisor_year)  # raises UnsupportedTaxYearError

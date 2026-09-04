@@ -94,7 +94,7 @@ C4Component
         Component(mechanics, "mechanics", "RMDs (living owner + inherited-account), Roth conversion, withdrawal sequencing, HSA eligibility/limits, pension/annuity/earned-income streams — one plan-year at a time.")
         Component(comparison, "comparison", "run_plan_projection() — the full-horizon, one-plan-year-at-a-time loop every other layer reuses. Deterministic paired-draw comparison across states/strategies/claiming ages.")
         Component(simulation, "simulation", "Monte Carlo engine: parametric + historical-bootstrap return paths, sequence-of-returns stress, survival-adjusted scoring, opt-in per-path probabilistic death draws (mortality.py). Wraps comparison's projection loop per path.")
-        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) + per-plan-year plain-language narrative (narrative.py, 028) + per-plan-year computation traceability -- balance waterfall, income composition, federal/state tax breakdown (year_detail.py, rp-bm8.3) — depends on all five other subpackages, none of them depend on it.")
+        Component(reporting, "reporting", "SummaryStatistics aggregation + CSV export + per-account year-by-year attribution (account_attribution.py, 015) + per-plan-year plain-language narrative (narrative.py, 028) + per-plan-year computation traceability -- balance waterfall, income composition, federal/state/FICA tax breakdown, inherited-account distribution reasoning (year_detail.py, rp-bm8.3/rp-bm8.4) — depends on all five other subpackages, none of them depend on it.")
     }
 
     Rel(tax, scenario, "reads config types from")

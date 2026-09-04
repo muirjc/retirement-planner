@@ -350,3 +350,79 @@ def test_custom_depletion_deadline_year_overrides_the_death_year_plus_ten_defaul
     )
     assert result.depletion_deadline_year == 2223
     assert result.is_within_ten_year_window is True
+
+
+# --- rp-bdb: pre-SECURE-Act (pre-2020) death grandfathered under the
+# pre-Act rules, regardless of beneficiary_classification. death_year=2018
+# with tax_year=2019 (the year immediately after death, so
+# initial_divisor_year == tax_year and beneficiary_current_age maps
+# directly onto it) keeps these tests exercising the same clean divisor
+# arithmetic as the rest of this file. ---
+
+
+def test_pre_secure_act_death_default_deadline_has_no_forced_depletion():
+    """A caller that omits depletion_deadline_year for a pre-2020 death
+    gets the same far-future sentinel a true EDB gets post-Act -- not
+    death_year + 10 -- since the 10-year rule itself is a SECURE Act
+    creation that doesn't apply to this death at all."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2019, death_year=2018, decedent_age_at_death=67,
+        decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=51,
+    )
+    assert result.depletion_deadline_year > 2100
+    assert result.is_within_ten_year_window is True
+
+
+def test_pre_secure_act_death_post_rbd_non_edb_uses_the_longer_of_divisor_unchanged():
+    """Treas. Reg. 1.401(a)(9)-5's "longer of" rule predates the Act, so a
+    post-RBD non-EDB's divisor is unaffected by a pre-2020 death_year --
+    same mechanic as test_post_rbd_non_edb_uses_the_longer_of_beneficiary_
+    or_owner_divisor above."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2019, death_year=2018, decedent_age_at_death=80,
+        decedent_was_taking_rmds=True, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=50,
+    )
+    assert result.divisor == 36.2  # Table I, age 50 -- the beneficiary's own, longer divisor
+
+
+def test_pre_secure_act_death_pre_rbd_non_edb_takes_annual_stretch_not_zero():
+    """The core rp-bdb behavior change: post-Act, a pre-RBD non-EDB owes
+    $0 every year until the 10-year deadline forces full depletion
+    (test_pre_rbd_non_edb_requires_no_annual_distribution above) -- but
+    that "no annual RMD" carve-out is itself a SECURE Act creation. A
+    pre-2020 death instead takes the classic annual stretch from year 1,
+    using the beneficiary's own divisor alone."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2019, death_year=2018, decedent_age_at_death=67,
+        decedent_was_taking_rmds=False, beneficiary_classification="non_eligible_designated_beneficiary",
+        beneficiary_current_age=50,
+    )
+    assert result.required_amount == pytest.approx(1_000_000 / 36.2)
+    assert result.divisor == 36.2  # Table I, age 50 -- beneficiary's own divisor, no "longer of" comparison
+    assert result.table_used == "single_life_expectancy"
+
+
+def test_pre_secure_act_death_pre_rbd_non_edb_divisor_decrements_by_one_each_year():
+    kwargs = dict(
+        inherited_balance=1_000_000, death_year=2018, decedent_age_at_death=67,
+        decedent_was_taking_rmds=False, beneficiary_classification="non_eligible_designated_beneficiary",
+    )
+    year_1 = compute_inherited_rmd(tax_year=2019, beneficiary_current_age=50, **kwargs)
+    year_2 = compute_inherited_rmd(tax_year=2020, beneficiary_current_age=51, **kwargs)
+    assert year_1.divisor == 36.2
+    assert year_2.divisor == 35.2  # 36.2 - 1.0, not a fresh age-51 lookup (35.3)
+
+
+def test_secure_act_effective_year_boundary_death_year_2020_is_not_grandfathered():
+    """death_year == 2020 (the Act's own effective year, not "before" it)
+    still gets the post-Act treatment: $0 required and death_year + 10 as
+    the default deadline, unlike test_pre_secure_act_death_pre_rbd_non_edb_
+    takes_annual_stretch_not_zero's death_year=2018 case above."""
+    result = compute_inherited_rmd(
+        inherited_balance=1_000_000, tax_year=2024, death_year=2020, decedent_age_at_death=67,
+        decedent_was_taking_rmds=False, beneficiary_classification="non_eligible_designated_beneficiary",
+    )
+    assert result.required_amount == 0.0
+    assert result.depletion_deadline_year == 2030

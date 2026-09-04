@@ -29,6 +29,7 @@ from retirement_planner.mechanics import AccountType, WithdrawalLineItem
 from .models import (
     AccountTypeWaterfall,
     BalanceWaterfall,
+    FicaTaxDetail,
     IncomeComposition,
     InheritedAccountDetail,
     TaxComputationDetail,
@@ -125,11 +126,23 @@ def _build_income_composition(year: PlanYearProjection) -> IncomeComposition:
         traditional_sequence_withdrawal=traditional_sequence_withdrawal,
         inherited_distribution=year.mechanics.withdrawal_plan.inherited_distribution_drawn,
         income_streams=sum(year.member_income_stream_amounts.values()),
+        earned_income=sum(year.member_earned_income.values()),
         roth_conversion_added=year.mechanics.conversion.ordinary_income_added,
         hsa_deduction=year.hsa_contribution.amount_contributed,
         ordinary_income_total=year.mechanics.ordinary_income,
         social_security_gross=sum(year.member_social_security_benefits.values()),
         taxable_social_security=year.federal_tax.taxable_social_security,
+    )
+
+
+def _build_fica_tax_detail(year: PlanYearProjection) -> FicaTaxDetail:
+    """rp-bm8.4: trivial pass-through of year.fica_tax's own already-
+    complete fields -- no new computation."""
+    return FicaTaxDetail(
+        member_oasdi_tax=year.fica_tax.member_oasdi_tax,
+        member_medicare_tax=year.fica_tax.member_medicare_tax,
+        additional_medicare_tax=year.fica_tax.additional_medicare_tax,
+        total_fica_tax=year.fica_tax.total_fica_tax,
     )
 
 
@@ -162,6 +175,9 @@ def _build_inherited_account_details(year: PlanYearProjection) -> list[Inherited
             account_id=account_id,
             distribution=year.inherited_account_distributions.get(account_id, 0.0),
             ending_balance=ending_balance,
+            distribution_reason=year.inherited_account_distribution_reason.get(account_id),
+            rmd_divisor=year.inherited_account_rmd_divisor.get(account_id),
+            depletion_deadline_year=year.inherited_account_depletion_deadline_year.get(account_id),
         )
         for account_id, ending_balance in year.inherited_account_balances.items()
     ]
@@ -175,5 +191,6 @@ def build_year_computation_detail(year: PlanYearProjection) -> YearComputationDe
         income_composition=_build_income_composition(year),
         federal_tax_detail=_build_federal_tax_detail(year),
         state_tax_detail=_build_state_tax_detail(year),
+        fica_tax_detail=_build_fica_tax_detail(year),
         inherited_accounts=_build_inherited_account_details(year),
     )

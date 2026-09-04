@@ -54,6 +54,11 @@ def _render_income_composition(composition: dict) -> None:
         f"{format_currency(composition['hsa_deduction'])} HSA deduction = "
         f"**{format_currency(composition['ordinary_income_total'])} ordinary income**"
     )
+    if composition["earned_income"] > 0:
+        st.caption(
+            f"Of the pensions/annuities/earned income above, {format_currency(composition['earned_income'])} is "
+            "earned income (wages) -- subject to FICA payroll tax, detailed below."
+        )
     st.caption(
         f"Social Security received: {format_currency(composition['social_security_gross'])} gross, "
         f"{format_currency(composition['taxable_social_security'])} of it taxable -- added in separately at "
@@ -75,6 +80,24 @@ def _render_tax_detail(jurisdiction: str, detail: dict) -> None:
     st.write(f"**Total {jurisdiction.lower()} tax owed: {format_currency(detail['tax_owed'])}**")
 
 
+_INHERITED_REASON_CAPTIONS = {
+    "annual_rmd": "Annual required minimum distribution",
+    "no_rmd_required_yet": "No distribution required yet",
+    "ten_year_rule_deadline": "10-year rule deadline reached — entire balance distributed",
+}
+
+
+def _inherited_reason_caption(account: dict) -> str:
+    reason = account["distribution_reason"]
+    base = _INHERITED_REASON_CAPTIONS.get(reason, "No distribution this year")
+    if reason == "annual_rmd" and account.get("rmd_divisor"):
+        base += f" (divisor {account['rmd_divisor']:.1f})"
+    deadline_year = account.get("depletion_deadline_year")
+    if deadline_year is not None and reason != "ten_year_rule_deadline":
+        base += f" — must be fully distributed by the end of {deadline_year}"
+    return base
+
+
 def _render_inherited_accounts(accounts: list[dict]) -> None:
     st.markdown("**Inherited accounts**")
     rows = [
@@ -82,10 +105,30 @@ def _render_inherited_accounts(accounts: list[dict]) -> None:
             "Account": account["account_id"],
             "Distribution": format_currency(account["distribution"]),
             "Ending balance": format_currency(account["ending_balance"]),
+            "Why": _inherited_reason_caption(account),
         }
         for account in accounts
     ]
     st.dataframe(rows, hide_index=True)
+
+
+def _render_fica_detail(detail: dict) -> None:
+    st.markdown("**FICA payroll tax**")
+    if detail["total_fica_tax"] == 0:
+        st.caption("No FICA payroll tax this year (no earned income subject to it).")
+        return
+    for person_name in detail["member_oasdi_tax"]:
+        oasdi = detail["member_oasdi_tax"][person_name]
+        medicare = detail["member_medicare_tax"].get(person_name, 0.0)
+        if oasdi == 0 and medicare == 0:
+            continue
+        st.caption(
+            f"{person_name}: {format_currency(oasdi)} Social Security (OASDI, 6.2%) + "
+            f"{format_currency(medicare)} Medicare (1.45%)"
+        )
+    if detail["additional_medicare_tax"] > 0:
+        st.caption(f"Additional Medicare Tax (0.9% over the household threshold): {format_currency(detail['additional_medicare_tax'])}")
+    st.write(f"**Total FICA payroll tax owed: {format_currency(detail['total_fica_tax'])}**")
 
 
 def render_year_computation_detail(detail: dict) -> None:
@@ -93,7 +136,8 @@ def render_year_computation_detail(detail: dict) -> None:
     from POST /simulations's narrative field."""
     _render_balance_waterfall(detail["balance_waterfall"])
     _render_income_composition(detail["income_composition"])
-    _render_tax_detail("Federal", detail["federal_tax_detail"])
-    _render_tax_detail("State", detail["state_tax_detail"])
     if detail["inherited_accounts"]:
         _render_inherited_accounts(detail["inherited_accounts"])
+    _render_fica_detail(detail["fica_tax_detail"])
+    _render_tax_detail("Federal", detail["federal_tax_detail"])
+    _render_tax_detail("State", detail["state_tax_detail"])

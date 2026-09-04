@@ -196,6 +196,17 @@ def run_simulation(body: dict) -> dict:
     return cast(dict, _json("POST", "/simulations", json=body))
 
 
+def search_sustainable_spending_range(body: dict) -> dict:
+    """POST /simulations/sustainable-spending-range (rp-430) --
+    {"conservative": {...}, "flexible": {...}, "path_count_used": int} on
+    success. Raises the same error types run_simulation() does
+    (BlockingValidationError, UnknownReferenceValueError,
+    UnsupportedTaxYearError, CostBudgetExceededError, ...) -- this
+    endpoint shares run_simulation()'s own resolution flow and error
+    shapes exactly (routes/simulations.py)."""
+    return cast(dict, _json("POST", "/simulations/sustainable-spending-range", json=body))
+
+
 def compare_deterministic(body: dict) -> dict:
     """POST /comparisons/deterministic -- {"axis": ..., "summaries": [...],
     "account_detail": [...]} (account_detail added by

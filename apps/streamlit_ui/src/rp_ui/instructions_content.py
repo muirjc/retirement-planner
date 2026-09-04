@@ -247,7 +247,16 @@ SECTIONS: list[Section] = [
             "check **Override scenario defaults** first; the fields inside are otherwise ignored even "
             "if you've changed them. Clicking **Run** shows a success-rate metric and a fan chart -- "
             "the spread of possible ending balances by plan year, one line per percentile -- and any "
-            "error points back to what needs fixing, often on the Scenarios page itself."
+            "error points back to what needs fixing, often on the Scenarios page itself.\n\n"
+            "**Suggest a sustainable spending range**, next to Run, answers a different question: not "
+            "\"does this specific spending figure work,\" but \"what could I actually afford to spend.\" "
+            "It searches -- runs the real engine repeatedly at different spending levels, not a formula "
+            "-- for the spending figures that hit a 95% (\"conservative\") and a 75% (\"flexible\") "
+            "success rate, and shows both as a range. To keep this fast (roughly 10-20 seconds instead "
+            "of running a full search at full precision), it uses fewer Monte Carlo paths than a normal "
+            "Run -- the result is clearly labeled an *estimate*. Treat it as a starting point, then "
+            "confirm by entering a spending figure from that range on the Scenarios page and clicking "
+            "**Run** for the real, full-precision answer."
         ),
     ),
     Section(

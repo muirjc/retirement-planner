@@ -958,6 +958,52 @@ def test_us1_save_read_and_list_round_trip():
     assert at2.selectbox(key="state").value == "FL"
 
 
+def _fail_on_scenario_mutation(handler):
+    """Wraps a working handler (e.g. make_fake_bff()'s) so a PUT/POST
+    against /scenarios/<anything> raises AssertionError instead of
+    delegating -- everything else (the page's own routine GETs for
+    reference data, the scenario list, ...) still works normally. Used to
+    confirm a guard stops a request before it ever reaches the network,
+    not just that some error happens to get shown afterward."""
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        if request.method in ("PUT", "POST") and "/scenarios/" in request.url.path:
+            raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+        return handler(request)
+
+    return wrapped
+
+
+def test_us1_blank_scenario_name_shows_friendly_error_on_save_without_a_backend_call():
+    """rp-f7k: a blank (or whitespace-only) Scenario name used to reach
+    put_scenario()/validate_scenario() unchecked, producing a request path
+    like POST /api/v1/scenarios//validate that the real BFF's router can't
+    match (a bare 404 with no structured error body) -- an unhandled
+    UnexpectedBackendError that crashed the whole page."""
+    handler, _store = make_fake_bff()
+    _install(_fail_on_scenario_mutation(handler))
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="   ")  # whitespace-only, same as blank
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert any("enter a scenario name" in e.value.lower() for e in at.error)
+
+
+def test_us1_blank_scenario_name_shows_friendly_error_on_validate_without_a_backend_call():
+    """rp-f7k: same guard, the Validate button's own code path."""
+    handler, _store = make_fake_bff()
+    _install(_fail_on_scenario_mutation(handler))
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="")
+    at.button(key="validate_button").click().run()
+
+    assert not at.exception
+    assert any("enter a scenario name" in e.value.lower() for e in at.error)
+
+
 def test_us1_blocking_flag_shown_inline_distinct_from_warning():
     """Acceptance Scenario US1.2: a blocking validation problem is shown
     inline, distinguishable from a warning-only flag."""

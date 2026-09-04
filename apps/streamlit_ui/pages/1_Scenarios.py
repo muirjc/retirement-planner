@@ -1022,25 +1022,37 @@ with save_col:
     if st.button(
         "Save", key="save_button", help="Saves the form above under Scenario name, overwriting any existing scenario with that name."
     ):
-        try:
-            saved = put_scenario(st.session_state["scenario_name"], _build_body())
-        except InvalidScenarioError as err:
-            st.error(err.reason)
-        except BackendUnreachableError as err:
-            st.error(str(err))
+        if not st.session_state["scenario_name"].strip():
+            # rp-f7k: a blank name produces a path like /scenarios//validate
+            # that the BFF's router can't even match (no {name} segment) --
+            # a bare 404 with no structured error body, which would
+            # otherwise surface as an unhandled UnexpectedBackendError
+            # crashing the whole page instead of a form error.
+            st.error("Enter a scenario name before saving.")
         else:
-            st.success(f"Saved {saved['name']!r}.")
-            _render_flags(saved.get("validation_flags", []))
+            try:
+                saved = put_scenario(st.session_state["scenario_name"], _build_body())
+            except InvalidScenarioError as err:
+                st.error(err.reason)
+            except BackendUnreachableError as err:
+                st.error(str(err))
+            else:
+                st.success(f"Saved {saved['name']!r}.")
+                _render_flags(saved.get("validation_flags", []))
 
 with validate_col:
     if st.button(
         "Validate", key="validate_button", help="Checks the form above for problems without saving it."
     ):
-        try:
-            result = validate_scenario(st.session_state["scenario_name"], _build_body())
-        except InvalidScenarioError as err:
-            st.error(err.reason)
-        except BackendUnreachableError as err:
-            st.error(str(err))
+        if not st.session_state["scenario_name"].strip():
+            # rp-f7k: see the same guard in the Save button above.
+            st.error("Enter a scenario name before validating.")
         else:
-            _render_flags(result.get("validation_flags", []))
+            try:
+                result = validate_scenario(st.session_state["scenario_name"], _build_body())
+            except InvalidScenarioError as err:
+                st.error(err.reason)
+            except BackendUnreachableError as err:
+                st.error(str(err))
+            else:
+                _render_flags(result.get("validation_flags", []))

@@ -274,6 +274,9 @@ def find_sustainable_spending_range(
     survival_curves: dict[str, SurvivalCurve] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _success_rate_at()'s own docstring
     net_earned_income_against_spending: bool = False,
+    tolerance: float = _DEFAULT_TOLERANCE,
+    max_bracket_expansions: int = _DEFAULT_MAX_BRACKET_EXPANSIONS,
+    max_bisection_iterations: int = _DEFAULT_MAX_BISECTION_ITERATIONS,
 ) -> SustainableSpendingRangeResult:
     """The "range" a user actually wants: two independent
     search_spending_for_target_success_rate() calls sharing this exact
@@ -281,7 +284,15 @@ def find_sustainable_spending_range(
     affordable spending) and "conservative" (higher target, lower
     spending) ends. Defaults (95% / 75%) match common CFP-tool convention
     for a "safe" vs. "flexible" spending band; both are plain keyword
-    arguments, not hardcoded, so a caller can offer a different pair."""
+    arguments, not hardcoded, so a caller can offer a different pair.
+
+    tolerance/max_bracket_expansions/max_bisection_iterations are forwarded
+    unchanged to both underlying searches -- a caller with its own cost
+    budget (e.g. services/bff's own pre-flight cost-estimate check, which
+    must know the true worst-case iteration count it's committing to) can
+    tighten these below this function's own generic defaults; every
+    existing caller that omits them gets the same defaults
+    search_spending_for_target_success_rate() itself already documents."""
     conservative = search_spending_for_target_success_rate(
         household=household,
         accounts=accounts,
@@ -298,6 +309,9 @@ def find_sustainable_spending_range(
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
         net_earned_income_against_spending=net_earned_income_against_spending,
+        tolerance=tolerance,
+        max_bracket_expansions=max_bracket_expansions,
+        max_bisection_iterations=max_bisection_iterations,
     )
     flexible = search_spending_for_target_success_rate(
         household=household,
@@ -315,6 +329,9 @@ def find_sustainable_spending_range(
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
         net_earned_income_against_spending=net_earned_income_against_spending,
+        tolerance=tolerance,
+        max_bracket_expansions=max_bracket_expansions,
+        max_bisection_iterations=max_bisection_iterations,
     )
     return SustainableSpendingRangeResult(
         conservative=conservative,

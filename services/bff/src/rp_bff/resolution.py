@@ -435,6 +435,8 @@ def generate_configured_return_paths(
     generation_mode: GenerationMode,
     historical_block_length: int,
     stress_scenario: StressScenario | None,
+    path_count: int | None = None,
+    seed: int | None = None,
 ) -> list[ReturnPath]:
     """Builds this run's return paths per generation_mode
     (026-advanced-simulation-options, research.md Decision 1) --
@@ -450,23 +452,34 @@ def generate_configured_return_paths(
     callers" integration shape. Raises ValueError, propagated unchanged
     from whichever engine call raised it (a bad historical_block_length, or
     a stress window past horizon_last_plan_year) -- callers translate via
-    invalid_simulation_options_error()."""
+    invalid_simulation_options_error().
+
+    path_count/seed (rp-9hl): default to context.n_paths/context.seed when
+    omitted, reproducing every existing caller's exact prior behavior
+    unchanged. resolve_and_search_sustainable_spending() (routes/
+    simulations.py) is the one caller that overrides path_count -- a
+    sustainable-spending search runs 10s of simulations, not one, so it
+    deliberately uses a reduced path count for speed (docs/BRD.md §6.10),
+    never context.n_paths (which reflects the user's own full-precision
+    preference for a single real run)."""
+    resolved_path_count = path_count if path_count is not None else context.n_paths
+    resolved_seed = seed if seed is not None else context.seed
     if generation_mode == "historical_bootstrap":
         paths = generate_historical_bootstrap_paths(
             market_assumptions=context.scenario.market_assumptions,
-            path_count=context.n_paths,
+            path_count=resolved_path_count,
             horizon_years=horizon_years,
             start_plan_year=start_plan_year,
-            seed=context.seed,
+            seed=resolved_seed,
             block_length=historical_block_length,
         )
     else:
         paths = generate_return_paths(
             market_assumptions=context.scenario.market_assumptions,
-            path_count=context.n_paths,
+            path_count=resolved_path_count,
             horizon_years=horizon_years,
             start_plan_year=start_plan_year,
-            seed=context.seed,
+            seed=resolved_seed,
         )
 
     if stress_scenario is not None:

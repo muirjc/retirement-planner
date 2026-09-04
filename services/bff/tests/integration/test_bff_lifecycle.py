@@ -744,6 +744,64 @@ def test_simulated_comparison_historical_bootstrap_flags_unverified_figure(clien
         assert "historical_annual_real_returns" in summary["unverified_figure_names"]
 
 
+# --- rp-9hl: sustainable-spending range search --------------------------------
+
+
+def test_sustainable_spending_range_returns_conservative_le_flexible(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations/sustainable-spending-range", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert 0.0 <= payload["conservative"]["achieved_success_rate"] <= 1.0
+    assert 0.0 <= payload["flexible"]["achieved_success_rate"] <= 1.0
+    assert payload["conservative"]["target_success_rate"] == 0.95
+    assert payload["flexible"]["target_success_rate"] == 0.75
+    assert payload["conservative"]["spending"] <= payload["flexible"]["spending"]
+    assert payload["path_count_used"] == 200  # the search's own reduced path count, never the scenario's n_paths
+
+
+def test_sustainable_spending_range_accepts_custom_targets(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    body = {**_RUN_BODY, "conservative_target_success_rate": 0.90, "flexible_target_success_rate": 0.80}
+    response = client.post("/api/v1/simulations/sustainable-spending-range", json=body)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["conservative"]["target_success_rate"] == 0.90
+    assert payload["flexible"]["target_success_rate"] == 0.80
+
+
+def test_sustainable_spending_range_against_a_scenario_with_blocking_flags_is_rejected_without_searching(client):
+    invalid_body = {**_SCENARIO_BODY, "accounts": [{"account_type": "traditional", "balance": -100}]}
+    client.put("/api/v1/scenarios/base_case", json=invalid_body)
+
+    response = client.post("/api/v1/simulations/sustainable-spending-range", json=_RUN_BODY)
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "blocking_validation_flags"
+
+
+def test_sustainable_spending_range_rejects_an_oversized_horizon_before_searching(client):
+    """The search's own pre-flight cost check (two searches' worth of
+    reduced-path-count iterations) rejects a request whose horizon would
+    push the search itself over budget -- the same estimated_cost_exceeds_budget
+    shape /simulations and /comparisons already use, before running any
+    search at all."""
+    long_horizon_body = {
+        **_SCENARIO_BODY,
+        "simulation_settings": {**_SCENARIO_BODY["simulation_settings"], "plan_to_age": 150},
+    }
+    client.put("/api/v1/scenarios/base_case", json=long_horizon_body)
+
+    response = client.post("/api/v1/simulations/sustainable-spending-range", json=_RUN_BODY)
+
+    assert response.status_code == 413
+    assert response.json()["error"] == "estimated_cost_exceeds_budget"
+
+
 # --- User Story 4: run and retrieve a comparison ---
 
 

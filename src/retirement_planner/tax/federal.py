@@ -230,3 +230,19 @@ def bracket_ceiling_for_rate(
     standard_deduction, deduction_usage = _standard_deduction_for(filing_status, tax_year, filer_ages)  # raises UnsupportedTaxYearError
     ceiling = matching_row.income_up_to + standard_deduction
     return ceiling, [bracket_usage, deduction_usage]
+
+
+def available_bracket_ceiling_rates(filing_status: FilingStatus, tax_year: int) -> list[float]:
+    """rp-0ff: every rate bracket_ceiling_for_rate() can actually resolve
+    to a finite ceiling for -- every row in that year's bracket table
+    EXCEPT the unbounded top row (income_up_to=None), in table order.
+    Read live from the same _FEDERAL_BRACKETS registry
+    bracket_ceiling_for_rate() itself consults (never a separately
+    maintained list) -- a UI-reference helper, not itself the validation
+    authority: bracket_ceiling_for_rate() (and, over the BFF,
+    resolution.py's own eager check) still rejects any rate on its own
+    merits regardless of what this function ever returned. Raises
+    UnsupportedTaxYearError if tax_year has no bracket-table entry."""
+    bracket_figure = _FEDERAL_BRACKETS[filing_status]
+    brackets = bracket_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
+    return [row.rate for row in brackets if row.income_up_to is not None]

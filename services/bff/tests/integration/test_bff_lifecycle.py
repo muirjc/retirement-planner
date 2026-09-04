@@ -318,6 +318,19 @@ def test_reference_strategies_and_axes_match_their_registries(client):
     assert axes == {"state", "roth_conversion_strategy", "withdrawal_sequencing", "claiming_age_grid"}  # US2.3
 
 
+def test_reference_named_bracket_rates_excludes_the_unbounded_top_bracket(client):
+    """rp-0ff: the Roth conversion ceiling_mode="named_bracket" rate
+    selector's own reference endpoint -- live from tax/federal.py's
+    bracket tables, excluding the unbounded 37% top bracket (no finite
+    ceiling exists to fill to)."""
+    mfj_response = client.get("/api/v1/reference/named-bracket-rates", params={"filing_status": "married_filing_jointly"})
+    assert mfj_response.status_code == 200
+    assert mfj_response.json()["rates"] == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]
+
+    single_response = client.get("/api/v1/reference/named-bracket-rates", params={"filing_status": "single"})
+    assert single_response.json()["rates"] == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]
+
+
 # --- User Story 3: run a simulation and receive a summarized result ---
 
 _RUN_BODY = {

@@ -11,7 +11,7 @@ IRS-official (they now are).
 import pytest
 
 from retirement_planner.tax import IncomeComponents, UnsupportedTaxYearError
-from retirement_planner.tax.federal import bracket_ceiling_for_rate, compute_federal_tax
+from retirement_planner.tax.federal import available_bracket_ceiling_rates, bracket_ceiling_for_rate, compute_federal_tax
 
 
 def test_federal_tax_is_genuine_progressive_bracket_math_mfj():
@@ -205,6 +205,23 @@ def test_bracket_ceiling_for_rate_figures_used_includes_brackets_and_standard_de
     _ceiling, figures = bracket_ceiling_for_rate(0.22, "married_filing_jointly", 2026, [])
     figure_names = {f.name for f in figures}
     assert figure_names == {"federal_brackets_mfj", "standard_deduction_mfj"}
+
+
+def test_available_bracket_ceiling_rates_excludes_the_unbounded_top_bracket():
+    rates = available_bracket_ceiling_rates("married_filing_jointly", 2026)
+    assert rates == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]  # 0.37 (unbounded) excluded
+    for rate in rates:
+        bracket_ceiling_for_rate(rate, "married_filing_jointly", 2026, [])  # never raises
+
+
+def test_available_bracket_ceiling_rates_single_filer():
+    rates = available_bracket_ceiling_rates("single", 2026)
+    assert rates == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]
+
+
+def test_available_bracket_ceiling_rates_raises_unsupported_tax_year():
+    with pytest.raises(UnsupportedTaxYearError):
+        available_bracket_ceiling_rates("married_filing_jointly", 1999)
 
 
 def test_bracket_ceiling_for_rate_does_not_change_compute_federal_tax_behavior():

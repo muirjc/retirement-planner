@@ -63,7 +63,8 @@ SECTIONS: list[Section] = [
             "that salary is probably already paying for part of the household's living costs, so "
             "your annual spending need entry must already be net of that amount -- otherwise the "
             "tool double-counts it, withdrawing the full spending need from savings *and* taxing "
-            "the salary on top, with nothing to offset it."
+            "the salary on top, with nothing to offset it. As an alternative to doing that netting "
+            "by hand, the Spending section's own checkbox can have the engine do it automatically."
         ),
     ),
     Section(
@@ -87,7 +88,14 @@ SECTIONS: list[Section] = [
             "calculates the taxes owed on top of this figure itself. If a household member "
             "has an `earned_income` income stream configured (see the Household section), "
             "make sure this figure is already net of whatever part of living costs that "
-            "income covers -- the tool has no way to detect a missed adjustment here."
+            "income covers -- the tool has no way to detect a missed adjustment here.\n\n"
+            "**\"Reduce withdrawals by wages already covering spending\"** is an alternative to "
+            "netting `earned_income` out by hand: when checked, the engine itself subtracts each "
+            "year's total earned income from this figure before deciding how much to withdraw "
+            "from accounts, so wages that already cover spending stop triggering an extra, "
+            "unnecessary account draw. It only ever reduces a *voluntary* withdrawal -- a "
+            "mandatory Required Minimum Distribution is drawn in full regardless, since it's "
+            "legally required no matter what other income exists."
         ),
     ),
     Section(
@@ -149,7 +157,23 @@ SECTIONS: list[Section] = [
             "which tax bracket that lands in.\n\n"
             "If you're unsure which to pick: `fill_to_bracket` targets a tax outcome and "
             "adapts the dollar amount each year to hit it; `fixed_amount` targets a dollar "
-            "amount and lets the tax outcome fall where it falls."
+            "amount and lets the tax outcome fall where it falls.\n\n"
+            "**Ceiling** (`fill_to_bracket` only) offers a second way to set that income "
+            "ceiling: instead of typing a dollar figure yourself, **Fill to a named federal "
+            "bracket** lets you pick a target marginal rate (e.g. 22%) and the engine looks "
+            "up that year's real dollar ceiling for your filing status automatically -- the "
+            "same underlying bracket table the tax calculations already use.\n\n"
+            "**Window** offers a second way to set the active window: instead of typing plan "
+            "years yourself, **Auto (gap between wages ending and RMD age)** derives it for "
+            "you -- opening the year after every household member's `earned_income` streams "
+            "stop, and closing the year before the earliest member's own Required Minimum "
+            "Distribution eligibility age. This implements the standard financial-planning "
+            "practice of using the low-income years between retiring and RMDs starting to "
+            "convert traditional balances at a lower tax cost than they'd otherwise be taxed "
+            "at once RMDs (and, often, Social Security) stack on top of them. If wages never "
+            "end for a household member, or no such gap exists for this household's ages, no "
+            "conversion will ever execute under this window -- run a simulation to see the "
+            "actual resolved window."
         ),
     ),
     Section(

@@ -1042,6 +1042,153 @@ def test_us1_selectors_populated_only_from_live_reference_data():
     assert at.selectbox(key="conversion_strategy").options == ["", "bracket_fill"]
 
 
+# -- rp-0ff: auto Roth-conversion window / named-bracket ceiling / netting --
+
+
+def _with_fill_to_bracket_and_named_bracket_rates(handler):
+    """Wraps make_fake_bff()'s handler so conversion-strategies also offers
+    "fill_to_bracket" (the real backend's own CONVERSION_STRATEGIES key --
+    make_fake_bff()'s own "bracket_fill" is an arbitrary label other,
+    unrelated tests already depend on unchanged, e.g.
+    test_us1_selectors_populated_only_from_live_reference_data immediately
+    above) and adds the new named-bracket-rates reference route rp-0ff's
+    ceiling_mode=="named_bracket" selectbox needs. Mirrors
+    _fail_on_scenario_mutation()'s own wrap-and-delegate pattern above."""
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/v1/reference/conversion-strategies":
+            return httpx.Response(200, json={"conversion_strategies": ["fill_to_bracket", "fixed_amount"]})
+        if request.method == "GET" and request.url.path == "/api/v1/reference/named-bracket-rates":
+            return httpx.Response(200, json={"rates": [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]})
+        return handler(request)
+
+    return wrapped
+
+
+def test_roth_conversion_named_bracket_ceiling_and_auto_window_save_round_trip():
+    handler, store = make_fake_bff()
+    _install(_with_fill_to_bracket_and_named_bracket_rates(handler))
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="auto_window_case")
+    at.checkbox(key="include_roth_conversion").set_value(True)
+    at.run()
+    at.selectbox(key="conversion_strategy").set_value("fill_to_bracket")
+    at.run()
+    at.radio(key="conversion_ceiling_mode").set_value("named_bracket")
+    at.run()
+    assert at.selectbox(key="conversion_named_bracket_rate").options == ["10%", "12%", "22%", "24%", "32%", "35%"]
+    at.selectbox(key="conversion_named_bracket_rate").set_value(0.22)
+    at.radio(key="conversion_window_mode").set_value("auto_gap_year")
+    at.run()
+
+    at.button(key="save_button").click().run()
+    assert not at.exception
+
+    saved = store["auto_window_case"]["roth_conversion"]
+    assert saved["strategy"] == "fill_to_bracket"
+    assert saved["window_mode"] == "auto_gap_year"
+    assert saved["window"] is None
+    assert saved["ceiling_mode"] == "named_bracket"
+    assert saved["named_bracket_rate"] == 0.22
+    assert saved["bracket_ceiling_or_amount"] is None
+
+
+def test_roth_conversion_auto_window_and_named_bracket_load_round_trip():
+    handler, store = make_fake_bff()
+    _install(_with_fill_to_bracket_and_named_bracket_rates(handler))
+    store["preloaded_case"] = {
+        "name": "preloaded_case",
+        "household": {
+            "filing_status": "single",
+            "members": [
+                {
+                    "person_name": "Alex",
+                    "current_age": 60,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 30_000,
+                    "full_retirement_age": 67.0,
+                    "income_streams": [],
+                }
+            ],
+        },
+        "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
+        "spending": {"annual_need_real": 60_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.065,
+            "equity_return_std_real": 0.17,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.015,
+            "bond_return_std_real": 0.06,
+            "correlation": -0.10,
+        },
+        "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": {
+            "strategy": "fill_to_bracket",
+            "window_mode": "auto_gap_year",
+            "window": None,
+            "ceiling_mode": "named_bracket",
+            "bracket_ceiling_or_amount": None,
+            "named_bracket_rate": 0.22,
+        },
+        "validation_flags": [],
+        "is_usable": True,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("preloaded_case")
+    at.button(key="load_button").click().run()
+    assert not at.exception
+
+    assert at.checkbox(key="include_roth_conversion").value is True
+    assert at.selectbox(key="conversion_strategy").value == "fill_to_bracket"
+    assert at.radio(key="conversion_window_mode").value == "auto_gap_year"
+    assert at.radio(key="conversion_ceiling_mode").value == "named_bracket"
+    assert at.selectbox(key="conversion_named_bracket_rate").value == 0.22
+
+
+def test_roth_conversion_fixed_amount_strategy_forces_dollar_ceiling_mode():
+    """ceiling_mode only ever governs fill_to_bracket's own ceiling --
+    switching to fixed_amount must force it back to dollar_amount rather
+    than leaving a stale named_bracket selection the strategy can't use."""
+    handler, _store = make_fake_bff()
+    _install(_with_fill_to_bracket_and_named_bracket_rates(handler))
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.checkbox(key="include_roth_conversion").set_value(True)
+    at.run()
+    at.selectbox(key="conversion_strategy").set_value("fill_to_bracket")
+    at.run()
+    at.radio(key="conversion_ceiling_mode").set_value("named_bracket")
+    at.run()
+    assert at.session_state["conversion_ceiling_mode"] == "named_bracket"
+
+    at.selectbox(key="conversion_strategy").set_value("fixed_amount")
+    at.run()
+    assert at.session_state["conversion_ceiling_mode"] == "dollar_amount"
+    assert at.number_input(key="conversion_bracket_ceiling_or_amount") is not None
+
+
+def test_net_earned_income_against_spending_checkbox_save_and_load_round_trip():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="netting_case")
+    at.checkbox(key="net_earned_income_against_spending").set_value(True)
+    at.run()
+    at.button(key="save_button").click().run()
+    assert not at.exception
+    assert store["netting_case"]["spending"]["net_earned_income_against_spending"] is True
+
+    at2 = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at2.selectbox(key="scenario_load_select").set_value("netting_case")
+    at2.button(key="load_button").click().run()
+    assert at2.checkbox(key="net_earned_income_against_spending").value is True
+
+
 def test_us1_resave_replaces_and_delete_removes_immediately():
     """Acceptance Scenario US1.4: re-saving under an existing name fully
     replaces the previous data; deleting drops it from every list
@@ -1753,6 +1900,50 @@ def test_us3_deterministic_summary_shows_na_not_zero_or_blank():
     table = at.dataframe[0].value
     assert table["success_rate"].iloc[0] == "n/a"
     assert table["median_depletion_age"].iloc[0] == "n/a"
+
+
+def test_roth_conversion_strategy_candidate_sends_named_bracket_and_auto_window_fields():
+    """rp-0ff: the roth_conversion_strategy axis's per-candidate widgets
+    for window_mode/ceiling_mode/named_bracket_rate send the shape
+    comparison_candidates.py's build_candidates_for_axis() expects --
+    unlike withdrawal_sequencing, this axis's own conversion fields vary
+    per-candidate, never overwritten by compare_*()."""
+    routes = _compare_reference_routes()
+    routes[("GET", "/api/v1/reference/conversion-strategies")] = httpx.Response(200, json={"conversion_strategies": ["fill_to_bracket", "fixed_amount"]})
+    routes[("GET", "/api/v1/reference/named-bracket-rates")] = httpx.Response(200, json={"rates": [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]})
+
+    captured = {}
+
+    def compare_response(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"axis": "roth_conversion_strategy", "summaries": [_deterministic_summary("candidate_1")]})
+
+    routes[("POST", "/api/v1/comparisons/deterministic")] = compare_response
+    _install(_route(routes))
+
+    at = _compare_page_ready(AppTest.from_file(str(COMPARE_PAGE)).run())
+    at.radio(key="compare_engine").set_value("Deterministic")
+    at.run()
+    at.selectbox(key="compare_axis").set_value("roth_conversion_strategy")
+    at.number_input(key="compare_candidate_count").set_value(1)
+    at.run()
+    at.selectbox(key="compare_candidate_0_strategy").set_value("fill_to_bracket")
+    at.run()
+    at.radio(key="compare_candidate_0_ceiling_mode").set_value("named_bracket")
+    at.run()
+    at.selectbox(key="compare_candidate_0_named_bracket_rate").set_value(0.22)
+    at.radio(key="compare_candidate_0_window_mode").set_value("auto_gap_year")
+    at.run()
+    at.button(key="compare_button").click().run()
+
+    assert not at.exception
+    candidate = captured["body"]["candidates"][0]
+    assert candidate["conversion_strategy"] == "fill_to_bracket"
+    assert candidate["window_mode"] == "auto_gap_year"
+    assert candidate["conversion_window"] is None
+    assert candidate["ceiling_mode"] == "named_bracket"
+    assert candidate["named_bracket_rate"] == 0.22
+    assert candidate["conversion_bracket_ceiling_or_amount"] is None
 
 
 def test_us3_single_candidate_comparison_renders_without_special_casing():

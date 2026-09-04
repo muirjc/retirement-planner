@@ -14,7 +14,7 @@ from fastapi import APIRouter
 
 from retirement_planner.mechanics import CONVERSION_STRATEGIES, WITHDRAWAL_STRATEGIES
 from retirement_planner.simulation.models import ComparisonAxis
-from retirement_planner.tax import STATE_MODULES
+from retirement_planner.tax import STATE_MODULES, FilingStatus, available_bracket_ceiling_rates
 
 router = APIRouter()
 
@@ -44,3 +44,27 @@ def list_comparison_axes_route() -> dict:
     "state" -- /comparisons/deterministic accepts only the subset 004's
     ComparisonDimension defines (research.md §7)."""
     return {"axes": sorted(typing.get_args(ComparisonAxis))}
+
+
+_REFERENCE_TAX_YEAR = 2026
+"""rp-0ff: any documented year works here -- tax/federal.py's own bracket
+tables are explicitly "real (inflation-adjusted) dollars, no further
+indexing engine," repeated identically across every year in
+_DOCUMENTED_YEARS (federal.py's own module docstring), so the RATE set
+this endpoint reports (never the dollar thresholds themselves -- those are
+resolved per-request, per-year, by resolution.py's own
+bracket_ceiling_for_rate() call) is year-independent by this tool's own
+design. Mirrors this module's own "live from the registry, not a
+separately maintained list" principle -- just anchored at a fixed,
+always-documented year rather than the live request's own reference_tax_year,
+since this route has none in scope."""
+
+
+@router.get("/reference/named-bracket-rates")
+def list_named_bracket_rates_route(filing_status: FilingStatus) -> dict:
+    """GET /reference/named-bracket-rates?filing_status=... -- live from
+    002's own federal bracket tables (rp-0ff), for the Roth conversion
+    ceiling_mode="named_bracket" rate selector. Excludes the unbounded top
+    bracket (no finite ceiling exists to fill to) -- see
+    tax.available_bracket_ceiling_rates()'s own docstring."""
+    return {"rates": available_bracket_ceiling_rates(filing_status, _REFERENCE_TAX_YEAR)}

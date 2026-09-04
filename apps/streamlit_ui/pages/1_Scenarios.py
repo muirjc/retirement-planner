@@ -31,6 +31,7 @@ from rp_ui.api_client import (
     delete_scenario,
     get_scenario,
     list_conversion_strategies,
+    list_named_bracket_rates,
     list_scenarios,
     list_states,
     put_scenario,
@@ -76,6 +77,7 @@ DEFAULTS = {
     "member2_roth_balance": 0.0,
     "member2_taxable_balance": 0.0,
     "annual_need_real": 0.0,
+    "net_earned_income_against_spending": False,  # rp-0ff
     "state": None,
     "equity_allocation": 0.6,
     "equity_return_mean_real": 0.05,
@@ -89,9 +91,12 @@ DEFAULTS = {
     "plan_to_age": 95,
     "include_roth_conversion": False,
     "conversion_strategy": None,
+    "conversion_window_mode": "explicit",  # rp-0ff
     "conversion_bracket_ceiling_or_amount": 0.0,
     "conversion_window_start": 0,
     "conversion_window_end": 0,
+    "conversion_ceiling_mode": "dollar_amount",  # rp-0ff
+    "conversion_named_bracket_rate": None,  # rp-0ff
     "include_hsa_contribution": False,  # 010-advanced-tax-benefits
     "hsa_annual_amount": 0.0,
     "include_inherited_ira": False,
@@ -205,6 +210,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["inherited_beneficiary_relationship"] = inherited["beneficiary_relationship"]
         st.session_state["inherited_beneficiary_classification"] = inherited["beneficiary_classification"]
     st.session_state["annual_need_real"] = scenario["spending"]["annual_need_real"]
+    st.session_state["net_earned_income_against_spending"] = scenario["spending"].get("net_earned_income_against_spending", False)
     st.session_state["state"] = scenario["state"]
     ma = scenario["market_assumptions"]
     for field in (
@@ -220,9 +226,20 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     st.session_state["include_roth_conversion"] = rc is not None
     if rc is not None:
         st.session_state["conversion_strategy"] = rc["strategy"]
-        st.session_state["conversion_bracket_ceiling_or_amount"] = rc["bracket_ceiling_or_amount"]
-        st.session_state["conversion_window_start"] = rc["window"][0]
-        st.session_state["conversion_window_end"] = rc["window"][1]
+        # rp-0ff: window_mode/ceiling_mode/named_bracket_rate are read
+        # permissively (a scenario saved before rp-595 has no such keys)
+        # -- window/bracket_ceiling_or_amount are only ever None when
+        # their own mode doesn't select them (loader.py's own
+        # _build_roth_conversion()), in which case the widget below stays
+        # at its own DEFAULTS value rather than reading a None.
+        st.session_state["conversion_window_mode"] = rc.get("window_mode", "explicit")
+        st.session_state["conversion_ceiling_mode"] = rc.get("ceiling_mode", "dollar_amount")
+        st.session_state["conversion_named_bracket_rate"] = rc.get("named_bracket_rate")
+        if rc.get("bracket_ceiling_or_amount") is not None:
+            st.session_state["conversion_bracket_ceiling_or_amount"] = rc["bracket_ceiling_or_amount"]
+        if rc.get("window") is not None:
+            st.session_state["conversion_window_start"] = rc["window"][0]
+            st.session_state["conversion_window_end"] = rc["window"][1]
     # 010-advanced-tax-benefits (rp-83g): mirrors roth_conversion's own
     # optional-block loading immediately above -- see that block's shape.
     hsa = scenario.get("hsa_contribution")
@@ -324,7 +341,9 @@ _STREAM_TYPE_HELP = (
     "amount withdrawn to meet the Annual spending need field below (same treatment Social Security "
     "already gets). If this income already covers part of the household's living costs, Annual "
     "spending need must already be entered net of that amount, or the tool will double-count it -- "
-    "the full spending need withdrawn from savings AND this salary taxed on top."
+    "the full spending need withdrawn from savings AND this salary taxed on top. Alternatively, "
+    "check \"Reduce withdrawals by wages already covering spending\" in the Spending section below "
+    "and let the engine do that netting for you (rp-595)."
 )
 _STREAM_START_AGE_HELP = "This member's age (whole years) when the stream begins paying, inclusive."
 _STREAM_END_AGE_HELP = "This member's age through which the stream still pays, inclusive. Leave at 0 for 'pays for every remaining plan year' -- no end date."
@@ -748,10 +767,22 @@ st.number_input(
     step=1000.0,
     key="annual_need_real",
     help=(
-        "Your planned annual spending in today's dollars, before taxes. Must already be net of any "
-        "configured `earned_income` stream's contribution to living costs above -- income streams "
-        "(including Social Security and earned_income) are additional taxable income layered on top "
-        "and never reduce this withdrawal amount. See the Instructions page's Spending section."
+        "Your planned annual spending in today's dollars, before taxes. Unless the checkbox below is "
+        "checked, this must already be net of any configured `earned_income` stream's contribution to "
+        "living costs -- income streams (including Social Security and earned_income) are otherwise "
+        "additional taxable income layered on top and never reduce this withdrawal amount. See the "
+        "Instructions page's Spending section."
+    ),
+)
+st.checkbox(
+    "Reduce withdrawals by wages already covering spending",
+    key="net_earned_income_against_spending",
+    help=(
+        "When checked, each year's discretionary (non-RMD) withdrawal is automatically reduced by "
+        "that year's total `earned_income` -- an engine-level alternative to manually netting wages "
+        "out of the Annual spending need above (rp-595). Never reduces a mandatory RMD, which is "
+        "legally required regardless of other income. Leave unchecked if you already netted wages "
+        "out of the spending figure yourself, or have no earned_income streams."
     ),
 )
 
@@ -867,21 +898,83 @@ if st.session_state["include_roth_conversion"]:
             "Conversion section for the full explanation."
         ),
     )
-    st.number_input(
-        "Bracket ceiling or amount ($)",
-        key="conversion_bracket_ceiling_or_amount",
+
+    # rp-0ff: ceiling_mode only ever governs fill_to_bracket's own ceiling
+    # -- fixed_amount always uses the dollar number_input below regardless
+    # (RothConversionPlan.bracket_ceiling_or_amount's own docstring,
+    # scenario/models.py), so force ceiling_mode back to its default
+    # whenever the strategy isn't fill_to_bracket rather than showing a
+    # mode toggle that wouldn't do anything.
+    if st.session_state["conversion_strategy"] == "fill_to_bracket":
+        st.radio(
+            "Ceiling",
+            options=["dollar_amount", "named_bracket"],
+            format_func=lambda v: "Dollar amount" if v == "dollar_amount" else "Fill to a named federal bracket",
+            key="conversion_ceiling_mode",
+            help=(
+                "`Dollar amount` -- enter the income ceiling yourself. `Fill to a named federal "
+                "bracket` -- pick a target marginal rate (e.g. 22%) and the engine looks up that "
+                "year's real dollar ceiling for your filing status (rp-595)."
+            ),
+        )
+    else:
+        st.session_state["conversion_ceiling_mode"] = "dollar_amount"
+
+    if st.session_state["conversion_strategy"] == "fill_to_bracket" and st.session_state["conversion_ceiling_mode"] == "named_bracket":
+        try:
+            rate_options = list_named_bracket_rates(st.session_state["filing_status"])
+        except RpUiError as err:
+            st.error(str(err))
+            rate_options = []
+        current_rate = st.session_state.get("conversion_named_bracket_rate")
+        rate_index = rate_options.index(current_rate) if current_rate in rate_options else 0
+        st.selectbox(
+            "Target bracket rate",
+            options=rate_options,
+            index=rate_index,
+            format_func=lambda r: f"{r:.0%}",
+            key="conversion_named_bracket_rate",
+            help="Converts just enough each year to fill up to this bracket's own real dollar ceiling, for your filing status and that year.",
+        )
+    else:
+        st.number_input(
+            "Bracket ceiling or amount ($)",
+            key="conversion_bracket_ceiling_or_amount",
+            help=(
+                "For `fill_to_bracket`: the income ceiling in dollars to fill up to. "
+                "For `fixed_amount`: the flat dollar amount to convert each year."
+            ),
+        )
+
+    st.radio(
+        "Window",
+        options=["explicit", "auto_gap_year"],
+        format_func=lambda v: "Explicit plan years" if v == "explicit" else "Auto (gap between wages ending and RMD age)",
+        key="conversion_window_mode",
         help=(
-            "For `fill_to_bracket`: the income ceiling in dollars to fill up to. "
-            "For `fixed_amount`: the flat dollar amount to convert each year."
+            "`Explicit plan years` -- enter the start/end plan years yourself. `Auto` -- the engine "
+            "derives the window from when every household member's earned_income streams end and "
+            "each member's own RMD-eligibility age (the CFP \"Roth conversion window\" practice: "
+            "converting during the low-income gap before RMDs start shrinks the eventual mandatory "
+            "RMD and smooths lifetime tax brackets, rp-595). See the Instructions page's Roth "
+            "Conversion section."
         ),
     )
-    w1, w2 = st.columns(2)
-    _WINDOW_HELP = (
-        "The plan years (1 = the scenario's first plan year) during which this conversion "
-        "strategy is active -- outside this window, no conversions happen, regardless of strategy."
-    )
-    w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start", help=_WINDOW_HELP)
-    w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end", help=_WINDOW_HELP)
+    if st.session_state["conversion_window_mode"] == "explicit":
+        w1, w2 = st.columns(2)
+        _WINDOW_HELP = (
+            "The plan years (1 = the scenario's first plan year) during which this conversion "
+            "strategy is active -- outside this window, no conversions happen, regardless of strategy."
+        )
+        w1.number_input("Window start (plan year)", min_value=0, step=1, key="conversion_window_start", help=_WINDOW_HELP)
+        w2.number_input("Window end (plan year)", min_value=0, step=1, key="conversion_window_end", help=_WINDOW_HELP)
+    else:
+        st.info(
+            "The window opens the year after every household member's wages stop, and closes the "
+            "year before the earliest member's own RMD-eligibility age. If wages never end for a "
+            "member, or no such gap exists, no conversion will ever execute -- run a simulation to "
+            "see the actual resolved window for this household."
+        )
 
 st.subheader("HSA contribution (optional)")
 st.checkbox(
@@ -937,7 +1030,10 @@ def _build_body() -> dict:
                 "owner": st.session_state["member1_person_name"],
             },
         ],
-        "spending": {"annual_need_real": st.session_state["annual_need_real"]},
+        "spending": {
+            "annual_need_real": st.session_state["annual_need_real"],
+            "net_earned_income_against_spending": st.session_state["net_earned_income_against_spending"],
+        },
         "state": st.session_state["state"],
         "market_assumptions": {
             "equity_allocation": st.session_state["equity_allocation"],
@@ -991,8 +1087,21 @@ def _build_body() -> dict:
     if st.session_state["include_roth_conversion"]:
         body["roth_conversion"] = {
             "strategy": st.session_state["conversion_strategy"],
-            "bracket_ceiling_or_amount": st.session_state["conversion_bracket_ceiling_or_amount"],
-            "window": [st.session_state["conversion_window_start"], st.session_state["conversion_window_end"]],
+            "window_mode": st.session_state["conversion_window_mode"],
+            "window": (
+                [st.session_state["conversion_window_start"], st.session_state["conversion_window_end"]]
+                if st.session_state["conversion_window_mode"] == "explicit"
+                else None
+            ),
+            "ceiling_mode": st.session_state["conversion_ceiling_mode"],
+            "bracket_ceiling_or_amount": (
+                None
+                if st.session_state["conversion_ceiling_mode"] == "named_bracket"
+                else st.session_state["conversion_bracket_ceiling_or_amount"]
+            ),
+            "named_bracket_rate": (
+                st.session_state["conversion_named_bracket_rate"] if st.session_state["conversion_ceiling_mode"] == "named_bracket" else None
+            ),
         }
     if st.session_state["include_hsa_contribution"]:
         body["hsa_contribution"] = {"annual_amount": st.session_state["hsa_annual_amount"]}

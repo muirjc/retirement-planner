@@ -180,6 +180,13 @@ def list_comparison_axes() -> list[str]:
     return cast(dict, _json("GET", "/reference/comparison-axes"))["axes"]
 
 
+def list_named_bracket_rates(filing_status: str) -> list[float]:
+    """GET /reference/named-bracket-rates -- rp-0ff: live from 002's own
+    federal bracket tables, for the Roth conversion ceiling_mode=
+    "named_bracket" rate selector. Excludes the unbounded top bracket."""
+    return cast(dict, _json("GET", "/reference/named-bracket-rates", params={"filing_status": filing_status}))["rates"]
+
+
 # -- Simulations and comparisons ---------------------------------------------
 
 

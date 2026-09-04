@@ -16,6 +16,7 @@ from .models import (
     ConversionResult,
     EarningsTestRecreditResult,
     EarningsTestWithholdingResult,
+    GapWindowMemberInputs,
     HsaContributionResult,
     HsaEligibility,
     IncomeStreamAmountResult,
@@ -33,7 +34,7 @@ from .models import (
 )
 from .inherited_rmd import SINGLE_LIFE_EXPECTANCY_TABLE, compute_inherited_rmd
 from .plan_year import compute_plan_year_mechanics
-from .rmd import JOINT_LIFE_TABLE, RMD_START_AGE, UNIFORM_LIFETIME_TABLE, compute_rmd
+from .rmd import JOINT_LIFE_TABLE, RMD_START_AGE, UNIFORM_LIFETIME_TABLE, compute_rmd, first_rmd_tax_year
 from .roth_conversion import (
     CONVERSION_STRATEGIES,
     RothConversionFunction,
@@ -42,6 +43,7 @@ from .roth_conversion import (
     fixed_dollar_amount,
 )
 from .roth_conversion_ladder import ROTH_CONVERSION_SEASONING_YEARS, compute_roth_ladder_consumption
+from .roth_conversion_window import resolve_gap_window
 from .social_security_benefit import (
     compute_earnings_test_recredit,
     compute_earnings_test_withholding,
@@ -58,6 +60,7 @@ __all__ = [
     "ConversionResult",
     "EarningsTestRecreditResult",
     "EarningsTestWithholdingResult",
+    "GapWindowMemberInputs",
     "HsaContributionResult",
     "HsaEligibility",
     "INFLATION_RATE",
@@ -95,5 +98,7 @@ __all__ = [
     "compute_survivor_benefit",
     "compute_withdrawal_plan",
     "fill_to_bracket_ceiling",
+    "first_rmd_tax_year",
     "fixed_dollar_amount",
+    "resolve_gap_window",
 ]

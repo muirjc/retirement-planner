@@ -8,8 +8,10 @@ taxability) is genuine, not merely that these specific numbers are
 IRS-official (they now are).
 """
 
-from retirement_planner.tax import IncomeComponents
-from retirement_planner.tax.federal import compute_federal_tax
+import pytest
+
+from retirement_planner.tax import IncomeComponents, UnsupportedTaxYearError
+from retirement_planner.tax.federal import bracket_ceiling_for_rate, compute_federal_tax
 
 
 def test_federal_tax_is_genuine_progressive_bracket_math_mfj():
@@ -151,3 +153,66 @@ def test_bracket_breakdown_is_empty_when_taxable_income_is_zero():
     result = compute_federal_tax(income, [70, 70], "married_filing_jointly", 2026)
     assert result.taxable_income == 0.0
     assert result.bracket_breakdown == []
+
+
+# -- rp-nui: bracket_ceiling_for_rate() -- the real dollar ceiling for a
+# NAMED bracket rate, in the pre-standard-deduction basis
+# fill_to_bracket_ceiling()'s own `ceiling` parameter is compared against.
+# ---------------------------------------------------------------------------
+
+
+def test_bracket_ceiling_for_rate_adds_back_the_standard_deduction_mfj():
+    """The key architectural finding this function exists to handle:
+    BracketRow.income_up_to is stated in compute_federal_tax()'s own
+    POST-standard-deduction taxable_income basis, but
+    fill_to_bracket_ceiling() compares its `ceiling` argument against a
+    PRE-deduction established_taxable_income -- naively returning
+    income_up_to alone would under-fill by exactly the deduction amount."""
+    ceiling, _figures = bracket_ceiling_for_rate(0.22, "married_filing_jointly", 2026, [])
+    assert ceiling == 243_600.0  # 211,400 (22% row's income_up_to) + 32,200 (MFJ standard deduction)
+
+
+def test_bracket_ceiling_for_rate_single_filer():
+    ceiling, _figures = bracket_ceiling_for_rate(0.12, "single", 2026, [])
+    assert ceiling == 66_500.0  # 50,400 + 16,100 (single standard deduction)
+
+
+def test_bracket_ceiling_for_rate_crosses_the_age_65_standard_deduction_addition():
+    under_65_ceiling, _ = bracket_ceiling_for_rate(0.22, "married_filing_jointly", 2026, [60, 60])
+    one_at_65_ceiling, _ = bracket_ceiling_for_rate(0.22, "married_filing_jointly", 2026, [65, 60])
+    assert one_at_65_ceiling == under_65_ceiling + 1_650.0  # one filer's own age-65 addition
+
+
+def test_bracket_ceiling_for_rate_raises_on_a_rate_with_no_exact_match():
+    """No fuzzy/nearest-rate matching -- a mistyped rate fails loudly."""
+    with pytest.raises(ValueError, match="0.23"):
+        bracket_ceiling_for_rate(0.23, "married_filing_jointly", 2026, [])
+
+
+def test_bracket_ceiling_for_rate_raises_on_the_unbounded_top_bracket():
+    """37% is the top row (income_up_to=None) -- "ceiling of an unbounded
+    bracket" is not a finite number."""
+    with pytest.raises(ValueError, match="unbounded"):
+        bracket_ceiling_for_rate(0.37, "married_filing_jointly", 2026, [])
+
+
+def test_bracket_ceiling_for_rate_raises_unsupported_tax_year():
+    with pytest.raises(UnsupportedTaxYearError):
+        bracket_ceiling_for_rate(0.22, "married_filing_jointly", 1999, [])
+
+
+def test_bracket_ceiling_for_rate_figures_used_includes_brackets_and_standard_deduction():
+    _ceiling, figures = bracket_ceiling_for_rate(0.22, "married_filing_jointly", 2026, [])
+    figure_names = {f.name for f in figures}
+    assert figure_names == {"federal_brackets_mfj", "standard_deduction_mfj"}
+
+
+def test_bracket_ceiling_for_rate_does_not_change_compute_federal_tax_behavior():
+    """Regression for the _standard_deduction_for() extraction refactor --
+    compute_federal_tax()'s own output is unaffected by factoring its
+    standard-deduction computation out into a function shared with
+    bracket_ceiling_for_rate()."""
+    income = IncomeComponents(ordinary_income=150_000, social_security_gross_benefit=20_000)
+    result = compute_federal_tax(income, [50, 52], "married_filing_jointly", 2026)
+    assert result.federal_tax_owed == 19_080.0
+    assert result.standard_deduction_used == 32_200.0

@@ -628,11 +628,15 @@ rules in §5.5.
 ### 6.6 Roth conversion & withdrawal sequencing
 
 Two Roth conversion strategies ship: fill ordinary income up to a
-configured federal bracket ceiling each year, or convert a fixed dollar
-amount each year. Withdrawal order is modeled as a named, swappable
-sequence of account types (e.g., taxable → traditional → Roth) rather
-than one hardcoded order, so comparing sequencing strategies means
-comparing two data values, not two code paths.
+bracket ceiling each year, or convert a fixed dollar amount each year.
+The bracket-fill ceiling itself can be a manually-entered dollar figure,
+or auto-resolved from a named federal bracket rate (§6.6b); its window
+can be a manually-entered calendar-year range, or auto-derived from the
+household's own wage-income end ages and RMD eligibility (§6.6b).
+Withdrawal order is modeled as a named, swappable sequence of account
+types (e.g., taxable → traditional → Roth) rather than one hardcoded
+order, so comparing sequencing strategies means comparing two data
+values, not two code paths.
 
 **Bracket-fill sizing vs. Social Security taxability (26 U.S.C. §86,
 rp-8la)**: the bracket-fill strategy consults
@@ -716,6 +720,68 @@ amounts described in §6.3/§6.4 (`rp-yqf`: found, during this feature's
 own specification, to be reported but not yet actually deducted from
 projected balances at the time; fixed as a follow-on correction shortly
 after).
+
+### 6.6b Auto Roth conversion gap-window & named-bracket ceiling (rp-nui)
+
+Implements the CFP "Roth conversion window" / "tax bracket management"
+practice (Kitces et al.): the years between a household's wages stopping
+and its members' RMDs starting are a low-income window worth filling with
+Roth conversions, shrinking the eventual mandatory RMD and smoothing
+lifetime tax brackets, and avoiding the "retirement tax torpedo" (RMDs
+stacking on top of taxable Social Security once both apply
+simultaneously). RMDs themselves are never delayable by any means this
+tool models or that real law permits (26 U.S.C. §401(a)(9); a 25% excise
+tax applies to any shortfall) — this feature never attempts that. It only
+widens or narrows the window in which the engine's existing, unmodified
+`fill_to_bracket_ceiling()` bracket-fill strategy is allowed to run; the
+conversion amount each year is still sized entirely by that same,
+untouched function.
+
+**Auto window** (`RothConversionPlan.window_mode="auto_gap_year"`,
+`mechanics/roth_conversion_window.py`'s `resolve_gap_window()`): resolves
+one household-level `(start_year, end_year)` window (conversions in this
+engine execute against pooled, household-level account balances, never
+per-member, so the window itself is never per-member either):
+
+- `window_start` = the first tax year in which **every** household
+  member's wages have stopped (1 + the *latest* member's own last active-
+  wage tax year) — not the earliest member's own stop year. Opening the
+  window before every wage-earner has stopped would layer conversions on
+  top of still-active wages, since both are pooled into the same
+  established-ordinary-income total `fill_to_bracket_ceiling()` sizes
+  against — the wage-stacking guard.
+- `window_end` = the tax year before the **earliest** RMD-eligible
+  household member's own eligibility year, regardless of that member's
+  own share of the traditional balance being converted (a documented
+  simplification — `traditional_ownership_shares` is a comparison-layer
+  concept unavailable to this mechanics-layer pure function). Conservative:
+  errs toward closing the window early rather than late.
+- Resolves to no window at all (auto mode degrades to zero conversions,
+  the same as an unconfigured Roth conversion plan) when any member's
+  wages never end, or when no chronological gap exists between the
+  household's own wage-end and RMD-eligibility years.
+
+**Named-bracket ceiling** (`RothConversionPlan.ceiling_mode="named_bracket"`,
+`tax/federal.py`'s `bracket_ceiling_for_rate()`): resolves a target rate
+(e.g. 0.22, "fill to the top of the 22% bracket") to that year's actual
+dollar ceiling for the household's filing status, reading the same
+`_MFJ_BRACKETS`/`_SINGLE_BRACKETS` tables §6.1/§6.2 already cite. Because
+`fill_to_bracket_ceiling()`'s own `ceiling` parameter is compared against
+income established **before** the standard deduction is subtracted, while
+`BracketRow.income_up_to` is stated in compute_federal_tax()'s
+**post**-deduction basis, the resolved ceiling is `bracket_row.income_up_to
++ standard_deduction` — e.g. the 2026 MFJ 22% bracket resolves to
+$211,400 + $32,200 = $243,600, not the bare $211,400 bracket edge.
+
+**rp-8la/rp-8mw cross-link**: a household this auto-window rule targets —
+wages just stopped, Social Security not yet claimed — is exactly the
+population §6.6's own single-pass Social-Security-taxability note (above)
+flags as its approximation's worst case (pre-conversion provisional income
+below `threshold_2`, so a sized conversion can cross a taxability tier the
+single pass never re-solves against). This feature does not fix that
+simplification — a separate, already-settled decision — it exists so the
+interaction is explicit rather than silently compounded by pointing more
+scenarios at exactly the case that simplification approximates.
 
 ### 6.7 Comparison methodology (paired-draw)
 

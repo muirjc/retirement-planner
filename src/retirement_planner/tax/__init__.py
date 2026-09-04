@@ -8,7 +8,7 @@ IRMAA/NIIT extension.
 """
 
 from .early_withdrawal_penalty import EARLY_WITHDRAWAL_PENALTY_RATE, compute_early_withdrawal_penalty
-from .federal import compute_federal_tax
+from .federal import bracket_ceiling_for_rate, compute_federal_tax
 from .fica import (
     ADDITIONAL_MEDICARE_TAX_RATE,
     ADDITIONAL_MEDICARE_TAX_THRESHOLDS,
@@ -66,6 +66,7 @@ __all__ = [
     "StandardDeductionAmounts",
     "StateTaxResult",
     "UnsupportedTaxYearError",
+    "bracket_ceiling_for_rate",
     "compute_early_withdrawal_penalty",
     "compute_federal_tax",
     "compute_fica_tax",

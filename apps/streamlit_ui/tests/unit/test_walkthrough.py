@@ -62,6 +62,7 @@ def _detail() -> dict:
             "traditional_sequence_withdrawal": 0.0,
             "inherited_distribution": 0.0,
             "income_streams": 0.0,
+            "earned_income": 0.0,
             "roth_conversion_added": 0.0,
             "hsa_deduction": 0.0,
             "ordinary_income_total": 0.0,
@@ -82,16 +83,30 @@ def _detail() -> dict:
             "bracket_breakdown": [],
             "tax_owed": 0.0,  # FL-shaped: no state income tax at all
         },
+        "fica_tax_detail": {
+            "member_oasdi_tax": {},
+            "member_medicare_tax": {},
+            "additional_medicare_tax": 0.0,
+            "total_fica_tax": 0.0,
+        },
         "inherited_accounts": [],
     }
 
 
-def _story(plan_year: int, tax_year: int, unverified_figure_names: list[str] | None = None) -> dict:
+def _story(
+    plan_year: int,
+    tax_year: int,
+    unverified_figure_names: list[str] | None = None,
+    detail_overrides: dict | None = None,
+) -> dict:
+    detail = _detail()
+    if detail_overrides:
+        detail.update(detail_overrides)
     return {
         "plan_year": plan_year,
         "tax_year": tax_year,
         "member_ages": {"you": 69 + plan_year},
-        "detail": _detail(),
+        "detail": detail,
         "entries": [
             {
                 "driver_key": "baseline",
@@ -104,9 +119,13 @@ def _story(plan_year: int, tax_year: int, unverified_figure_names: list[str] | N
     }
 
 
-def _run_last_result(n_years: int, unverified_by_plan_year: dict[int, list[str]] | None = None) -> dict:
+def _run_last_result(
+    n_years: int,
+    unverified_by_plan_year: dict[int, list[str]] | None = None,
+    detail_overrides: dict | None = None,
+) -> dict:
     unverified_by_plan_year = unverified_by_plan_year or {}
-    stories = [_story(year, 2025 + year, unverified_by_plan_year.get(year)) for year in range(1, n_years + 1)]
+    stories = [_story(year, 2025 + year, unverified_by_plan_year.get(year), detail_overrides) for year in range(1, n_years + 1)]
     path_years = [_year_detail(year, 2025 + year) for year in range(1, n_years + 1)]
     return {
         "run": {"path_results": [{"years": path_years}]},
@@ -217,3 +236,83 @@ def test_computation_detail_expander_shows_no_state_income_tax_when_bracket_brea
     assert not at.exception
     caption_text = " ".join(c.value for c in at.caption)
     assert "No state income tax" in caption_text
+
+
+def test_inherited_account_ten_year_rule_deadline_shows_the_reason():
+    """rp-bm8.4: an inherited account force-distributed by the 10-year
+    rule renders both the account itself and why its distribution is the
+    full balance."""
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(
+        1,
+        detail_overrides={
+            "inherited_accounts": [
+                {
+                    "account_id": "traditional-6",
+                    "distribution": 513_000.0,
+                    "ending_balance": 0.0,
+                    "distribution_reason": "ten_year_rule_deadline",
+                    "rmd_divisor": None,
+                    "depletion_deadline_year": 2015,
+                }
+            ]
+        },
+    )
+    at.run()
+
+    assert not at.exception
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "Inherited accounts" in markdown_text
+    assert len(at.dataframe) == 2  # balance waterfall + inherited accounts
+    rows = at.dataframe[1].value
+    assert rows.iloc[0]["Account"] == "traditional-6"
+    assert "10-year rule" in rows.iloc[0]["Why"]
+
+
+def test_fica_section_shows_per_member_and_total_when_present():
+    """rp-bm8.4: earned income subject to FICA gets its own explained
+    section, separate from federal/state income tax."""
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(
+        1,
+        detail_overrides={
+            "income_composition": {
+                "rmd_drawn": 0.0,
+                "traditional_sequence_withdrawal": 0.0,
+                "inherited_distribution": 0.0,
+                "income_streams": 90_000.0,
+                "earned_income": 90_000.0,
+                "roth_conversion_added": 0.0,
+                "hsa_deduction": 0.0,
+                "ordinary_income_total": 90_000.0,
+                "social_security_gross": 0.0,
+                "taxable_social_security": 0.0,
+            },
+            "fica_tax_detail": {
+                "member_oasdi_tax": {"you": 5_580.0},
+                "member_medicare_tax": {"you": 1_305.0},
+                "additional_medicare_tax": 0.0,
+                "total_fica_tax": 6_885.0,
+            },
+        },
+    )
+    at.run()
+
+    assert not at.exception
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "FICA payroll tax" in markdown_text
+    caption_text = " ".join(c.value for c in at.caption)
+    assert "earned income" in caption_text.lower()
+    assert "$5,580.00" in caption_text
+    assert "$1,305.00" in caption_text
+    assert "$6,885.00" in markdown_text
+
+
+def test_fica_section_shows_placeholder_when_no_earned_income():
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)  # default fixture: 0 FICA
+    at.run()
+
+    assert not at.exception
+    caption_text = " ".join(c.value for c in at.caption)
+    assert "No FICA payroll tax" in caption_text

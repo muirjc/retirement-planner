@@ -489,8 +489,11 @@ def test_narrative_year_detail_reconciles_and_matches_federal_tax_owed(client):
             "income_composition",
             "federal_tax_detail",
             "state_tax_detail",
+            "fica_tax_detail",  # rp-bm8.4
             "inherited_accounts",
         }
+        assert detail["fica_tax_detail"]["total_fica_tax"] == year["fica_tax"]["total_fica_tax"]
+        assert "earned_income" in detail["income_composition"]
         for account in ("traditional", "roth", "taxable"):
             waterfall = detail["balance_waterfall"][account]
             reconciled = (

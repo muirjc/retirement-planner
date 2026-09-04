@@ -10,10 +10,10 @@ assembled into SimulationRun objects directly.
 from datetime import date
 
 from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting import build_narrative_for_run, build_year_stories, select_representative_path
 from retirement_planner.reporting.aggregation import unverified_figure_names
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
 from retirement_planner.simulation import PercentileBand, SimulationRun
 from retirement_planner.tax import FigureUsage
 
@@ -33,7 +33,7 @@ def _strategy(**overrides):
     return StrategyConfiguration(**base)
 
 
-def _project(household, accounts, strategy, spending_need=20_000, plan_to_age=76, ownership=None, state="FL"):
+def _project(household, accounts, strategy, spending_need=20_000, plan_to_age=76, ownership=None, state="FL", inherited_accounts=None):
     owner_shares = ownership or {member.person_name: 1.0 / len(household.members) for member in household.members}
     return run_plan_projection(
         household=household,
@@ -47,6 +47,7 @@ def _project(household, accounts, strategy, spending_need=20_000, plan_to_age=76
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=_RETURN_0PCT,
+        inherited_accounts=inherited_accounts or [],
     )
 
 
@@ -327,3 +328,97 @@ def test_unverified_figure_names_matches_the_shared_aggregation_helper():
 
     assert stories[0].unverified_figure_names == unverified_figure_names(projection.years[0].figures_used)
     assert stories[0].unverified_figure_names == ["dupe"]
+
+
+# -- rp-bm8.4: inherited-account distribution reasoning + earned income drivers --
+
+
+def test_inherited_distribution_driver_names_the_ten_year_rule_when_deadline_already_passed():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = InheritedAccountBalance(
+        account_id="traditional-6", balance=513_000.0, death_year=2005, decedent_age_at_death=67,
+        depletion_deadline_year=2015, account_type="traditional", decedent_was_taking_rmds=True,
+        beneficiary_classification="non_eligible_designated_beneficiary", beneficiary_person_name="you",
+    )
+    projection = _project(
+        household, AccountBalances(traditional=0, roth=0, taxable=1_000_000), strategy, inherited_accounts=[inherited]
+    )
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    entries = [e for e in stories[0].entries if e.driver_key == "inherited_distribution"]
+    assert len(entries) == 1
+    assert "10-year rule" in entries[0].explanation
+    assert "2015" in entries[0].explanation
+    assert "$513,000.00" in entries[0].explanation
+
+
+def test_inherited_distribution_driver_names_the_divisor_for_an_annual_rmd():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = InheritedAccountBalance(
+        account_id="inh-1", balance=200_000.0, death_year=2023, decedent_age_at_death=80,
+        depletion_deadline_year=2033, account_type="traditional", decedent_was_taking_rmds=True,
+        beneficiary_classification="non_eligible_designated_beneficiary", beneficiary_person_name="you",
+    )
+    projection = _project(
+        household, AccountBalances(traditional=0, roth=0, taxable=1_000_000), strategy, inherited_accounts=[inherited]
+    )
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    entries = [e for e in stories[0].entries if e.driver_key == "inherited_distribution"]
+    assert len(entries) == 1
+    assert "required minimum" in entries[0].explanation
+    assert "life-expectancy divisor" in entries[0].explanation
+
+
+def test_inherited_distribution_driver_fires_every_occurrence_not_just_the_first():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = InheritedAccountBalance(
+        account_id="inh-1", balance=200_000.0, death_year=2023, decedent_age_at_death=80,
+        depletion_deadline_year=2033, account_type="traditional", decedent_was_taking_rmds=True,
+        beneficiary_classification="non_eligible_designated_beneficiary", beneficiary_person_name="you",
+    )
+    projection = _project(
+        household, AccountBalances(traditional=0, roth=0, taxable=1_000_000), strategy, plan_to_age=78,
+        inherited_accounts=[inherited],
+    )
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    fire_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "inherited_distribution"]
+    assert fire_years == [s.plan_year for s in stories]  # every year, not just plan year 1
+
+
+def test_earned_income_start_and_stop_fire_on_their_own_transition_years():
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(
+            person_name="Alex", current_age=60, ss_claim_age=99, ss_annual_benefit=0,
+            income_streams=[IncomeStream(label="Salary", stream_type="earned_income", start_age=60, end_age=64, annual_amount=90_000.0, inflation_adjustment="fixed_nominal")],
+        )],
+    )
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    projection = _project(household, AccountBalances(traditional=200_000, roth=0, taxable=0), strategy, plan_to_age=67)
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    start_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "earned_income_start"]
+    stop_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "earned_income_stop"]
+    assert start_years == [1]
+    assert stop_years == [6]  # age 65, the year after end_age=64
+
+
+def test_earned_income_start_never_fires_for_a_household_with_no_earned_income():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=77)
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    driver_keys = {e.driver_key for s in stories for e in s.entries}
+    assert "earned_income_start" not in driver_keys
+    assert "earned_income_stop" not in driver_keys

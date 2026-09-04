@@ -637,6 +637,109 @@ def test_inherited_account_contributes_nothing_after_its_depletion_deadline():
     assert all(year.mechanics.withdrawal_plan.inherited_distribution_drawn == 0.0 for year in later_years)
 
 
+# -- rp-bm8.4: retains *why* each year's inherited-account distribution is
+# what it is (deep-computation-traceability follow-on to rp-bm8.3) --
+
+
+def test_inherited_account_reason_is_ten_year_rule_when_deadline_already_passed_before_plan_start():
+    """The exact combination the Walkthrough feature surfaced as
+    previously-invisible: a plan that starts YEARS after
+    depletion_deadline_year has already passed (not merely reaching it
+    mid-plan, which test_inherited_account_forces_full_balance_distribution_
+    in_deadline_year above already covers) -- the same
+    `tax_year >= depletion_deadline_year` "safety net" check fires
+    immediately in plan year 1."""
+    household = _single_member_household(current_age=64)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=1_000_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    # death_year=2005 -> depletion_deadline_year=2015, 11 years before this
+    # plan's own start_tax_year=2026.
+    inherited = _inherited_account(balance=513_000.0, death_year=2005, decedent_age_at_death=67, depletion_deadline_year=2015)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[inherited],
+        annual_spending_need=15_000,
+        state="NC",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.inherited_account_distributions["traditional-1"] == pytest.approx(513_000.0)
+    assert first_year.inherited_account_distribution_reason["traditional-1"] == "ten_year_rule_deadline"
+    assert "traditional-1" not in first_year.inherited_account_rmd_divisor
+    assert first_year.inherited_account_depletion_deadline_year["traditional-1"] == 2015
+
+
+def test_inherited_account_reason_is_annual_rmd_within_the_ten_year_window():
+    """Companion to the above: a genuine divisor-based partial RMD, still
+    within the 10-year window, is reason "annual_rmd" with a real divisor
+    retained."""
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=1_000_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = _inherited_account(balance=250_000.0, death_year=2023, decedent_age_at_death=80, depletion_deadline_year=2033)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[inherited],
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=56,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.inherited_account_distribution_reason["traditional-1"] == "annual_rmd"
+    assert first_year.inherited_account_rmd_divisor["traditional-1"] > 0.0
+    assert first_year.inherited_account_distributions["traditional-1"] == pytest.approx(
+        250_000.0 / first_year.inherited_account_rmd_divisor["traditional-1"]
+    )
+    assert first_year.inherited_account_depletion_deadline_year["traditional-1"] == 2033
+
+
+def test_inherited_account_reason_absent_once_account_already_fully_distributed():
+    """Once an account's balance hits 0 in an earlier year, the existing
+    loop `continue`s past it entirely -- confirms the three new fields
+    follow that same convention (no entry, not a 0.0/None placeholder)."""
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=1_000_000)
+    strategy = _strategy(claiming_ages={"you": 99})
+    inherited = _inherited_account(balance=5_000.0, death_year=2016, decedent_age_at_death=80, depletion_deadline_year=2026)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 0.0},
+        inherited_accounts=[inherited],
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=57,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    later_years = [year for year in result.years if year.tax_year > 2026]
+    assert len(later_years) == 2
+    assert all("traditional-1" not in year.inherited_account_distribution_reason for year in later_years)
+
+
 # -- 012-inherited-ira-rmd Polish (T026): regression parity for scenarios
 # with no inherited accounts, mirroring 011's own FR-009/SC-004 discipline --
 
@@ -1092,6 +1195,60 @@ def test_earned_income_stream_fica_is_funded_from_account_balances():
     assert with_earned_income.outcome.ending_balance < without_earned_income.outcome.ending_balance
     assert with_earned_income.outcome.cumulative_fica_tax_paid > 0.0
     assert without_earned_income.outcome.cumulative_fica_tax_paid == 0.0
+
+
+def test_member_earned_income_retained_and_matches_what_funded_fica():
+    """rp-bm8.4: PlanYearProjection.member_earned_income retains the exact
+    per-member dict _member_earned_income_amounts() already computes to
+    feed compute_fica_tax() -- previously discarded once FICA was
+    computed. 6.2% OASDI + 1.45% Medicare, both uncapped here since
+    $40,000 < the wage base."""
+    result = run_plan_projection(
+        household=_earned_income_household(40_000),
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.member_earned_income["you"] == pytest.approx(40_000.0)
+    assert first_year.fica_tax.member_oasdi_tax["you"] == pytest.approx(first_year.member_earned_income["you"] * 0.062)
+    assert first_year.fica_tax.member_medicare_tax["you"] == pytest.approx(first_year.member_earned_income["you"] * 0.0145)
+
+
+def test_member_earned_income_zero_for_pension_only_household():
+    """A pension-only household's member_income_stream_amounts is nonzero
+    but member_earned_income stays 0.0 -- confirms the two dicts really
+    are independently tracked (pension/annuity never counts as wages)."""
+    household = _single_member_household(current_age=63)
+    household.members[0].income_streams = [
+        IncomeStream(label="Pension", stream_type="pension", start_age=63, end_age=None, annual_amount=30_000, inflation_adjustment="cola_adjusted")
+    ]
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    first_year = result.years[0]
+    assert first_year.member_income_stream_amounts["you"] == pytest.approx(30_000.0)
+    assert first_year.member_earned_income["you"] == 0.0
+    assert first_year.fica_tax.total_fica_tax == 0.0
 
 
 def test_pension_and_annuity_streams_never_incur_fica():

@@ -6,10 +6,12 @@ PlanProjection objects built via run_plan_projection(), no synthetic
 dataclass construction.
 """
 
+import pytest
+
 from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
-from retirement_planner.mechanics import AccountBalances
+from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting.year_detail import build_year_computation_detail
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
 
 _RETURN_4PCT = DeterministicReturnAssumption(annual_real_return=0.04)
 
@@ -27,7 +29,7 @@ def _strategy(**overrides):
     return StrategyConfiguration(**base)
 
 
-def _project(household, accounts, strategy, spending_need=40_000, plan_to_age=80, state="FL", ownership=None):
+def _project(household, accounts, strategy, spending_need=40_000, plan_to_age=80, state="FL", ownership=None, inherited_accounts=None):
     owner_shares = ownership or {member.person_name: 1.0 / len(household.members) for member in household.members}
     return run_plan_projection(
         household=household,
@@ -41,6 +43,7 @@ def _project(household, accounts, strategy, spending_need=40_000, plan_to_age=80
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=_RETURN_4PCT,
+        inherited_accounts=inherited_accounts or [],
     )
 
 
@@ -167,3 +170,94 @@ def test_build_year_computation_detail_is_deterministic():
     first = build_year_computation_detail(projection.years[1])
     second = build_year_computation_detail(projection.years[1])
     assert first == second
+
+
+# -- rp-bm8.4: inherited-account reasoning + earned income/FICA transparency --
+
+
+def test_inherited_account_detail_includes_reason_and_deadline_for_a_forced_distribution():
+    household = _rmd_onset_household()
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    inherited = InheritedAccountBalance(
+        account_id="traditional-6", balance=513_000.0, death_year=2005, decedent_age_at_death=67,
+        depletion_deadline_year=2015, account_type="traditional", decedent_was_taking_rmds=True,
+        beneficiary_classification="non_eligible_designated_beneficiary", beneficiary_person_name="Alex",
+    )
+    projection = _project(
+        household, AccountBalances(traditional=700_000, roth=0, taxable=100_000), strategy, inherited_accounts=[inherited]
+    )
+
+    detail = build_year_computation_detail(projection.years[0])
+    assert len(detail.inherited_accounts) == 1
+    account = detail.inherited_accounts[0]
+    assert account.account_id == "traditional-6"
+    assert account.distribution == pytest.approx(513_000.0)
+    assert account.distribution_reason == "ten_year_rule_deadline"
+    assert account.rmd_divisor is None
+    assert account.depletion_deadline_year == 2015
+
+
+def test_inherited_account_detail_includes_divisor_for_an_annual_rmd():
+    household = _rmd_onset_household()
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    inherited = InheritedAccountBalance(
+        account_id="inh-1", balance=200_000.0, death_year=2023, decedent_age_at_death=80,
+        depletion_deadline_year=2033, account_type="traditional", decedent_was_taking_rmds=True,
+        beneficiary_classification="non_eligible_designated_beneficiary", beneficiary_person_name="Alex",
+    )
+    projection = _project(
+        household, AccountBalances(traditional=700_000, roth=0, taxable=100_000), strategy, inherited_accounts=[inherited]
+    )
+
+    detail = build_year_computation_detail(projection.years[0])
+    account = detail.inherited_accounts[0]
+    assert account.distribution_reason == "annual_rmd"
+    assert account.rmd_divisor > 0.0
+    assert account.distribution == pytest.approx(200_000.0 / account.rmd_divisor)
+
+
+def test_income_composition_earned_income_matches_member_earned_income():
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(
+            person_name="Alex", current_age=60, ss_claim_age=99, ss_annual_benefit=0,
+            income_streams=[IncomeStream(label="Salary", stream_type="earned_income", start_age=60, end_age=None, annual_amount=90_000.0, inflation_adjustment="fixed_nominal")],
+        )],
+    )
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    projection = _project(household, AccountBalances(traditional=200_000, roth=0, taxable=0), strategy, plan_to_age=61)
+
+    year = projection.years[0]
+    composition = build_year_computation_detail(year).income_composition
+    assert composition.earned_income == sum(year.member_earned_income.values())
+    assert composition.earned_income == pytest.approx(90_000.0)
+    assert composition.earned_income <= composition.income_streams
+
+
+def test_fica_tax_detail_matches_fica_tax_result():
+    household = Household(
+        filing_status="single",
+        members=[HouseholdMember(
+            person_name="Alex", current_age=60, ss_claim_age=99, ss_annual_benefit=0,
+            income_streams=[IncomeStream(label="Salary", stream_type="earned_income", start_age=60, end_age=None, annual_amount=90_000.0, inflation_adjustment="fixed_nominal")],
+        )],
+    )
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    projection = _project(household, AccountBalances(traditional=200_000, roth=0, taxable=0), strategy, plan_to_age=61)
+
+    year = projection.years[0]
+    fica_detail = build_year_computation_detail(year).fica_tax_detail
+    assert fica_detail.member_oasdi_tax == year.fica_tax.member_oasdi_tax
+    assert fica_detail.member_medicare_tax == year.fica_tax.member_medicare_tax
+    assert fica_detail.additional_medicare_tax == year.fica_tax.additional_medicare_tax
+    assert fica_detail.total_fica_tax == year.fica_tax.total_fica_tax
+    assert fica_detail.total_fica_tax > 0.0
+
+
+def test_fica_tax_detail_is_zero_for_a_household_with_no_earned_income():
+    household = _rmd_onset_household()
+    strategy = _strategy(claiming_ages={"Alex": 99})
+    projection = _project(household, AccountBalances(traditional=700_000, roth=0, taxable=100_000), strategy)
+
+    fica_detail = build_year_computation_detail(projection.years[0]).fica_tax_detail
+    assert fica_detail.total_fica_tax == 0.0

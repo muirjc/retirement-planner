@@ -281,6 +281,88 @@ def _shortfall_entries(year: PlanYearProjection) -> list[NarrativeEntry]:
     ]
 
 
+def _inherited_distribution_entries(year: PlanYearProjection) -> list[NarrativeEntry]:
+    """rp-bm8.4: per inherited account, every occurrence (like
+    _shortfall_entries()/_roth_conversion_entries() -- not just a first
+    transition, since a genuine annual RMD recurs every year and each
+    occurrence is worth narrating). Wording branches on
+    inherited_account_distribution_reason (research.md for this bead:
+    comparison/projection.py's own tax_year >= depletion_deadline_year
+    "safety net" branch that force-distributes the entire remaining
+    balance, vs. a genuine compute_inherited_rmd() divisor-based amount)."""
+    entries = []
+    for account_id, distribution in year.inherited_account_distributions.items():
+        if distribution <= 0.0:
+            continue
+        reason = year.inherited_account_distribution_reason.get(account_id)
+        if reason == "ten_year_rule_deadline":
+            deadline_year = year.inherited_account_depletion_deadline_year.get(account_id)
+            entries.append(
+                NarrativeEntry(
+                    driver_key="inherited_distribution",
+                    label="Inherited account fully distributed",
+                    explanation=(
+                        f"An inherited account ({account_id}) was fully distributed, {_format_currency(distribution)} -- "
+                        f"the IRS's 10-year rule required the entire balance be withdrawn by the end of {deadline_year}."
+                    ),
+                    amounts={"distribution": distribution},
+                )
+            )
+        else:
+            divisor = year.inherited_account_rmd_divisor.get(account_id)
+            explanation = f"An inherited account ({account_id}) distributed its required minimum, {_format_currency(distribution)}"
+            explanation += f", based on a life-expectancy divisor of {divisor:.1f}." if divisor else "."
+            entries.append(
+                NarrativeEntry(
+                    driver_key="inherited_distribution",
+                    label="Inherited account distribution",
+                    explanation=explanation,
+                    amounts={"distribution": distribution},
+                )
+            )
+    return entries
+
+
+def _earned_income_entries(
+    year: PlanYearProjection, prior_year: PlanYearProjection | None, household: Household
+) -> list[NarrativeEntry]:
+    """rp-bm8.4: per member, bidirectional transition detection -- unlike
+    RMD start/SS claiming (which only ever start under this engine's
+    rules), earned income realistically starts AND stops (e.g. phased
+    retirement), so both 0->nonzero and nonzero->0 are detected. Iterates
+    household.members (not year.member_earned_income's own dict, and never
+    a set) for a stable, deterministic order across repeated calls
+    (FR-006). Plan year 1's "prior" defaults to an all-zero baseline
+    (spec.md Edge Cases), same as every other per-member driver."""
+    prior_earned_income = prior_year.member_earned_income if prior_year is not None else {}
+    entries = []
+    for member in household.members:
+        current = year.member_earned_income.get(member.person_name, 0.0)
+        prior = prior_earned_income.get(member.person_name, 0.0)
+        if current > 0.0 and prior == 0.0:
+            entries.append(
+                NarrativeEntry(
+                    driver_key="earned_income_start",
+                    label="Earned income began",
+                    explanation=(
+                        f"{member.person_name} began earning wages, adding {_format_currency(current)} to taxable "
+                        "income (plus FICA payroll tax)."
+                    ),
+                    amounts={"earned_income": current},
+                )
+            )
+        elif current == 0.0 and prior > 0.0:
+            entries.append(
+                NarrativeEntry(
+                    driver_key="earned_income_stop",
+                    label="Earned income stopped",
+                    explanation=f"{member.person_name} stopped earning wages.",
+                    amounts={"prior_earned_income": prior},
+                )
+            )
+    return entries
+
+
 _BASELINE_ENTRY = NarrativeEntry(
     driver_key="baseline",
     label="No notable change",
@@ -305,7 +387,9 @@ def build_year_stories(projection: PlanProjection, household: Household, referen
     for year in projection.years:
         entries: list[NarrativeEntry] = [
             *_rmd_start_entries(year, prior_year),
+            *_inherited_distribution_entries(year),
             *_ss_claiming_entries(year, prior_year),
+            *_earned_income_entries(year, prior_year, household),
             *_roth_conversion_entries(year),
             *_withdrawal_source_change_entries(year, prior_year, withdrawal_order),
             *_tax_change_entries(year, prior_year),

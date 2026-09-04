@@ -116,6 +116,16 @@ class PlanYearProjection:
     pension/annuity/earned-income stream that member has configured --
     0.0 for a member with none configured, or none active this year,
     never omitted. Mirrors member_social_security_benefits."""
+    member_earned_income: dict[str, float] = field(default_factory=dict)
+    """rp-bm8.4: person_name -> that member's own summed stream_type ==
+    "earned_income" amount this year only (022-fica-payroll-tax's own
+    _member_earned_income_amounts(), independently filtered/recomputed
+    from member_income_stream_amounts above, not derived from it -- this
+    is the exact dict that already feeds compute_fica_tax() and the SS
+    earnings test, previously discarded afterward). 0.0 for a member with
+    no earned_income stream active this year, never omitted. A subset of
+    (never larger than) that member's own member_income_stream_amounts
+    entry."""
     inherited_account_balances: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own ending balance this
     year, snapshotted from InheritedAccountBalance.balance (012/013's own
@@ -123,6 +133,29 @@ class PlanYearProjection:
     inherited_account_distributions: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own distribution amount
     this year."""
+    inherited_account_distribution_reason: dict[str, Literal["annual_rmd", "no_rmd_required_yet", "ten_year_rule_deadline"]] = field(
+        default_factory=dict
+    )
+    """rp-bm8.4: account_id -> which branch of run_plan_projection()'s own
+    inherited-account loop produced this year's distribution amount --
+    "ten_year_rule_deadline" when tax_year >= depletion_deadline_year forced
+    the entire remaining balance out; otherwise "annual_rmd" when
+    compute_inherited_rmd() returned a positive required_amount, or
+    "no_rmd_required_yet" when it returned 0.0 (the real
+    owner_died_before_rbd / pre-RBD-spouse-EDB code paths in
+    inherited_rmd.py). Present for every account_id that also has an entry
+    in inherited_account_distributions this year -- previously computed by
+    the existing branch, previously discarded once distribution was known."""
+    inherited_account_rmd_divisor: dict[str, float] = field(default_factory=dict)
+    """rp-bm8.4: account_id -> the divisor compute_inherited_rmd() actually
+    used this year -- present only when
+    inherited_account_distribution_reason[account_id] == "annual_rmd"."""
+    inherited_account_depletion_deadline_year: dict[str, int] = field(default_factory=dict)
+    """rp-bm8.4: account_id -> that account's own (already-stored, static)
+    InheritedAccountBalance.depletion_deadline_year -- present for every
+    account_id that also has an entry in inherited_account_distribution_reason,
+    so a reader can see how close to (or how far past) the 10-year deadline
+    this year's distribution is, whichever reason produced it."""
     filing_status: Literal["single", "married_filing_jointly"] | None = None
     """018-survivor-scenario-projection: the EFFECTIVE filing status this
     year's federal_tax/state_tax/irmaa/niit were actually computed with --

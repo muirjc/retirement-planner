@@ -228,6 +228,15 @@ regulation age of majority for the minor-child EDB -> 10-year-rule
 transition (Pub. 590-B (2025) p.10's "attainment of majority") -- not a
 state's own age-of-majority law."""
 
+_SECURE_ACT_EFFECTIVE_YEAR = 2020
+"""rp-bdb: the SECURE Act's 10-year rule (and the whole EDB/non-EDB
+beneficiary-classification scheme it created) applies only to an owner who
+died on or after this year -- Pub. L. 116-94 §401, effective for deaths on
+or after 2020-01-01. Mirrors mechanics/inherited_rmd.py's own same-named,
+same-value constant -- that module independently re-derives this same
+death_year check for its own annual-RMD computation; this one governs only
+whether a forced-depletion deadline exists at all."""
+
 _NO_FORCED_DEPLETION_DEADLINE_YEARS = 200
 """013-inherited-ira-edge-cases research.md §6: added to death_year for a
 true EDB (spouse, or non-spouse who is not a minor child) -- a sentinel
@@ -247,13 +256,18 @@ def _inherited_accounts(scenario: Scenario, reference_tax_year: int) -> list[Inh
     non-None account_id/owner -- validate()'s own guarantee (the two
     blocking rules in scenario-api.md, 013 research.md §8).
 
-    depletion_deadline_year (013 research.md §5, §6): death_year + 10 for
-    a non-eligible designated beneficiary (unchanged from 012);
+    depletion_deadline_year (013 research.md §5, §6; rp-bdb): death_year + 10
+    for a non-eligible designated beneficiary (unchanged from 012);
     majority_year + 10 for a minor-child EDB, where majority_year is
     computed once here from the beneficiary's own current_age and
     reference_tax_year (the same age-anchoring arithmetic
     comparison/projection.py's own member_age_in_tax_year() uses); the
-    "effectively never" sentinel for any other EDB."""
+    "effectively never" sentinel for any other EDB -- and, since rp-bdb,
+    for *any* classification when death_year predates the SECURE Act's
+    2020 effective year, since the 10-year rule (and the whole EDB/
+    non-EDB classification scheme itself) doesn't apply to that death at
+    all -- it's grandfathered under the pre-Act stretch rules regardless
+    of what beneficiary_classification the scenario recorded."""
     member_current_age = {member.person_name: member.current_age for member in scenario.household.members}
     result = []
     for account in scenario.accounts:
@@ -262,7 +276,14 @@ def _inherited_accounts(scenario: Scenario, reference_tax_year: int) -> list[Inh
         details = account.inherited
         is_edb = details.beneficiary_classification != "non_eligible_designated_beneficiary"
         is_minor_child = details.beneficiary_relationship == "minor_child" and details.beneficiary_classification == "eligible_designated_beneficiary_other"
-        if not is_edb:
+        if details.death_year < _SECURE_ACT_EFFECTIVE_YEAR:
+            # rp-bdb: grandfathered under the pre-Act stretch rules -- no
+            # forced-depletion deadline at all, regardless of
+            # beneficiary_classification (compute_inherited_rmd() itself
+            # handles the pre-Act annual-RMD computation via this same
+            # death_year check).
+            depletion_deadline_year = details.death_year + _NO_FORCED_DEPLETION_DEADLINE_YEARS
+        elif not is_edb:
             depletion_deadline_year = details.death_year + 10
         elif is_minor_child:
             birth_year = reference_tax_year - member_current_age[account.owner]

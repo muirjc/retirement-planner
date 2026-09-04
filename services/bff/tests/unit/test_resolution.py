@@ -215,6 +215,48 @@ def test_inherited_accounts_derived_with_stable_ids_and_deadline(tmp_path):
     assert inherited.depletion_deadline_year == 2033
 
 
+def test_inherited_account_pre_secure_act_death_has_no_forced_depletion_deadline(tmp_path):
+    """rp-bdb: death_year < 2020 is grandfathered under the pre-Act rules
+    -- no forced-depletion deadline at all, regardless of what
+    beneficiary_classification the scenario recorded (here, still
+    "non_eligible_designated_beneficiary", which post-Act would compute
+    death_year + 10 = 2017, i.e. already years before this plan's own
+    reference_tax_year=2026)."""
+    scenario = _scenario()
+    scenario.accounts.append(
+        Account(
+            account_type="traditional",
+            balance=250_000,
+            owner="you",
+            account_id="inherited-1",
+            inherited=InheritedIraDetails(
+                death_year=2007,
+                decedent_age_at_death=67,
+                decedent_was_taking_rmds=True,
+                beneficiary_relationship="other_individual",
+                beneficiary_classification="non_eligible_designated_beneficiary",
+            ),
+        )
+    )
+    save_scenario(scenario, scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case",
+        withdrawal_strategy=None,
+        state=None,
+        plan_to_age=None,
+        n_paths=None,
+        seed=None,
+        reference_tax_year=2026,
+        scenarios_dir=tmp_path,
+    )
+
+    inherited = context.inherited_accounts[0]
+    assert inherited.death_year == 2007
+    assert inherited.depletion_deadline_year > 2100  # far-future sentinel, not death_year + 10 (2017)
+
+
 def test_no_inherited_accounts_yields_empty_list(tmp_path):
     save_scenario(_scenario(), scenarios_dir=tmp_path)
     from rp_bff.resolution import resolve_run_context

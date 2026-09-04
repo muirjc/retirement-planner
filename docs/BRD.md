@@ -295,6 +295,21 @@ Covers the 10-year rule and its exceptions, per `mechanics/inherited_rmd.py`
   the original owner would have reached their own RBD.
 - **Trust or entity beneficiary**: not modeled — caught by a blocking
   validation flag rather than silently computed with the wrong rule.
+- **Pre-SECURE-Act death (before 2020)** (`rp-bdb`): the 10-year rule, and
+  the EDB/non-EDB beneficiary-classification scheme itself, are SECURE Act
+  creations (Pub. L. 116-94 §401) that apply only to an owner who died on
+  or after January 1, 2020. An account inherited before that date is
+  grandfathered under the pre-Act rules regardless of what
+  `beneficiary_classification` the scenario records: no forced-depletion
+  deadline at all, and no "no annual RMD required" pre-RBD carve-out
+  (itself also a SECURE Act creation) — instead, the beneficiary takes the
+  classic annual stretch distribution over their own life expectancy
+  (decremented by one each year) for the life of the plan. The
+  pre-existing "longer of beneficiary's or owner's remaining life
+  expectancy" post-RBD rule (Treas. Reg. §1.401(a)(9)-5) predates the Act
+  and is unaffected by this carve-out. This project does not model the
+  pre-Act 5-year-rule alternative some pre-RBD beneficiaries could
+  instead elect — life-expectancy stretch is assumed throughout.
 
 ## 6. Financial Methodology (the math)
 

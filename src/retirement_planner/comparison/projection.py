@@ -689,11 +689,21 @@ def run_plan_projection(
         # this year's growth (step 7) has been applied, since that's this
         # year's true ending balance.
         inherited_account_distributions: dict[str, float] = {}
+        # rp-bm8.4: retains *why* each distribution amount is what it is --
+        # previously this loop computed exactly this information (which
+        # branch fired, the divisor used) and discarded it the moment
+        # `distribution` was known, the same "computed correctly, then
+        # thrown away" pattern rp-bm8.3 already fixed for tax brackets.
+        inherited_account_distribution_reason: dict[str, Literal["annual_rmd", "no_rmd_required_yet", "ten_year_rule_deadline"]] = {}
+        inherited_account_rmd_divisor: dict[str, float] = {}
+        inherited_account_depletion_deadline_year: dict[str, int] = {}
         for inherited_account in inherited_accounts:
             if inherited_account.balance <= 0:
                 continue
+            inherited_account_depletion_deadline_year[inherited_account.account_id] = inherited_account.depletion_deadline_year
             if tax_year >= inherited_account.depletion_deadline_year:
                 distribution = inherited_account.balance
+                inherited_account_distribution_reason[inherited_account.account_id] = "ten_year_rule_deadline"
             else:
                 inherited_result = compute_inherited_rmd(
                     inherited_balance=inherited_account.balance,
@@ -716,6 +726,12 @@ def run_plan_projection(
                 )
                 distribution = min(inherited_result.required_amount, inherited_account.balance)
                 inherited_rmd_figures_used.extend(inherited_result.figures_used)
+                if inherited_result.required_amount > 0:
+                    inherited_account_distribution_reason[inherited_account.account_id] = "annual_rmd"
+                    if inherited_result.divisor is not None:
+                        inherited_account_rmd_divisor[inherited_account.account_id] = inherited_result.divisor
+                else:
+                    inherited_account_distribution_reason[inherited_account.account_id] = "no_rmd_required_yet"
             inherited_account.balance -= distribution
             inherited_distribution_total += distribution
             inherited_account_distributions[inherited_account.account_id] = distribution
@@ -955,8 +971,12 @@ def run_plan_projection(
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
                 member_income_stream_amounts=member_income_streams,
+                member_earned_income=member_earned_income,
                 inherited_account_balances=inherited_account_balances,
                 inherited_account_distributions=inherited_account_distributions,
+                inherited_account_distribution_reason=inherited_account_distribution_reason,
+                inherited_account_rmd_divisor=inherited_account_rmd_divisor,
+                inherited_account_depletion_deadline_year=inherited_account_depletion_deadline_year,
                 filing_status=effective_filing_status,
                 effective_spending_need=effective_spending_need,
                 unseasoned_roth_withdrawal=ladder_result.unseasoned_amount_flagged,

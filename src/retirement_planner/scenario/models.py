@@ -202,6 +202,18 @@ class SpendingProfile:
     """
 
     annual_need_real: float
+    net_earned_income_against_spending: bool = False
+    """rp-595: when True, each plan year's discretionary (non-RMD)
+    withdrawal draw is reduced by that year's household earned_income
+    total, floored at 0 -- graduates the "earned_income double-counting
+    trap" (docs/BRD.md §6.2d, rp-uaf) from a documentation-only warning
+    to a real engine option. Scope: earned_income streams only, never
+    pension/annuity/Social Security (a deliberate non-goal, avoids scope
+    creep). Does NOT reduce the mandatory RMD draw itself --
+    compute_withdrawal_plan()'s rmd_drawn is computed independently of
+    spending_need (withdrawal_sequencing.py). Defaults to False,
+    reproducing every existing scenario's exact current output
+    unchanged."""
 
 
 @dataclass
@@ -212,8 +224,26 @@ class RothConversionPlan:
     """
 
     strategy: str
-    bracket_ceiling_or_amount: float
-    window: tuple[int, int]
+    window_mode: Literal["explicit", "auto_gap_year"] = "explicit"
+    window: tuple[int, int] | None = None
+    """Required (non-None) when window_mode == "explicit" -- unchanged
+    meaning/shape from every scenario predating rp-595. Ignored when
+    window_mode == "auto_gap_year": the engine derives the window from
+    household earned_income end ages + RMD start age
+    (mechanics.roth_conversion_window.resolve_gap_window(), rp-nui)."""
+    ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount"
+    bracket_ceiling_or_amount: float | None = None
+    """Required when ceiling_mode == "dollar_amount", or unconditionally
+    when strategy == "fixed_amount" (fixed_dollar_amount() always reads
+    this as the flat dollar amount, regardless of ceiling_mode -- ceiling
+    mode only ever governs fill_to_bracket's own ceiling). Ignored when
+    ceiling_mode == "named_bracket"."""
+    named_bracket_rate: float | None = None
+    """Required when ceiling_mode == "named_bracket": a marginal rate
+    (e.g. 0.22) that must exactly match one row's `rate` in
+    tax.federal._MFJ_BRACKETS/_SINGLE_BRACKETS for the household's filing
+    status (tax.federal.bracket_ceiling_for_rate() raises ValueError on
+    no exact match -- no fuzzy nearest-rate resolution)."""
 
 
 @dataclass

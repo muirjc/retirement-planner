@@ -42,6 +42,7 @@ from .models import (
     BracketRow,
     BracketTable,
     FederalTaxResult,
+    FigureUsage,
     FilingStatus,
     IncomeComponents,
     SourcedFigure,
@@ -125,6 +126,26 @@ _STANDARD_DEDUCTIONS: dict[FilingStatus, SourcedFigure[StandardDeductionAmounts]
 }
 
 
+def _standard_deduction_for(
+    filing_status: FilingStatus,
+    tax_year: int,
+    filer_ages: list[int],
+) -> tuple[float, FigureUsage]:
+    """rp-nui: factored out of compute_federal_tax() below so
+    bracket_ceiling_for_rate() can share the exact same standard-deduction
+    computation rather than duplicating it -- base + the age-65 addition
+    (26 U.S.C. §63(f)) once per qualifying filer. Behavior is byte-identical
+    to what compute_federal_tax() computed inline before this refactor.
+    Raises UnsupportedTaxYearError if tax_year has no schedule entry.
+    """
+    deduction_figure = _STANDARD_DEDUCTIONS[filing_status]
+    deduction_amounts = deduction_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
+    standard_deduction = deduction_amounts.base + sum(
+        deduction_amounts.additional_per_filer_65_plus for age in filer_ages if age >= _AGE_65_THRESHOLD
+    )
+    return standard_deduction, deduction_figure.usage_for_year(tax_year)
+
+
 def compute_federal_tax(
     income: IncomeComponents,
     filer_ages: list[int],
@@ -147,12 +168,8 @@ def compute_federal_tax(
     brackets = bracket_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
     figures_used = [*figures_used, bracket_figure.usage_for_year(tax_year)]
 
-    deduction_figure = _STANDARD_DEDUCTIONS[filing_status]
-    deduction_amounts = deduction_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
-    figures_used = [*figures_used, deduction_figure.usage_for_year(tax_year)]
-    standard_deduction = deduction_amounts.base + sum(
-        deduction_amounts.additional_per_filer_65_plus for age in filer_ages if age >= _AGE_65_THRESHOLD
-    )
+    standard_deduction, deduction_usage = _standard_deduction_for(filing_status, tax_year, filer_ages)
+    figures_used = [*figures_used, deduction_usage]
 
     # max(0, ...): the standard deduction shields income, it never turns
     # into a negative taxable-income (let alone a refundable) figure.
@@ -167,3 +184,65 @@ def compute_federal_tax(
         standard_deduction_used=standard_deduction,
         bracket_breakdown=bracket_breakdown,
     )
+
+
+def bracket_ceiling_for_rate(
+    rate: float,
+    filing_status: FilingStatus,
+    tax_year: int,
+    filer_ages: list[int],
+) -> tuple[float, list[FigureUsage]]:
+    """rp-nui: the real dollar ceiling for a NAMED federal bracket
+    rate (e.g. 0.22 -> "fill to the top of the 22% bracket"), in the same
+    basis mechanics.roth_conversion.fill_to_bracket_ceiling()'s own
+    `ceiling` parameter is compared against --
+    ordinary_income + taxable_social_security, established BEFORE the
+    standard deduction is subtracted.
+
+    _MFJ_BRACKETS/_SINGLE_BRACKETS' own `income_up_to` values are stated
+    in compute_federal_tax()'s POST-deduction `taxable_income` basis
+    (federal.py:159 above: taxable_income = ordinary_income +
+    taxable_social_security - standard_deduction). Naively returning
+    income_up_to alone would under-fill every named-bracket conversion by
+    exactly the standard deduction (~$32,200 MFJ 2026) -- so this function
+    adds the standard deduction back: bracket_row.income_up_to +
+    standard_deduction (via the same _standard_deduction_for() helper
+    compute_federal_tax() itself uses, so both stay in lockstep by
+    construction, not by convention).
+
+    Raises ValueError if no row's `rate` field exactly matches `rate`
+    (e.g. 0.23 -- no fuzzy/nearest-rate matching, a mistyped rate fails
+    loudly) or if the matching row is the unbounded top bracket
+    (income_up_to=None -- "ceiling of an unbounded bracket" is not a
+    finite number). Raises UnsupportedTaxYearError if tax_year has no
+    bracket-table/standard-deduction entry (mirrors compute_federal_tax()).
+    """
+    bracket_figure = _FEDERAL_BRACKETS[filing_status]
+    brackets = bracket_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
+    bracket_usage = bracket_figure.usage_for_year(tax_year)
+
+    matching_row = next((row for row in brackets if row.rate == rate), None)
+    if matching_row is None:
+        raise ValueError(f"no {filing_status!r} bracket for tax_year {tax_year} has rate {rate!r}")
+    if matching_row.income_up_to is None:
+        raise ValueError(f"rate {rate!r} is the unbounded top bracket for {filing_status!r} in {tax_year} -- no finite ceiling exists")
+
+    standard_deduction, deduction_usage = _standard_deduction_for(filing_status, tax_year, filer_ages)  # raises UnsupportedTaxYearError
+    ceiling = matching_row.income_up_to + standard_deduction
+    return ceiling, [bracket_usage, deduction_usage]
+
+
+def available_bracket_ceiling_rates(filing_status: FilingStatus, tax_year: int) -> list[float]:
+    """rp-0ff: every rate bracket_ceiling_for_rate() can actually resolve
+    to a finite ceiling for -- every row in that year's bracket table
+    EXCEPT the unbounded top row (income_up_to=None), in table order.
+    Read live from the same _FEDERAL_BRACKETS registry
+    bracket_ceiling_for_rate() itself consults (never a separately
+    maintained list) -- a UI-reference helper, not itself the validation
+    authority: bracket_ceiling_for_rate() (and, over the BFF,
+    resolution.py's own eager check) still rejects any rate on its own
+    merits regardless of what this function ever returned. Raises
+    UnsupportedTaxYearError if tax_year has no bracket-table entry."""
+    bracket_figure = _FEDERAL_BRACKETS[filing_status]
+    brackets = bracket_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
+    return [row.rate for row in brackets if row.income_up_to is not None]

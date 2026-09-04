@@ -16,6 +16,7 @@ from rp_ui.api_client import (
     export_comparison_csv,
     list_comparison_axes,
     list_conversion_strategies,
+    list_named_bracket_rates,
     list_scenarios,
     list_states,
     list_withdrawal_strategies,
@@ -210,15 +211,64 @@ for i in range(count):
             key=f"compare_candidate_{i}_strategy",
             help=("`fill_to_bracket` -- fills up to the ceiling below. `fixed_amount` -- converts that flat amount every year. See the Instructions page's Roth Conversion section."),
         )
-        cc3.number_input(
-            "Bracket ceiling/amount ($)",
-            key=f"compare_candidate_{i}_bracket",
-            help="For `fill_to_bracket`: the income ceiling to fill up to. For `fixed_amount`: the flat dollar amount to convert each year.",
+        candidate_strategy = st.session_state.get(f"compare_candidate_{i}_strategy") or ""
+        ceiling_mode_key = f"compare_candidate_{i}_ceiling_mode"
+        window_mode_key = f"compare_candidate_{i}_window_mode"
+
+        # rp-0ff: ceiling_mode/window_mode only make sense for fill_to_bracket
+        # -- mirrors 1_Scenarios.py's own identical fixed_amount-forces-
+        # dollar_amount treatment.
+        if candidate_strategy == "fill_to_bracket":
+            cc3.radio(
+                "Ceiling",
+                options=["dollar_amount", "named_bracket"],
+                format_func=lambda v: "Dollar amount" if v == "dollar_amount" else "Named bracket",
+                key=ceiling_mode_key,
+                help="`Named bracket` -- pick a target marginal rate; the engine looks up that year's real dollar ceiling (rp-595).",
+            )
+        else:
+            st.session_state[ceiling_mode_key] = "dollar_amount"
+
+        if candidate_strategy == "fill_to_bracket" and st.session_state.get(ceiling_mode_key) == "named_bracket":
+            try:
+                # rp-0ff: the rate SET is identical for both filing statuses
+                # in this tool's current bracket tables (tax/federal.py) --
+                # this page has no per-candidate filing_status of its own to
+                # query with, unlike 1_Scenarios.py. The BFF's own
+                # resolution.py still validates whatever rate is actually
+                # submitted against the real scenario's own filing status,
+                # so a future divergence would surface as a clear rejected-
+                # candidate error, not a silently wrong result.
+                rate_options = list_named_bracket_rates("married_filing_jointly")
+            except RpUiError as err:
+                st.error(str(err))
+                rate_options = []
+            cc3.selectbox(
+                "Target bracket rate",
+                options=rate_options,
+                format_func=lambda r: f"{r:.0%}",
+                key=f"compare_candidate_{i}_named_bracket_rate",
+                help="Converts just enough each year to fill up to this bracket's own real dollar ceiling.",
+            )
+        else:
+            cc3.number_input(
+                "Bracket ceiling/amount ($)",
+                key=f"compare_candidate_{i}_bracket",
+                help="For `fill_to_bracket`: the income ceiling to fill up to. For `fixed_amount`: the flat dollar amount to convert each year.",
+            )
+
+        cc4.radio(
+            "Window",
+            options=["explicit", "auto_gap_year"],
+            format_func=lambda v: "Explicit years" if v == "explicit" else "Auto (gap years)",
+            key=window_mode_key,
+            help="`Auto` -- derived from wage-end ages and RMD eligibility (rp-595). See the Instructions page's Roth Conversion section.",
         )
-        w1, w2 = cc4.columns(2)
-        _CANDIDATE_WINDOW_HELP = "The plan years this candidate's conversion strategy is active -- outside this window, no conversions happen."
-        w1.number_input("Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start", help=_CANDIDATE_WINDOW_HELP)
-        w2.number_input("Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end", help=_CANDIDATE_WINDOW_HELP)
+        if st.session_state.get(window_mode_key) == "explicit":
+            w1, w2 = cc4.columns(2)
+            _CANDIDATE_WINDOW_HELP = "The plan years this candidate's conversion strategy is active -- outside this window, no conversions happen."
+            w1.number_input("Window start", min_value=0, step=1, key=f"compare_candidate_{i}_window_start", help=_CANDIDATE_WINDOW_HELP)
+            w2.number_input("Window end", min_value=0, step=1, key=f"compare_candidate_{i}_window_end", help=_CANDIDATE_WINDOW_HELP)
     elif axis == "withdrawal_sequencing":
         cc1, cc2 = st.columns(2)
         cc1.text_input("Label", key=f"compare_candidate_{i}_label", help="A short name for this candidate, shown in the chart and table.")
@@ -263,15 +313,28 @@ def _build_candidates() -> list:
             candidates.append(st.session_state.get(f"compare_candidate_{i}_state") or "")
         elif axis == "roth_conversion_strategy":
             strategy = st.session_state.get(f"compare_candidate_{i}_strategy") or None
+            window_mode = st.session_state.get(f"compare_candidate_{i}_window_mode", "explicit")
+            ceiling_mode = st.session_state.get(f"compare_candidate_{i}_ceiling_mode", "dollar_amount")
             candidates.append(
                 {
                     "label": st.session_state.get(f"compare_candidate_{i}_label") or f"candidate_{i + 1}",
                     "conversion_strategy": strategy,
-                    "conversion_bracket_ceiling_or_amount": st.session_state.get(f"compare_candidate_{i}_bracket", 0.0),
-                    "conversion_window": [
-                        st.session_state.get(f"compare_candidate_{i}_window_start", 0),
-                        st.session_state.get(f"compare_candidate_{i}_window_end", 0),
-                    ],
+                    "window_mode": window_mode,
+                    "conversion_window": (
+                        [
+                            st.session_state.get(f"compare_candidate_{i}_window_start", 0),
+                            st.session_state.get(f"compare_candidate_{i}_window_end", 0),
+                        ]
+                        if window_mode == "explicit"
+                        else None
+                    ),
+                    "ceiling_mode": ceiling_mode,
+                    "conversion_bracket_ceiling_or_amount": (
+                        None if ceiling_mode == "named_bracket" else st.session_state.get(f"compare_candidate_{i}_bracket", 0.0)
+                    ),
+                    "named_bracket_rate": (
+                        st.session_state.get(f"compare_candidate_{i}_named_bracket_rate") if ceiling_mode == "named_bracket" else None
+                    ),
                 }
             )
         elif axis == "withdrawal_sequencing":

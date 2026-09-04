@@ -174,6 +174,31 @@ class RothLadderConsumptionResult:
 
 
 @dataclass
+class GapWindowMemberInputs:
+    """rp-nui: one household member's own inputs to
+    roth_conversion_window.resolve_gap_window() -- the auto-derived
+    ("gap-year") Roth conversion window, built by the caller
+    (comparison.run_plan_projection()) from that member's own
+    HouseholdMember.current_age and earned_income streams, since mechanics
+    may not depend on scenario's own dataclasses directly.
+
+    current_age: the member's age as of the run's own reference_tax_year
+    (HouseholdMember.current_age, unchanged).
+
+    latest_wage_end_age: the max end_age across this member's own
+    earned_income-type IncomeStream entries. None if ANY of the member's
+    earned_income streams has end_age=None (wages never stop for this
+    member -- poisons the whole household's window to "never opens,"
+    rather than gap-interpolating between streams). A member with NO
+    earned_income streams at all is represented by the caller as
+    latest_wage_end_age == current_age - 1 (wages "already stopped" as of
+    the run's own start), not by a separate sentinel on this type."""
+
+    current_age: int
+    latest_wage_end_age: int | None
+
+
+@dataclass
 class HsaEligibility:
     """010-advanced-tax-benefits data-model.md § Mechanics result
     extensions.

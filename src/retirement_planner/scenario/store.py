@@ -127,7 +127,10 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             _account_to_dict(account)
             for account in scenario.accounts
         ],
-        "spending": {"annual_need_real": scenario.spending.annual_need_real},
+        "spending": {
+            "annual_need_real": scenario.spending.annual_need_real,
+            "net_earned_income_against_spending": scenario.spending.net_earned_income_against_spending,
+        },
         "state": scenario.state,
         "market_assumptions": {
             "equity_allocation": scenario.market_assumptions.equity_allocation,
@@ -145,10 +148,20 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
         },
     }
     if scenario.roth_conversion is not None:
+        # rp-595: window/bracket_ceiling_or_amount/named_bracket_rate are
+        # written whenever present (None otherwise) rather than
+        # conditionally omitted -- round-trip fidelity for every mode
+        # combination, and loader.py's own _build_roth_conversion() only
+        # ever _require()s the field its own window_mode/ceiling_mode
+        # actually selects, so a None here for an unused field is never
+        # read back.
         data["roth_conversion"] = {
             "strategy": scenario.roth_conversion.strategy,
+            "window_mode": scenario.roth_conversion.window_mode,
+            "window": list(scenario.roth_conversion.window) if scenario.roth_conversion.window is not None else None,
+            "ceiling_mode": scenario.roth_conversion.ceiling_mode,
             "bracket_ceiling_or_amount": scenario.roth_conversion.bracket_ceiling_or_amount,
-            "window": list(scenario.roth_conversion.window),
+            "named_bracket_rate": scenario.roth_conversion.named_bracket_rate,
         }
     if scenario.hsa_contribution is not None:
         # 010-advanced-tax-benefits: found missing here (and on

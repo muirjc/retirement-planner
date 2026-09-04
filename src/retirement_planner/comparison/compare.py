@@ -18,6 +18,7 @@ identical switch a plain projection of that candidate would show
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.scenario import Household, HsaContributionPlan
@@ -55,18 +56,30 @@ def compare_roth_conversion_strategies(
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
+    net_earned_income_against_spending: bool = False,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared withdrawal_strategy/claiming_ages/hsa_contribution onto every
     candidate so only the conversion dimension varies (FR-005, FR-009;
     hsa_contribution forced the same way per
-    010-advanced-tax-benefits contracts/comparison-api.md).
+    010-advanced-tax-benefits contracts/comparison-api.md). Each
+    candidate's own conversion_window_mode/conversion_ceiling_mode/
+    conversion_named_bracket_rate (rp-595) is left untouched by the
+    replace() below -- these ARE the varying conversion dimension this
+    function compares, the same way conversion_strategy/
+    conversion_bracket_ceiling_or_amount/conversion_window already are.
 
     inherited_accounts (012-inherited-ira-rmd, comparison-api.md): forwarded
     to every candidate's run_plan_projection() call as its own fresh,
     independently-copied list (_fresh_inherited_accounts()) -- never the
     same instances shared across candidates. Defaults to [], reproducing
     every existing caller's exact prior behavior.
+
+    net_earned_income_against_spending (rp-595): forced onto every
+    candidate's run_plan_projection() call, the same way hsa_contribution
+    already is -- a scenario-level setting, not a per-candidate varying
+    dimension. Defaults to False, reproducing every existing caller's
+    exact prior behavior.
     """
     projections = [
         run_plan_projection(
@@ -87,6 +100,7 @@ def compare_roth_conversion_strategies(
             ),
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for candidate in candidates
     ]
@@ -115,6 +129,10 @@ def compare_withdrawal_sequencing_strategies(
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
+    conversion_window_mode: Literal["explicit", "auto_gap_year"] = "explicit",
+    conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
+    conversion_named_bracket_rate: float | None = None,
+    net_earned_income_against_spending: bool = False,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -126,6 +144,18 @@ def compare_withdrawal_sequencing_strategies(
     inherited_accounts (012-inherited-ira-rmd): see
     compare_roth_conversion_strategies()'s own docstring -- identical
     per-candidate fresh-copy treatment. Defaults to [].
+
+    conversion_window_mode/conversion_ceiling_mode/conversion_named_bracket_rate
+    (rp-595): forced onto every candidate alongside conversion_strategy/
+    conversion_bracket_ceiling_or_amount/conversion_window above -- the
+    conversion dimension is held fixed here (withdrawal_strategy is what
+    varies), so these three new fields are held fixed too, the same way.
+    Defaults reproduce every existing caller's exact prior behavior.
+
+    net_earned_income_against_spending (rp-595): forced onto every
+    candidate's run_plan_projection() call, the same way hsa_contribution
+    already is. Defaults to False, reproducing every existing caller's
+    exact prior behavior.
     """
     projections = [
         run_plan_projection(
@@ -145,9 +175,13 @@ def compare_withdrawal_sequencing_strategies(
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages,
                 hsa_contribution=hsa_contribution,
+                conversion_window_mode=conversion_window_mode,
+                conversion_ceiling_mode=conversion_ceiling_mode,
+                conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for candidate in candidates
     ]
@@ -176,6 +210,10 @@ def compare_claiming_age_grid(
     claiming_age_grid: list[dict[str, int]],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
+    conversion_window_mode: Literal["explicit", "auto_gap_year"] = "explicit",
+    conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
+    conversion_named_bracket_rate: float | None = None,
+    net_earned_income_against_spending: bool = False,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -200,6 +238,12 @@ def compare_claiming_age_grid(
     inherited_accounts (012-inherited-ira-rmd): see
     compare_roth_conversion_strategies()'s own docstring -- identical
     per-entry fresh-copy treatment. Defaults to [].
+
+    conversion_window_mode/conversion_ceiling_mode/conversion_named_bracket_rate/
+    net_earned_income_against_spending (rp-595): see
+    compare_withdrawal_sequencing_strategies()'s own docstring -- same
+    held-fixed-across-every-entry treatment. Defaults reproduce every
+    existing caller's exact prior behavior.
     """
     member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
@@ -234,9 +278,13 @@ def compare_claiming_age_grid(
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages_entry,
                 hsa_contribution=hsa_contribution,
+                conversion_window_mode=conversion_window_mode,
+                conversion_ceiling_mode=conversion_ceiling_mode,
+                conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

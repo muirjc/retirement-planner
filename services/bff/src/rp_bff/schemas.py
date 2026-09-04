@@ -94,6 +94,9 @@ class SpendingProfileRequest(BaseModel):
     """Mirrors 001's SpendingProfile fields exactly."""
 
     annual_need_real: float
+    net_earned_income_against_spending: bool = False
+    """rp-595: defaults to False, reproducing every existing request's
+    exact current behavior. See scenario/models.py."""
 
 
 class MarketAssumptionsRequest(BaseModel):
@@ -117,11 +120,22 @@ class SimulationSettingsRequest(BaseModel):
 
 
 class RothConversionPlanRequest(BaseModel):
-    """Mirrors 001's RothConversionPlan fields exactly."""
+    """Mirrors 001's RothConversionPlan fields exactly (rp-595 extends the
+    original 3-field shape with window_mode/ceiling_mode/
+    named_bracket_rate; window/bracket_ceiling_or_amount become optional,
+    required only by their own mode -- see scenario/models.py's
+    RothConversionPlan and scenario/loader.py's _build_roth_conversion()
+    for exactly which field each mode requires. Pydantic-level shape
+    validation only; resolution.py does the mode-vs-required-field cross-
+    check (mirrors every other cross-field rule in this codebase, kept
+    out of the request schema itself)."""
 
     strategy: str
-    bracket_ceiling_or_amount: float
-    window: tuple[int, int]
+    window_mode: Literal["explicit", "auto_gap_year"] = "explicit"
+    window: tuple[int, int] | None = None
+    ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount"
+    bracket_ceiling_or_amount: float | None = None
+    named_bracket_rate: float | None = None
 
 
 class HsaContributionPlanRequest(BaseModel):

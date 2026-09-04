@@ -43,7 +43,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from retirement_planner.tax import SourcedFigure
+from retirement_planner.tax import SourcedFigure, UnsupportedTaxYearError
 
 from .models import RmdResult
 
@@ -144,6 +144,42 @@ JOINT_LIFE_TABLE: SourcedFigure[dict[tuple[int, int], float]] = SourcedFigure(
     last_verified=date(2026, 8, 28),
     verified=False,
 )
+
+
+def first_rmd_tax_year(current_age: int, reference_tax_year: int) -> int:
+    """rp-nui: the smallest tax_year in which a household member (whose age
+    is `current_age` as of `reference_tax_year`) first becomes RMD-eligible
+    per RMD_START_AGE's own tax-year-keyed schedule (73 before 2033, 75
+    from 2033 on -- see module docstring). Uses the same
+    `current_age + (tax_year - reference_tax_year)` age-translation
+    formula comparison.projection.member_age_in_tax_year() uses,
+    reproduced here directly since mechanics may not depend on comparison
+    (see docs/SOLUTION_ARCHITECTURE.md's package dependency chain).
+
+    A simple age-plus-offset formula alone is not enough near the 2033
+    boundary: a member who turns 73 in, say, 2032 is already RMD-eligible
+    that year, but a member who turns 73 in 2033 is NOT (RMD_START_AGE is
+    75 by then) -- this performs a real forward search against the
+    schedule rather than assuming either age applies uniformly.
+
+    Searches tax years from reference_tax_year through RMD_START_AGE's own
+    documented schedule ceiling, returning the first year where the
+    member's translated age meets or exceeds that year's start_age.
+    Raises UnsupportedTaxYearError if reference_tax_year itself is
+    undocumented, or if no eligible year is found before the schedule's
+    own ceiling (a current_age so young the member would not become
+    RMD-eligible within the documented horizon)."""
+    RMD_START_AGE.value_for_year(reference_tax_year)  # raises UnsupportedTaxYearError
+    last_documented_year = max(RMD_START_AGE.schedule)
+    for tax_year in range(reference_tax_year, last_documented_year + 1):
+        member_age = current_age + (tax_year - reference_tax_year)
+        if member_age >= RMD_START_AGE.value_for_year(tax_year):
+            return tax_year
+    raise UnsupportedTaxYearError(
+        figure_name=RMD_START_AGE.name,
+        requested_year=last_documented_year + 1,
+        available_years=list(RMD_START_AGE.schedule.keys()),
+    )
 
 
 def compute_rmd(

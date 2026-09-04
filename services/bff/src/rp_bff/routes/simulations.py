@@ -192,6 +192,7 @@ def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | No
             candidate_label=body.scenario_name,
             inherited_accounts=context.inherited_accounts,
             survival_curves=survival_curves,
+            net_earned_income_against_spending=context.net_earned_income_against_spending,
         )
     except UnsupportedTaxYearError as exc:
         raise unsupported_tax_year_error(exc)

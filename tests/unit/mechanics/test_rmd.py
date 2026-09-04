@@ -12,7 +12,7 @@ specific numbers are IRS-official.
 
 import pytest
 
-from retirement_planner.mechanics import compute_rmd
+from retirement_planner.mechanics import compute_rmd, first_rmd_tax_year
 from retirement_planner.tax import UnsupportedTaxYearError
 
 
@@ -142,3 +142,35 @@ def test_age_over_100_no_longer_raises_a_lookup_error():
     result = compute_rmd(traditional_balance=500_000, member_age=101, tax_year=2026)
     assert result.divisor is not None
     assert result.required_amount == 500_000 / result.divisor
+
+
+# -- rp-nui: first_rmd_tax_year() -- the inverse of RMD_START_AGE's own
+# gate, needed by the auto Roth-conversion gap-window feature.
+# ---------------------------------------------------------------------------
+
+
+def test_first_rmd_tax_year_already_eligible_returns_reference_year():
+    assert first_rmd_tax_year(current_age=75, reference_tax_year=2026) == 2026
+
+
+def test_first_rmd_tax_year_finds_the_year_they_turn_the_start_age():
+    # 60 in 2026 -> turns 73 in 2039, which is already >= 2033, so 75
+    # (not 73) is the applicable age -- eligible only in 2041.
+    assert first_rmd_tax_year(current_age=60, reference_tax_year=2026) == 2041
+
+
+def test_first_rmd_tax_year_straddles_the_2033_age_73_to_75_cutoff():
+    """Mirrors test_rmd_start_age_steps_from_73_to_75_in_2033()'s own
+    worked boundary: a member who turns 73 in 2032 (before the step) is
+    eligible that same year; a member who turns 73 in 2033 (the step's
+    own year, needing 75 instead) is not eligible until 2035."""
+    # current_age=67 at reference_tax_year=2026 -> turns 73 in 2032.
+    assert first_rmd_tax_year(current_age=67, reference_tax_year=2026) == 2032
+    # current_age=66 at reference_tax_year=2026 -> turns 73 in 2033 (needs
+    # 75 instead, per the step) -- turns 75 in 2035.
+    assert first_rmd_tax_year(current_age=66, reference_tax_year=2026) == 2035
+
+
+def test_first_rmd_tax_year_raises_unsupported_tax_year_for_an_undocumented_reference_year():
+    with pytest.raises(UnsupportedTaxYearError):
+        first_rmd_tax_year(current_age=60, reference_tax_year=1999)

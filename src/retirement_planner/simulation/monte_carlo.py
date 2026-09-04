@@ -98,7 +98,7 @@ _DEFAULT_PERCENTILES: tuple[float, ...] = (0.10, 0.25, 0.50, 0.75, 0.90)
 _worker_shared_args: (
     tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
-        list[InheritedAccountBalance],
+        list[InheritedAccountBalance], bool,
     ]
     | None
 ) = None
@@ -116,6 +116,7 @@ def _init_worker(
     plan_to_age: int,
     strategy: StrategyConfiguration,
     inherited_accounts: list[InheritedAccountBalance],
+    net_earned_income_against_spending: bool,
 ) -> None:
     """ProcessPoolExecutor initializer: stores this call's arguments once
     per worker process into the module-level _worker_shared_args, so
@@ -125,11 +126,13 @@ def _init_worker(
     this same shared-per-worker tuple, sent once per worker rather than
     once per path, exactly like household/accounts/strategy already are --
     inherited_accounts is this worker's own unmutated *base* list;
-    _run_one_path_shared() takes a fresh copy of it before every path."""
+    _run_one_path_shared() takes a fresh copy of it before every path.
+    net_earned_income_against_spending (rp-595) travels the same way."""
     global _worker_shared_args
     _worker_shared_args = (
         household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
         start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts,
+        net_earned_income_against_spending,
     )
 
 
@@ -148,7 +151,8 @@ def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) 
     assert _worker_shared_args is not None
     return_path, death_year_draw = task
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts) = _worker_shared_args
+     start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts,
+     net_earned_income_against_spending) = _worker_shared_args
     return run_plan_projection(
         household=_household_for_path(household, death_year_draw),
         accounts=accounts,
@@ -162,13 +166,14 @@ def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) 
         strategy=strategy,
         return_assumption=return_path,
         inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
+        net_earned_income_against_spending=net_earned_income_against_spending,
     )
 
 
 def _run_one_path(
     args: tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
-        ReturnPath, list[InheritedAccountBalance], dict[str, int | None] | None,
+        ReturnPath, list[InheritedAccountBalance], dict[str, int | None] | None, bool,
     ],
 ) -> PlanProjection:
     """Module-level (picklable) worker used under serial dispatch: unpacks
@@ -177,10 +182,13 @@ def _run_one_path(
 
     The trailing death_year_draw element (023-probabilistic-death-draws,
     rp-vgv, research.md §7) is None when this capability is unused, in
-    which case _household_for_path() is a complete no-op (FR-007)."""
+    which case _household_for_path() is a complete no-op (FR-007). The
+    final net_earned_income_against_spending element (rp-595) travels the
+    same way -- one extra positional element per path, not worth its own
+    shared-per-worker tuple the way _run_one_path_shared() gets it."""
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
      start_plan_year, start_tax_year, plan_to_age, strategy, return_path, inherited_accounts,
-     death_year_draw) = args
+     death_year_draw, net_earned_income_against_spending) = args
     return run_plan_projection(
         household=_household_for_path(household, death_year_draw),
         accounts=accounts,
@@ -194,6 +202,7 @@ def _run_one_path(
         strategy=strategy,
         return_assumption=return_path,
         inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
+        net_earned_income_against_spending=net_earned_income_against_spending,
     )
 
 
@@ -261,6 +270,7 @@ def run_simulation(
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
+    net_earned_income_against_spending: bool = False,
 ) -> SimulationRun:
     """Calls run_plan_projection() once per entry in return_paths, each
     with that path substituted as the strategy's return_assumption
@@ -300,6 +310,11 @@ def run_simulation(
     computed exactly as it is today, unconditional on death_year_draws --
     the two capabilities coexist without changing each other's own
     computation (FR-008).
+
+    net_earned_income_against_spending (rp-595): forwarded unchanged to
+    every path's own run_plan_projection() call, both dispatch modes.
+    Defaults to False, reproducing every existing caller's exact prior
+    behavior unchanged.
     """
     if len(return_paths) == 0:
         raise ValueError("return_paths must contain at least one path")
@@ -340,14 +355,15 @@ def run_simulation(
             initializer=_init_worker,
             initargs=(household, accounts, traditional_ownership_shares, annual_spending_need, state,
                       reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy,
-                      inherited_accounts),
+                      inherited_accounts, net_earned_income_against_spending),
         ) as executor:
             tasks = list(zip(return_paths, death_year_draws_by_path))
             path_results = list(executor.map(_run_one_path_shared, tasks, chunksize=chunk_size))
     else:
         call_args = [
             (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts, draw)
+             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts, draw,
+             net_earned_income_against_spending)
             for path, draw in zip(return_paths, death_year_draws_by_path)
         ]
         path_results = [_run_one_path(args) for args in call_args]

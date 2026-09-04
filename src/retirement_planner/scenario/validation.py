@@ -23,6 +23,7 @@ def validate(scenario: Scenario) -> list[ValidationFlag]:
     flags.extend(_validate_accounts(scenario))
     flags.extend(_validate_household(scenario))
     flags.extend(_validate_spending(scenario))
+    flags.extend(_validate_roth_conversion(scenario))
     return flags
 
 
@@ -276,4 +277,44 @@ def _validate_spending(scenario: Scenario) -> list[ValidationFlag]:
                 severity="warning",
             )
         )
+    return flags
+
+
+def _validate_roth_conversion(scenario: Scenario) -> list[ValidationFlag]:
+    """rp-595: a structural, warning-only plausibility check for
+    window_mode=="auto_gap_year" -- deliberately NOT the true empty/
+    inverted-window check (that needs reference_tax_year and
+    mechanics.resolve_gap_window(), unavailable here: validate() takes no
+    reference_tax_year, and scenario/*.py must never depend on mechanics,
+    which would break the strict scenario -> tax -> mechanics -> ...
+    acyclic package chain, docs/SOLUTION_ARCHITECTURE.md §3). That true
+    check is instead surfaced at run time via
+    PlanProjection.resolved_conversion_window == None (comparison/
+    projection.py) -- see docs/BRD.md §6.6b.
+
+    This rule only catches the one case knowable from shape alone: a
+    member whose earned_income never ends (end_age=None on at least one
+    stream) makes resolve_gap_window()'s own window unconditionally
+    empty, regardless of any other member's ages -- see that function's
+    own docstring, mechanics/roth_conversion_window.py."""
+    flags: list[ValidationFlag] = []
+    if scenario.roth_conversion is None or scenario.roth_conversion.window_mode != "auto_gap_year":
+        return flags
+
+    for member in scenario.household.members:
+        never_ending_wages = any(
+            stream.stream_type == "earned_income" and stream.end_age is None for stream in member.income_streams
+        )
+        if never_ending_wages:
+            flags.append(
+                ValidationFlag(
+                    field="roth_conversion.window_mode",
+                    message=(
+                        f"Wages never end for {member.person_name!r} (an earned_income stream with no "
+                        "end age); the auto-derived gap-year Roth conversion window will always be "
+                        "empty, so no conversion will ever execute."
+                    ),
+                    severity="warning",
+                )
+            )
     return flags

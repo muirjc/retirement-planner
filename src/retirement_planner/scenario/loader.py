@@ -15,6 +15,8 @@ ScenarioParseError and parse_scenario().
 
 from __future__ import annotations
 
+from typing import Literal
+
 import yaml
 
 from .models import (
@@ -219,17 +221,56 @@ def _build_account(data: object, source: str, context: str, household: Household
 
 
 def _build_spending(data: object, source: str) -> SpendingProfile:
-    return SpendingProfile(annual_need_real=_require(data, "annual_need_real", source, "spending"))
+    # net_earned_income_against_spending (rp-595): optional, defaults to
+    # False when omitted -- every scenario predating this feature
+    # round-trips to exactly its prior behavior unchanged.
+    net_earned_income = data.get("net_earned_income_against_spending", False) if isinstance(data, dict) else False
+    return SpendingProfile(
+        annual_need_real=_require(data, "annual_need_real", source, "spending"),
+        net_earned_income_against_spending=bool(net_earned_income),
+    )
 
 
 def _build_roth_conversion(data: object, source: str) -> RothConversionPlan | None:
+    """rp-595: window_mode/ceiling_mode/named_bracket_rate are read
+    permissively (defaults reproduce every scenario predating this
+    feature unchanged) -- window is _require()'d only when window_mode
+    selects "explicit" (its own prior, unconditional behavior);
+    bracket_ceiling_or_amount is _require()'d when ceiling_mode selects
+    "dollar_amount" OR strategy is "fixed_amount" (ceiling_mode only ever
+    governs the fill_to_bracket strategy's own ceiling);
+    named_bracket_rate is _require()'d only when ceiling_mode selects
+    "named_bracket"."""
     if data is None:
         return None
-    window = _require(data, "window", source, "roth_conversion")
+    window_mode: Literal["explicit", "auto_gap_year"] = "explicit"
+    if isinstance(data, dict) and "window_mode" in data:
+        window_mode = data["window_mode"]
+    ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount"
+    if isinstance(data, dict) and "ceiling_mode" in data:
+        ceiling_mode = data["ceiling_mode"]
+    strategy = _require(data, "strategy", source, "roth_conversion")
+
+    window: tuple[int, int] | None = None
+    if window_mode == "explicit":
+        window_data = _require(data, "window", source, "roth_conversion")
+        window = tuple(window_data)
+
+    bracket_ceiling_or_amount: float | None = None
+    if ceiling_mode == "dollar_amount" or strategy == "fixed_amount":
+        bracket_ceiling_or_amount = _require(data, "bracket_ceiling_or_amount", source, "roth_conversion")
+
+    named_bracket_rate: float | None = None
+    if ceiling_mode == "named_bracket":
+        named_bracket_rate = _require(data, "named_bracket_rate", source, "roth_conversion")
+
     return RothConversionPlan(
-        strategy=_require(data, "strategy", source, "roth_conversion"),
-        bracket_ceiling_or_amount=_require(data, "bracket_ceiling_or_amount", source, "roth_conversion"),
-        window=tuple(window),
+        strategy=strategy,
+        window_mode=window_mode,
+        window=window,
+        ceiling_mode=ceiling_mode,
+        bracket_ceiling_or_amount=bracket_ceiling_or_amount,
+        named_bracket_rate=named_bracket_rate,
     )
 
 

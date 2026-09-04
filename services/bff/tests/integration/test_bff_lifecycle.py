@@ -56,6 +56,35 @@ def test_save_read_and_list_round_trip(client):
     assert "base_case" in list_response.json()["scenarios"]  # US1.2
 
 
+def test_roth_conversion_auto_window_named_bracket_and_netting_round_trip(client):
+    """rp-1kz: window_mode="auto_gap_year"/ceiling_mode="named_bracket"/
+    named_bracket_rate and spending.net_earned_income_against_spending
+    all round-trip through PUT/GET -- no routes/scenarios.py change was
+    needed for this (field-name-matching through model_dump(mode="json")
+    -> YAML -> parse_scenario()), so this test is the actual proof."""
+    body_with_new_fields = {
+        **_SCENARIO_BODY,
+        "spending": {**_SCENARIO_BODY["spending"], "net_earned_income_against_spending": True},
+        "roth_conversion": {
+            "strategy": "fill_to_bracket",
+            "window_mode": "auto_gap_year",
+            "ceiling_mode": "named_bracket",
+            "named_bracket_rate": 0.22,
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/auto_window_case", json=body_with_new_fields)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is True
+
+    read_response = client.get("/api/v1/scenarios/auto_window_case").json()
+    assert read_response["spending"]["net_earned_income_against_spending"] is True
+    assert read_response["roth_conversion"]["window_mode"] == "auto_gap_year"
+    assert read_response["roth_conversion"]["window"] is None
+    assert read_response["roth_conversion"]["ceiling_mode"] == "named_bracket"
+    assert read_response["roth_conversion"]["named_bracket_rate"] == 0.22
+    assert read_response["roth_conversion"]["bracket_ceiling_or_amount"] is None
+
+
 def test_full_retirement_age_round_trips_and_defaults_when_omitted(client):
     """016-ss-claiming-age-actuarial-adjustment: an explicit
     full_retirement_age round-trips through PUT/GET; a member that omits
@@ -289,6 +318,19 @@ def test_reference_strategies_and_axes_match_their_registries(client):
     assert axes == {"state", "roth_conversion_strategy", "withdrawal_sequencing", "claiming_age_grid"}  # US2.3
 
 
+def test_reference_named_bracket_rates_excludes_the_unbounded_top_bracket(client):
+    """rp-0ff: the Roth conversion ceiling_mode="named_bracket" rate
+    selector's own reference endpoint -- live from tax/federal.py's
+    bracket tables, excluding the unbounded 37% top bracket (no finite
+    ceiling exists to fill to)."""
+    mfj_response = client.get("/api/v1/reference/named-bracket-rates", params={"filing_status": "married_filing_jointly"})
+    assert mfj_response.status_code == 200
+    assert mfj_response.json()["rates"] == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]
+
+    single_response = client.get("/api/v1/reference/named-bracket-rates", params={"filing_status": "single"})
+    assert single_response.json()["rates"] == [0.10, 0.12, 0.22, 0.24, 0.32, 0.35]
+
+
 # --- User Story 3: run a simulation and receive a summarized result ---
 
 _RUN_BODY = {
@@ -322,6 +364,30 @@ def test_run_against_a_scenario_with_blocking_flags_is_rejected_without_running(
     assert response.status_code == 422  # US3.2, FR-009
     assert response.json()["error"] == "blocking_validation_flags"
     assert len(response.json()["flags"]) > 0
+
+
+def test_run_against_a_scenario_with_an_unknown_named_bracket_rate_is_a_clean_422(client):
+    """rp-1kz: a named_bracket_rate with no matching row in the federal
+    bracket table for the scenario's own filing status is rejected the
+    same way an unknown conversion_strategy already is -- a clean 422,
+    not an uncaught ValueError."""
+    bad_body = {
+        **_SCENARIO_BODY,
+        "roth_conversion": {
+            "strategy": "fill_to_bracket",
+            "window_mode": "auto_gap_year",
+            "ceiling_mode": "named_bracket",
+            "named_bracket_rate": 0.23,  # no 23% federal bracket row exists
+        },
+    }
+    client.put("/api/v1/scenarios/base_case", json=bad_body)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "unknown_reference_value"
+    assert payload["field"] == "conversion_named_bracket_rate"
 
 
 def test_run_with_an_out_of_range_tax_year_is_a_clean_422_not_a_bare_500(client):

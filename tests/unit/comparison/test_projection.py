@@ -2751,3 +2751,203 @@ def test_never_withheld_member_sees_no_step_up_at_fra():
 
     for year in result.years:
         assert year.member_social_security_benefits["you"] == pytest.approx(14_000.0)
+
+
+# --- rp-595: auto Roth-conversion gap-window + named-bracket ceiling + ---
+# --- opt-in spending-need netting -----------------------------------------
+
+
+def test_auto_gap_year_window_fires_conversions_only_inside_the_derived_gap():
+    """Wage-stacking-guard regression: wages active 2026-2027 (end_age=68,
+    current_age=67 -> wages stop after tax year 2027), RMD-eligible 2032
+    (current_age=67 turns 73 in 2032, before the 2033 age-73->75 step --
+    same worked example as test_rmd.py/test_roth_conversion_window.py).
+    Derived window: (2028, 2031). $0 conversion is asserted both while
+    wages are still active (2026-2027) AND after the window closes at RMD
+    eligibility (2032+) -- not just "some years are excluded"."""
+    household = _earned_income_household(80_000, current_age=67, start_age=67, end_age=68)
+    strategy = _strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fill_to_bracket",
+        conversion_bracket_ceiling_or_amount=100_000,
+        conversion_window_mode="auto_gap_year",
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=200_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    conversions = {y.tax_year: y.mechanics.conversion.amount_converted for y in result.years}
+    assert conversions[2026] == 0.0  # wages still active
+    assert conversions[2027] == 0.0  # wages still active (end_age=68 -> active through this year)
+    assert conversions[2028] > 0.0  # first gap-window year
+    assert conversions[2031] > 0.0  # last gap-window year
+    assert conversions[2032] == 0.0  # RMD-eligible -- window closed
+    assert conversions[2033] == 0.0
+
+    assert result.resolved_conversion_window == (2028, 2031)
+
+
+def test_auto_gap_year_window_resolves_to_none_when_wages_never_end():
+    household = _earned_income_household(80_000, current_age=67, start_age=67, end_age=None)
+    strategy = _strategy(
+        claiming_ages={"you": 67},
+        conversion_strategy="fill_to_bracket",
+        conversion_bracket_ceiling_or_amount=100_000,
+        conversion_window_mode="auto_gap_year",
+    )
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=200_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.resolved_conversion_window is None
+    assert all(y.mechanics.conversion.amount_converted == 0.0 for y in result.years)
+
+
+def test_named_bracket_ceiling_matches_the_equivalent_manually_computed_dollar_ceiling():
+    """The named-bracket mode must produce the identical amount_converted
+    sequence as passing the pre-computed dollar figure directly --
+    243,600 == 211,400 (MFJ 22% row) + 32,200 (MFJ standard deduction),
+    the same figure test_federal.py's own
+    test_bracket_ceiling_for_rate_adds_back_the_standard_deduction_mfj
+    pins."""
+    household = _mfj_household(you_age=60, spouse_age=60, you_benefit=0, spouse_benefit=0)
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=900_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0, "spouse": 0.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=61,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    named = run_plan_projection(
+        household=household,
+        strategy=_strategy(
+            conversion_strategy="fill_to_bracket",
+            conversion_window=(2026, 2026),
+            conversion_ceiling_mode="named_bracket",
+            conversion_named_bracket_rate=0.22,
+        ),
+        **common_kwargs,
+    )
+    dollar = run_plan_projection(
+        household=household,
+        strategy=_strategy(
+            conversion_strategy="fill_to_bracket",
+            conversion_window=(2026, 2026),
+            conversion_bracket_ceiling_or_amount=243_600.0,
+        ),
+        **common_kwargs,
+    )
+
+    assert named.years[0].mechanics.conversion.amount_converted == pytest.approx(
+        dollar.years[0].mechanics.conversion.amount_converted
+    )
+    assert named.years[0].mechanics.conversion.amount_converted > 0.0
+
+
+def test_net_earned_income_against_spending_reduces_discretionary_withdrawal_not_rmd():
+    """Household fully covers spending from wages; netting must eliminate
+    the otherwise-forced full-spending-need account draw while leaving
+    the (here, still $0 since below RMD age) RMD entirely unaffected --
+    and, at RMD age, must leave the mandatory RMD draw byte-identical
+    between netting on and off."""
+    household = _earned_income_household(80_000, current_age=74, start_age=74, end_age=None)
+    common_kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=74,
+        strategy=_strategy(claiming_ages={"you": 67}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
+    with_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=True)
+
+    year_without = without_netting.years[0]
+    year_with = with_netting.years[0]
+
+    # current_age=74 is already past RMD start age (73) -- both runs draw
+    # the exact same mandatory RMD, netting or not.
+    assert year_with.mechanics.withdrawal_plan.rmd_drawn == pytest.approx(year_without.mechanics.withdrawal_plan.rmd_drawn)
+    assert year_with.mechanics.withdrawal_plan.rmd_drawn > 0.0
+
+    # Without netting: the full $60,000 spending need is drawn from
+    # accounts on top of the $80,000 wages (the double-counting trap).
+    # With netting: spending need (60,000) is more than covered by wages
+    # (80,000), so the discretionary sequence draw beyond the RMD is $0.
+    discretionary_without = sum(
+        item.amount for item in year_without.mechanics.withdrawal_plan.sequence_withdrawals
+    )
+    discretionary_with = sum(
+        item.amount for item in year_with.mechanics.withdrawal_plan.sequence_withdrawals
+    )
+    assert discretionary_with < discretionary_without
+    assert discretionary_with == pytest.approx(0.0)
+
+
+def test_net_earned_income_against_spending_defaults_to_false_reproducing_prior_output():
+    """Regression: omitting the new parameter entirely reproduces the
+    exact prior (pre-rp-595) output, byte-for-byte -- Reproducibility
+    principle."""
+    household = _earned_income_household(80_000, current_age=63, start_age=63, end_age=None)
+    kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 67}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    default_call = run_plan_projection(**kwargs)
+    explicit_false = run_plan_projection(**kwargs, net_earned_income_against_spending=False)
+
+    assert default_call.years == explicit_false.years
+    assert default_call.resolved_conversion_window is None
+    assert default_call.resolved_conversion_window == explicit_false.resolved_conversion_window
+
+
+def test_explicit_window_mode_is_unaffected_by_rp_595_and_matches_prior_static_behavior():
+    """Regression: window_mode="explicit" (the default/every scenario
+    predating rp-595) round-trips strategy.conversion_window through to
+    PlanProjection.resolved_conversion_window unchanged -- confirms the
+    new resolution logic is a true no-op for every existing scenario."""
+    household = _ladder_household(current_age=55)
+    result = _run_ladder_projection(household)
+
+    assert result.resolved_conversion_window == (2026, 2026)

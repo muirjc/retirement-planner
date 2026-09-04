@@ -33,6 +33,11 @@ def build_candidates_for_axis(
     -- state/claiming_age_grid candidates pass through unchanged and never
     reach this function."""
     if axis == "roth_conversion_strategy":
+        # rp-595: window_mode/ceiling_mode/named_bracket_rate are per-
+        # candidate here -- this IS the varying conversion dimension, so
+        # (unlike withdrawal_sequencing below) they are read from each
+        # candidate, never overwritten by compare_*() (comparison/
+        # compare.py's own compare_roth_conversion_strategies() docstring).
         return [
             StrategyConfiguration(
                 label=candidate.get("label") or f"{base_label}_{index}",
@@ -41,6 +46,9 @@ def build_candidates_for_axis(
                 conversion_bracket_ceiling_or_amount=candidate.get("conversion_bracket_ceiling_or_amount"),
                 conversion_window=_as_window(candidate.get("conversion_window")),
                 claiming_ages=_PLACEHOLDER_CLAIMING_AGES,  # overwritten by compare_*()
+                conversion_window_mode=candidate.get("window_mode", "explicit"),
+                conversion_ceiling_mode=candidate.get("ceiling_mode", "dollar_amount"),
+                conversion_named_bracket_rate=candidate.get("named_bracket_rate"),
             )
             for index, candidate in enumerate(raw_candidates)
         ]
@@ -53,6 +61,10 @@ def build_candidates_for_axis(
                 conversion_bracket_ceiling_or_amount=None,  # overwritten by compare_*()
                 conversion_window=None,  # overwritten by compare_*()
                 claiming_ages=_PLACEHOLDER_CLAIMING_AGES,  # overwritten by compare_*()
+                # rp-595: withdrawal_sequencing's own varying dimension is
+                # withdrawal_strategy -- the conversion fields (including
+                # these 3) are held fixed/shared, overwritten by compare_*()
+                # the same way the 3 fields immediately above already are.
             )
             for index, candidate in enumerate(raw_candidates)
         ]

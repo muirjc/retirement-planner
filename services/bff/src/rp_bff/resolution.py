@@ -33,7 +33,7 @@ from retirement_planner.simulation import (
     generate_historical_bootstrap_paths,
     generate_return_paths,
 )
-from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
+from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError, bracket_ceiling_for_rate
 
 from .cost_estimation import check_cost_within_budget
 
@@ -175,6 +175,10 @@ class ResolvedRunContext:
     plan_to_age: int
     n_paths: int
     seed: int
+    net_earned_income_against_spending: bool = False
+    """rp-595: sourced from scenario.spending.net_earned_income_against_spending.
+    Defaults to False, reproducing every existing caller's exact prior
+    behavior."""
 
 
 def _sum_accounts(scenario: Scenario) -> AccountBalances:
@@ -351,13 +355,38 @@ def resolve_run_context(
     if scenario.roth_conversion is not None:
         if scenario.roth_conversion.strategy not in CONVERSION_STRATEGIES:
             raise UnknownReferenceValueError("conversion_strategy", scenario.roth_conversion.strategy)
+        # rp-595: named_bracket_rate is validated eagerly here (mirrors
+        # conversion_strategy's own eager check immediately above) --
+        # bracket_ceiling_for_rate() raises ValueError for a rate with no
+        # exact match in that year's federal bracket table, re-raised as
+        # this module's own UnknownReferenceValueError. filer_ages=[] is
+        # enough for this validation-only call: whether the rate matches a
+        # real bracket row doesn't depend on filer ages, only the
+        # standard-deduction add-back the real per-year resolution
+        # (comparison/projection.py) additionally performs does.
+        if scenario.roth_conversion.ceiling_mode == "named_bracket":
+            assert scenario.roth_conversion.named_bracket_rate is not None  # scenario/loader.py's own _require() guarantees this
+            try:
+                bracket_ceiling_for_rate(
+                    scenario.roth_conversion.named_bracket_rate, scenario.household.filing_status, reference_tax_year, [],
+                )
+            except ValueError:
+                raise UnknownReferenceValueError(
+                    "conversion_named_bracket_rate", str(scenario.roth_conversion.named_bracket_rate)
+                ) from None
         conversion_strategy = scenario.roth_conversion.strategy
         conversion_bracket_ceiling_or_amount = scenario.roth_conversion.bracket_ceiling_or_amount
         conversion_window = scenario.roth_conversion.window
+        conversion_window_mode = scenario.roth_conversion.window_mode
+        conversion_ceiling_mode = scenario.roth_conversion.ceiling_mode
+        conversion_named_bracket_rate = scenario.roth_conversion.named_bracket_rate
     else:
         conversion_strategy = None
         conversion_bracket_ceiling_or_amount = None
         conversion_window = None
+        conversion_window_mode = "explicit"
+        conversion_ceiling_mode = "dollar_amount"
+        conversion_named_bracket_rate = None
 
     strategy = StrategyConfiguration(
         label=scenario_name,
@@ -370,6 +399,9 @@ def resolve_run_context(
         # is, immediately above -- an opaque scenario-level block passed
         # through unvalidated beyond shape (001's own precedent).
         hsa_contribution=scenario.hsa_contribution,
+        conversion_window_mode=conversion_window_mode,
+        conversion_ceiling_mode=conversion_ceiling_mode,
+        conversion_named_bracket_rate=conversion_named_bracket_rate,
     )
 
     return ResolvedRunContext(
@@ -383,6 +415,7 @@ def resolve_run_context(
         plan_to_age=plan_to_age if plan_to_age is not None else scenario.simulation_settings.plan_to_age,
         n_paths=n_paths if n_paths is not None else scenario.simulation_settings.n_paths,
         seed=seed if seed is not None else scenario.simulation_settings.seed,
+        net_earned_income_against_spending=scenario.spending.net_earned_income_against_spending,
     )
 
 

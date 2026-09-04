@@ -114,6 +114,114 @@ def test_no_roth_conversion_plan_yields_none_conversion_fields(tmp_path):
     assert context.strategy.conversion_window is None
 
 
+# -- rp-1kz: auto conversion window / named-bracket ceiling / netting --
+
+
+def test_strategy_configuration_auto_window_and_named_bracket_fields_come_from_roth_conversion_plan(tmp_path):
+    plan = RothConversionPlan(
+        strategy="fill_to_bracket", window_mode="auto_gap_year", ceiling_mode="named_bracket", named_bracket_rate=0.22,
+    )
+    save_scenario(_scenario(roth_conversion=plan), scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case",
+        withdrawal_strategy=None,
+        state=None,
+        plan_to_age=None,
+        n_paths=None,
+        seed=None,
+        reference_tax_year=2026,
+        scenarios_dir=tmp_path,
+    )
+
+    assert context.strategy.conversion_window_mode == "auto_gap_year"
+    assert context.strategy.conversion_ceiling_mode == "named_bracket"
+    assert context.strategy.conversion_named_bracket_rate == 0.22
+    assert context.strategy.conversion_window is None
+    assert context.strategy.conversion_bracket_ceiling_or_amount is None
+
+
+def test_no_roth_conversion_plan_yields_default_mode_fields(tmp_path):
+    save_scenario(_scenario(roth_conversion=None), scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case",
+        withdrawal_strategy=None,
+        state=None,
+        plan_to_age=None,
+        n_paths=None,
+        seed=None,
+        reference_tax_year=2026,
+        scenarios_dir=tmp_path,
+    )
+
+    assert context.strategy.conversion_window_mode == "explicit"
+    assert context.strategy.conversion_ceiling_mode == "dollar_amount"
+    assert context.strategy.conversion_named_bracket_rate is None
+
+
+def test_unknown_named_bracket_rate_is_rejected(tmp_path):
+    plan = RothConversionPlan(
+        strategy="fill_to_bracket", window_mode="auto_gap_year", ceiling_mode="named_bracket", named_bracket_rate=0.23,
+    )
+    save_scenario(_scenario(roth_conversion=plan), scenarios_dir=tmp_path)
+    from rp_bff.resolution import UnknownReferenceValueError, resolve_run_context
+
+    with pytest.raises(UnknownReferenceValueError) as exc_info:
+        resolve_run_context(
+            "base_case",
+            withdrawal_strategy=None,
+            state=None,
+            plan_to_age=None,
+            n_paths=None,
+            seed=None,
+            reference_tax_year=2026,
+            scenarios_dir=tmp_path,
+        )
+    assert exc_info.value.field == "conversion_named_bracket_rate"
+    assert exc_info.value.value == "0.23"
+
+
+def test_net_earned_income_against_spending_comes_from_scenario_spending(tmp_path):
+    scenario = _scenario()
+    scenario.spending.net_earned_income_against_spending = True
+    save_scenario(scenario, scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case",
+        withdrawal_strategy=None,
+        state=None,
+        plan_to_age=None,
+        n_paths=None,
+        seed=None,
+        reference_tax_year=2026,
+        scenarios_dir=tmp_path,
+    )
+
+    assert context.net_earned_income_against_spending is True
+
+
+def test_net_earned_income_against_spending_defaults_to_false(tmp_path):
+    save_scenario(_scenario(), scenarios_dir=tmp_path)
+    from rp_bff.resolution import resolve_run_context
+
+    context = resolve_run_context(
+        "base_case",
+        withdrawal_strategy=None,
+        state=None,
+        plan_to_age=None,
+        n_paths=None,
+        seed=None,
+        reference_tax_year=2026,
+        scenarios_dir=tmp_path,
+    )
+
+    assert context.net_earned_income_against_spending is False
+
+
 def test_accounts_are_summed_by_type(tmp_path):
     save_scenario(_scenario(), scenarios_dir=tmp_path)
     from rp_bff.resolution import resolve_run_context

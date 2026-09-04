@@ -37,7 +37,7 @@ from retirement_planner.simulation import compare_states
 from retirement_planner.simulation import (
     compare_withdrawal_sequencing_strategies as compare_withdrawal_sequencing_strategies_simulated,
 )
-from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError
+from retirement_planner.tax import STATE_MODULES, UnsupportedTaxYearError, bracket_ceiling_for_rate
 
 from ..account_detail import (
     PathIndexOutOfRangeError,
@@ -183,6 +183,11 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
         # this parameter, each building its own fresh per-candidate copy
         # internally (comparison-api.md).
         inherited_accounts=context.inherited_accounts,
+        # rp-595: safe to force into every branch below the same way
+        # hsa_contribution/inherited_accounts already are -- a scenario-
+        # level setting, not a per-candidate varying dimension, and every
+        # deterministic compare_*() function now accepts it.
+        net_earned_income_against_spending=context.net_earned_income_against_spending,
     )
 
     try:
@@ -194,6 +199,15 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
             for candidate in candidates:
                 if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                     _reject_unknown("conversion_strategy", candidate.conversion_strategy)
+                # rp-595: per-candidate named_bracket_rate is this axis's
+                # own varying dimension (comparison_candidates.py), so it's
+                # validated per-candidate here, mirroring conversion_strategy
+                # immediately above.
+                if candidate.conversion_ceiling_mode == "named_bracket" and candidate.conversion_named_bracket_rate is not None:
+                    try:
+                        bracket_ceiling_for_rate(candidate.conversion_named_bracket_rate, context.household.filing_status, body.reference_tax_year, [])
+                    except ValueError:
+                        _reject_unknown("conversion_named_bracket_rate", str(candidate.conversion_named_bracket_rate))
             result = compare_roth_conversion_strategies_deterministic(
                 **common,
                 withdrawal_strategy=context.strategy.withdrawal_strategy,
@@ -212,6 +226,9 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
                 conversion_window=context.strategy.conversion_window,
                 claiming_ages=context.strategy.claiming_ages,
                 candidates=candidates,
+                conversion_window_mode=context.strategy.conversion_window_mode,
+                conversion_ceiling_mode=context.strategy.conversion_ceiling_mode,
+                conversion_named_bracket_rate=context.strategy.conversion_named_bracket_rate,
             )
         else:  # claiming_age_grid
             try:
@@ -222,6 +239,9 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
                     claiming_age_grid=body.candidates,
+                    conversion_window_mode=context.strategy.conversion_window_mode,
+                    conversion_ceiling_mode=context.strategy.conversion_ceiling_mode,
+                    conversion_named_bracket_rate=context.strategy.conversion_named_bracket_rate,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})
@@ -308,6 +328,9 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
         # own `common` already forces it into every deterministic branch.
         inherited_accounts=context.inherited_accounts,
         survival_curves=survival_curves,
+        # rp-595: see resolve_and_compare_deterministic()'s own `common`
+        # for why this is safe to force into every branch below.
+        net_earned_income_against_spending=context.net_earned_income_against_spending,
     )
 
     try:
@@ -328,6 +351,13 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                 for candidate in candidates:
                     if candidate.conversion_strategy is not None and candidate.conversion_strategy not in CONVERSION_STRATEGIES:
                         _reject_unknown("conversion_strategy", candidate.conversion_strategy)
+                    # rp-595: see resolve_and_compare_deterministic()'s own
+                    # identical per-candidate validation above.
+                    if candidate.conversion_ceiling_mode == "named_bracket" and candidate.conversion_named_bracket_rate is not None:
+                        try:
+                            bracket_ceiling_for_rate(candidate.conversion_named_bracket_rate, context.household.filing_status, body.reference_tax_year, [])
+                        except ValueError:
+                            _reject_unknown("conversion_named_bracket_rate", str(candidate.conversion_named_bracket_rate))
                 result = compare_roth_conversion_strategies_simulated(
                     **common,
                     state=context.state,
@@ -350,6 +380,9 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                     claiming_ages=context.strategy.claiming_ages,
                     candidates=candidates,
                     hsa_contribution=context.strategy.hsa_contribution,
+                    conversion_window_mode=context.strategy.conversion_window_mode,
+                    conversion_ceiling_mode=context.strategy.conversion_ceiling_mode,
+                    conversion_named_bracket_rate=context.strategy.conversion_named_bracket_rate,
                 )
             else:  # claiming_age_grid
                 try:
@@ -362,6 +395,9 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                         conversion_window=context.strategy.conversion_window,
                         claiming_age_grid=body.candidates,
                         hsa_contribution=context.strategy.hsa_contribution,
+                        conversion_window_mode=context.strategy.conversion_window_mode,
+                        conversion_ceiling_mode=context.strategy.conversion_ceiling_mode,
+                        conversion_named_bracket_rate=context.strategy.conversion_named_bracket_rate,
                     )
                 except ValueError as exc:
                     raise HTTPException(status_code=422, detail={"error": "unknown_reference_value", "field": "claiming_age_grid", "value": str(exc)})

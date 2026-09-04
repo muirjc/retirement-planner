@@ -7,6 +7,7 @@ from retirement_planner.scenario import (
     IncomeStream,
     InheritedIraDetails,
     MarketAssumptions,
+    RothConversionPlan,
     Scenario,
     SimulationSettings,
     SpendingProfile,
@@ -547,3 +548,90 @@ def test_validate_reports_every_inherited_problem_at_once_not_just_the_first():
     inherited_flags = [flag for flag in flags if flag.field == "accounts[0].inherited"]
     assert len(inherited_flags) == 2
     assert len(flags) == 3
+
+
+# -- rp-595: auto Roth-conversion gap-window structural check --
+
+
+def test_validate_flags_never_ending_wages_with_auto_gap_year_window_as_warning():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="Wages",
+                            stream_type="earned_income",
+                            start_age=60,
+                            end_age=None,
+                            annual_amount=80_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        ),
+        roth_conversion=RothConversionPlan(strategy="fill_to_bracket", window_mode="auto_gap_year", ceiling_mode="named_bracket", named_bracket_rate=0.22),
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "roth_conversion.window_mode"
+    assert flags[0].severity == "warning"
+    assert "you" in flags[0].message
+
+
+def test_validate_does_not_flag_auto_gap_year_window_when_wages_do_end():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="Wages",
+                            stream_type="earned_income",
+                            start_age=60,
+                            end_age=65,
+                            annual_amount=80_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        ),
+        roth_conversion=RothConversionPlan(strategy="fill_to_bracket", window_mode="auto_gap_year", ceiling_mode="named_bracket", named_bracket_rate=0.22),
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_does_not_flag_never_ending_wages_when_window_mode_is_explicit():
+    """The check only applies to window_mode=="auto_gap_year" -- the
+    default/every-scenario-predating-rp-595 explicit mode is unaffected,
+    even with a never-ending earned_income stream."""
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[
+                _member(
+                    income_streams=[
+                        IncomeStream(
+                            label="Wages",
+                            stream_type="earned_income",
+                            start_age=60,
+                            end_age=None,
+                            annual_amount=80_000.0,
+                            inflation_adjustment="cola_adjusted",
+                        )
+                    ]
+                )
+            ],
+        ),
+        roth_conversion=RothConversionPlan(strategy="fill_to_bracket", window=(2026, 2030), bracket_ceiling_or_amount=200_000.0),
+    )
+    assert validate(scenario) == []
+
+
+def test_validate_does_not_flag_auto_gap_year_window_with_no_roth_conversion_configured():
+    scenario = _clean_scenario()  # roth_conversion defaults to None
+    assert validate(scenario) == []

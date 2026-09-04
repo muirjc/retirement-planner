@@ -10,6 +10,7 @@ specs/005-simulation-engine/research.md §2 and contracts/simulation-api.md.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
@@ -46,6 +47,7 @@ def compare_states(
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see run_simulation()'s own docstring
+    net_earned_income_against_spending: bool = False,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in states, holding strategy,
     return_paths, and every other argument fixed -- only state differs
@@ -65,6 +67,10 @@ def compare_states(
     draw set is reused path-for-path across every candidate (the
     paired-draw standard pattern, spec.md FR-005), never regenerated per
     state.
+
+    net_earned_income_against_spending (rp-595): forwarded unchanged to
+    every state's own run_simulation() call. Defaults to False,
+    reproducing every existing caller's exact prior behavior unchanged.
     """
     _validate_consistent_generation_mode(return_paths)
     runs = [
@@ -84,6 +90,7 @@ def compare_states(
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for state in states
     ]
@@ -108,6 +115,7 @@ def compare_roth_conversion_strategies(
     death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
+    net_earned_income_against_spending: bool = False,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared withdrawal_strategy/claiming_ages/hsa_contribution onto
@@ -115,10 +123,16 @@ def compare_roth_conversion_strategies(
     parity with 004, FR-009; hsa_contribution per
     010-advanced-tax-benefits contracts/comparison-api.md).
     Mirrors 004's compare_roth_conversion_strategies() exactly, substituting
-    return_paths for return_assumption. inherited_accounts (012-inherited-
-    ira-rmd rp-mt7): see compare_states()'s own docstring. death_year_draws
+    return_paths for return_assumption -- including leaving each
+    candidate's own conversion_window_mode/conversion_ceiling_mode/
+    conversion_named_bracket_rate (rp-595) untouched by the replace()
+    below, since these ARE the varying conversion dimension here too.
+    inherited_accounts (012-inherited-ira-rmd rp-mt7): see
+    compare_states()'s own docstring. death_year_draws
     (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
-    docstring."""
+    docstring. net_earned_income_against_spending (rp-595): forced onto
+    every candidate's run_simulation() call, the same way hsa_contribution
+    already is."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -142,6 +156,7 @@ def compare_roth_conversion_strategies(
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for candidate in candidates
     ]
@@ -168,6 +183,10 @@ def compare_withdrawal_sequencing_strategies(
     death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
+    conversion_window_mode: Literal["explicit", "auto_gap_year"] = "explicit",
+    conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
+    conversion_named_bracket_rate: float | None = None,
+    net_earned_income_against_spending: bool = False,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -179,7 +198,11 @@ def compare_withdrawal_sequencing_strategies(
     substituting return_paths for return_assumption. inherited_accounts
     (012-inherited-ira-rmd rp-mt7): see compare_states()'s own docstring.
     death_year_draws (023-probabilistic-death-draws rp-vgv): see
-    compare_states()'s own docstring."""
+    compare_states()'s own docstring. conversion_window_mode/
+    conversion_ceiling_mode/conversion_named_bracket_rate/
+    net_earned_income_against_spending (rp-595): see 004's own
+    compare_withdrawal_sequencing_strategies() docstring -- identical
+    held-fixed-across-every-candidate treatment."""
     _validate_consistent_generation_mode(return_paths)
     runs = [
         run_simulation(
@@ -199,12 +222,16 @@ def compare_withdrawal_sequencing_strategies(
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages,
                 hsa_contribution=hsa_contribution,
+                conversion_window_mode=conversion_window_mode,
+                conversion_ceiling_mode=conversion_ceiling_mode,
+                conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_paths=return_paths,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for candidate in candidates
     ]
@@ -231,6 +258,10 @@ def compare_claiming_age_grid(
     death_year_draws: list[dict[str, int | None]] | None = None,
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
+    conversion_window_mode: Literal["explicit", "auto_gap_year"] = "explicit",
+    conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
+    conversion_named_bracket_rate: float | None = None,
+    net_earned_income_against_spending: bool = False,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -247,7 +278,10 @@ def compare_claiming_age_grid(
     for return_assumption. inherited_accounts (012-inherited-ira-rmd
     rp-mt7): see compare_states()'s own docstring. death_year_draws
     (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
-    docstring."""
+    docstring. conversion_window_mode/conversion_ceiling_mode/
+    conversion_named_bracket_rate/net_earned_income_against_spending
+    (rp-595): see 004's own compare_claiming_age_grid() docstring --
+    identical held-fixed-across-every-entry treatment."""
     member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
         if set(entry) != member_names:
@@ -282,12 +316,16 @@ def compare_claiming_age_grid(
                 conversion_window=conversion_window,
                 claiming_ages=claiming_ages_entry,
                 hsa_contribution=hsa_contribution,
+                conversion_window_mode=conversion_window_mode,
+                conversion_ceiling_mode=conversion_ceiling_mode,
+                conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_paths=return_paths,
             candidate_label=f"claiming_ages_{index}",
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
+            net_earned_income_against_spending=net_earned_income_against_spending,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

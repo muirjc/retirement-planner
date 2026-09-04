@@ -15,6 +15,7 @@ from typing import Literal
 
 from retirement_planner.mechanics import (
     AccountBalances,
+    GapWindowMemberInputs,
     InheritedAccountBalance,
     RothConversionLot,
     WithdrawalPlan,
@@ -31,12 +32,14 @@ from retirement_planner.mechanics import (
     compute_spousal_benefit_floor,
     compute_survivor_benefit,
     compute_withdrawal_plan,
+    resolve_gap_window,
 )
 from retirement_planner.scenario import Household, HouseholdMember
 from retirement_planner.tax import (
     FederalTaxResult,
     FigureUsage,
     IncomeComponents,
+    bracket_ceiling_for_rate,
     compute_early_withdrawal_penalty,
     compute_federal_tax,
     compute_fica_tax,
@@ -360,6 +363,34 @@ def _member_earned_income_amounts(household: Household, ages_this_year: dict[str
     return amounts
 
 
+def _member_latest_wage_end_age(member: HouseholdMember) -> int | None:
+    """rp-595: the max end_age across `member`'s own earned_income-type
+    IncomeStream entries -- one caller-side construction of
+    GapWindowMemberInputs.latest_wage_end_age (see that type's own
+    docstring, mechanics/models.py) per household member, for
+    mechanics.roth_conversion_window.resolve_gap_window()'s auto
+    Roth-conversion-window feature.
+
+    Returns member.current_age - 1 ("wages already stopped" as of the
+    run's own reference_tax_year) when the member has no earned_income
+    streams at all. Returns None ("wages never stop for this member")
+    when ANY of the member's earned_income streams has end_age=None."""
+    earned_income_streams = [stream for stream in member.income_streams if stream.stream_type == "earned_income"]
+    if not earned_income_streams:
+        return member.current_age - 1
+    if any(stream.end_age is None for stream in earned_income_streams):
+        return None
+    end_ages = []
+    for stream in earned_income_streams:
+        # The `any(... is None ...)` check above already guarantees this
+        # -- mirrors mechanics/roth_conversion_window.py's own identical
+        # narrowing idiom for the same reason (mypy can't track a guard
+        # from one loop into a separate one).
+        assert stream.end_age is not None
+        end_ages.append(stream.end_age)
+    return max(end_ages)
+
+
 def _household_bailey_qualifying_income(household: Household, ages_this_year: dict[str, int], tax_year: int, reference_tax_year: int) -> float:
     """027-nc-bailey-exclusion: the household's total income this year from
     streams the household has attested are NC Bailey-settlement-qualifying
@@ -418,6 +449,7 @@ def run_plan_projection(
     strategy: StrategyConfiguration,
     return_assumption: ReturnSchedule,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see docstring: never mutated as a list
+    net_earned_income_against_spending: bool = False,
 ) -> PlanProjection:
     """Runs one full-horizon projection, one plan year at a time, from
     start_plan_year through the plan year in which the deemed RMD owner
@@ -502,6 +534,27 @@ def run_plan_projection(
     household whose every member stays 60+ for the entire horizon and
     never touches an unseasoned Roth conversion lot sees a penalty of
     exactly 0.0 for every plan year (FR-010).
+
+    net_earned_income_against_spending (rp-595): when True, each plan
+    year's effective_spending_need is reduced by that year's household
+    earned_income total (floored at 0) before withdrawal sequencing runs
+    -- stops a household from having the full spending need drawn from
+    accounts while wages already cover part or all of it (the
+    "earned_income double-counting trap," docs/BRD.md §6.2d). Never
+    reduces the mandatory RMD draw itself (compute_withdrawal_plan()'s
+    rmd_drawn is computed independently of spending_need). Defaults to
+    False, reproducing every existing caller's exact prior output
+    unchanged.
+
+    strategy.conversion_window_mode/conversion_ceiling_mode (rp-595,
+    comparison-api.md): when "auto_gap_year"/"named_bracket" respectively,
+    this call resolves strategy.conversion_window/
+    conversion_bracket_ceiling_or_amount itself (via
+    mechanics.resolve_gap_window() once for the whole run, and
+    tax.bracket_ceiling_for_rate() once per plan year) rather than using
+    those fields as given -- see mechanics/roth_conversion_window.py and
+    docs/BRD.md §6.6b for the resolution rules. The actually-resolved
+    window is reported on the returned PlanProjection.resolved_conversion_window.
     """
     for member in household.members:
         traditional_ownership_shares[member.person_name]  # noqa: B018 -- eager KeyError check
@@ -536,6 +589,26 @@ def run_plan_projection(
     # once that member's age passes their FRA-attainment year to compute
     # their permanent post-FRA recredit (research.md Decision 4).
     cumulative_earnings_test_months_withheld: dict[str, int] = {}
+
+    # rp-595: resolved once per run (member ages/wage-stream configuration
+    # are static for the whole run, so no per-year re-derivation is
+    # needed) -- equal to strategy.conversion_window unchanged when
+    # conversion_window_mode=="explicit". The discarded figures_used
+    # (RMD_START_AGE's own citation) is a run-level provenance detail, not
+    # threaded into any single PlanYearProjection -- see docs/BRD.md
+    # §6.6b; PlanProjection.resolved_conversion_window is the reported
+    # audit signal for this resolution.
+    if strategy.conversion_window_mode == "auto_gap_year":
+        gap_window_inputs = [
+            GapWindowMemberInputs(
+                current_age=member.current_age,
+                latest_wage_end_age=_member_latest_wage_end_age(member),
+            )
+            for member in household.members
+        ]
+        resolved_conversion_window, _window_figures_used = resolve_gap_window(gap_window_inputs, reference_tax_year)
+    else:
+        resolved_conversion_window = strategy.conversion_window
 
     years: list[PlanYearProjection] = []
     current_balances = accounts
@@ -614,6 +687,17 @@ def run_plan_projection(
 
         effective_filing_status = "single" if is_post_death else household.filing_status
         effective_spending_need = annual_spending_need * (1.0 - household.survivor_spending_reduction_pct) if is_post_death else annual_spending_need
+
+        # rp-595: applied on top of (not instead of) the survivor-reduction
+        # logic above -- member_earned_income was already computed earlier
+        # this same iteration (line ~632). Never reduces the mandatory RMD
+        # draw itself (compute_withdrawal_plan()'s rmd_drawn is computed
+        # independently of spending_need, withdrawal_sequencing.py) --
+        # only shrinks/zeroes the *discretionary* sequencing draw on top
+        # of it. max(0.0, ...): spending need is never negative.
+        if net_earned_income_against_spending:
+            household_earned_income_total = sum(member_earned_income.values())
+            effective_spending_need = max(0.0, effective_spending_need - household_earned_income_total)
 
         # 021-pension-annuity-income (rp-pid): each member's own pension/
         # annuity/earned-income streams, summed into this year's
@@ -751,6 +835,22 @@ def run_plan_projection(
             tax_year=tax_year,
         )
 
+        # rp-595: resolved once per year (unlike the window above, resolved
+        # once per run) since the age-65 standard-deduction addition can
+        # vary year to year -- when ceiling_mode isn't "named_bracket",
+        # strategy.conversion_bracket_ceiling_or_amount is used as given,
+        # unchanged from every scenario predating this feature.
+        bracket_ceiling_figures_used: list[FigureUsage] | None = None
+        resolved_conversion_ceiling: float | None
+        if strategy.conversion_ceiling_mode == "named_bracket":
+            assert strategy.conversion_named_bracket_rate is not None  # scenario/loader.py's own _require() guarantees this
+            resolved_ceiling_ages = [ages_this_year[member.person_name] for member in household.members]
+            resolved_conversion_ceiling, bracket_ceiling_figures_used = bracket_ceiling_for_rate(
+                strategy.conversion_named_bracket_rate, effective_filing_status, tax_year, resolved_ceiling_ages,
+            )
+        else:
+            resolved_conversion_ceiling = strategy.conversion_bracket_ceiling_or_amount
+
         mechanics_result = compute_plan_year_mechanics(
             # conversion_window is calendar-year-based (001's Scenario.roth_conversion.window,
             # e.g. (2028, 2034)) and compute_roth_conversion() checks it against this
@@ -764,9 +864,9 @@ def run_plan_projection(
             rmd_amount=rmd_amount,
             social_security_gross_benefit=household_ss_benefit,
             filing_status=effective_filing_status,
-            conversion_window=strategy.conversion_window,
+            conversion_window=resolved_conversion_window,
             conversion_strategy=strategy.conversion_strategy,
-            conversion_bracket_ceiling_or_amount=strategy.conversion_bracket_ceiling_or_amount,
+            conversion_bracket_ceiling_or_amount=resolved_conversion_ceiling,
             withdrawal_strategy=strategy.withdrawal_strategy,
             rmd_figures_used=rmd_figures_used,
             hsa_contribution=hsa_contribution,
@@ -774,6 +874,7 @@ def run_plan_projection(
             inherited_rmd_figures_used=inherited_rmd_figures_used,
             income_stream_total=household_income_stream_total,
             income_stream_figures_used=income_stream_figures_used,
+            bracket_ceiling_figures_used=bracket_ceiling_figures_used,
         )
 
         # 019-roth-conversion-ladder (rp-886): attribute this year's own
@@ -995,6 +1096,7 @@ def run_plan_projection(
         return_assumption=return_assumption,
         years=years,
         outcome=outcome,
+        resolved_conversion_window=resolved_conversion_window,
     )
 
 

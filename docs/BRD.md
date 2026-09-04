@@ -530,17 +530,32 @@ the salary is taxed on top, with no offsetting cash inflow anywhere. This
 is not a bug — `annual_need_real`'s own definition ("the net amount that
 must come from savings") is correct and, per the paragraph above,
 consistent with how Social Security is already treated — but it is a
-usability gap. Decision: fixed as documentation/UX only (rp-uaf), not an
-engine change — see the `earned_income`-specific warning in the Type
-field's help text and the Spending field's help text on the Streamlit
-Scenarios page (`apps/streamlit_ui/pages/1_Scenarios.py`), and the
-Household/Spending sections of the Instructions page
+usability gap. Original decision: fixed as documentation/UX only (rp-uaf),
+not an engine change — see the `earned_income`-specific warning in the
+Type field's help text and the Spending field's help text on the
+Streamlit Scenarios page (`apps/streamlit_ui/pages/1_Scenarios.py`), and
+the Household/Spending sections of the Instructions page
 (`apps/streamlit_ui/src/rp_ui/instructions_content.py`). A soft validation
-warning was considered and rejected: the engine has no way to tell whether
-an author already netted a stream's contribution out of `annual_need_real`,
-so a rule that fires whenever a nonzero `earned_income` stream is present
-would just repeat the help text on every such scenario rather than
-detecting an actual problem.
+warning was considered and rejected at the time: the engine has no way to
+tell whether an author already netted a stream's contribution out of
+`annual_need_real`, so a rule that fires whenever a nonzero `earned_income`
+stream is present would just repeat the help text on every such scenario
+rather than detecting an actual problem.
+
+**Update (rp-595)**: the trap is now also addressable as a real, opt-in
+engine option — `SpendingProfile.net_earned_income_against_spending`
+(default `False`, preserving every existing scenario's exact output
+unchanged). When enabled, each plan year's discretionary (non-RMD)
+withdrawal is reduced by that year's household `earned_income` total,
+floored at $0, before withdrawal sequencing runs (`comparison/
+projection.py`) — never the mandatory RMD draw itself, which is computed
+independently of spending need. Scoped to `earned_income` streams only,
+not pension/annuity/Social Security, matching this section's own
+"much easier trap for earned_income" framing above; netting those other
+stream types remains a deliberate non-goal. The documentation-only
+workaround above remains the default, unchanged behavior — this is an
+additive alternative for a household that wants the engine to handle the
+netting itself, not a replacement for it.
 
 Streams round-trip through the scenario YAML and the BFF API, and the
 Streamlit Scenarios page now offers real per-member add/edit/remove

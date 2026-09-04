@@ -47,6 +47,7 @@ def compute_plan_year_mechanics(
     inherited_rmd_figures_used: list[FigureUsage] | None = None,
     income_stream_total: float = 0.0,
     income_stream_figures_used: list[FigureUsage] | None = None,
+    bracket_ceiling_figures_used: list[FigureUsage] | None = None,
 ) -> PlanYearMechanicsResult:
     """Orchestrates one plan year: calls compute_withdrawal_plan() first
     (rmd_amount is caller-supplied — typically the sum of one or more
@@ -86,6 +87,17 @@ def compute_plan_year_mechanics(
     figures_used gains (income_stream_figures_used or []) as a fifth
     unioned source. Both default such that omitting them reproduces this
     function's exact prior behavior unchanged.
+
+    bracket_ceiling_figures_used (rp-595): when the caller resolved
+    conversion_bracket_ceiling_or_amount itself via
+    tax.bracket_ceiling_for_rate() (RothConversionPlan.ceiling_mode ==
+    "named_bracket") rather than passing a scenario-authored dollar figure
+    through unchanged, its own returned figures_used (which bracket table/
+    standard-deduction schedule was actually consulted) is folded in here
+    as a sixth unioned source -- so the resolved ceiling's provenance is
+    auditable the same way every other figure this function touches
+    already is. Defaults to None, reproducing this function's exact prior
+    behavior when omitted (every caller not using named-bracket mode).
     """
     withdrawal_plan = compute_withdrawal_plan(
         spending_need=spending_need,
@@ -134,6 +146,7 @@ def compute_plan_year_mechanics(
         *(hsa_contribution.figures_used if hsa_contribution is not None else []),
         *(inherited_rmd_figures_used or []),
         *(income_stream_figures_used or []),
+        *(bracket_ceiling_figures_used or []),
     ]
 
     return PlanYearMechanicsResult(

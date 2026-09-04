@@ -65,6 +65,17 @@ class StrategyConfiguration:
     candidate, the same way withdrawal_strategy/claiming_ages already
     are. Defaults to None, reproducing every existing StrategyConfiguration
     construction's exact current behavior unmodified."""
+    conversion_window_mode: Literal["explicit", "auto_gap_year"] = "explicit"
+    conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount"
+    conversion_named_bracket_rate: float | None = None
+    """rp-595: mirror run-time-configurable counterparts of
+    RothConversionPlan's own window_mode/ceiling_mode/named_bracket_rate
+    (scenario/models.py) -- when conversion_window_mode=="auto_gap_year"
+    or conversion_ceiling_mode=="named_bracket", run_plan_projection()
+    resolves conversion_window/conversion_bracket_ceiling_or_amount above
+    itself each run/year rather than using them as given. Defaults
+    reproduce every existing StrategyConfiguration construction's exact
+    current behavior unmodified."""
 
 
 @dataclass
@@ -232,6 +243,17 @@ class PlanProjection:
     return_assumption: ReturnSchedule
     years: list[PlanYearProjection]
     outcome: PlanOutcome
+    resolved_conversion_window: tuple[int, int] | None = None
+    """rp-595: the conversion window actually used for this whole run --
+    equal to strategy.conversion_window unchanged when
+    conversion_window_mode=="explicit"; the auto-derived
+    (start_year, end_year) (or None, if no chronological gap exists for
+    this household) when conversion_window_mode=="auto_gap_year". An
+    informative addition, not a behavior change (mirrors
+    PlanYearProjection.filing_status's own precedent) -- without this, an
+    auto window collapsing to "no conversions ever" would be silently
+    invisible to a caller/UI. Defaults to None, reproducing every existing
+    PlanProjection construction's exact current behavior unmodified."""
 
 
 ComparisonDimension = Literal["roth_conversion_strategy", "withdrawal_sequencing", "claiming_age_grid"]

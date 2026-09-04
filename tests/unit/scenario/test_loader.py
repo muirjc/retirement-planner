@@ -433,3 +433,61 @@ def test_parse_scenario_raises_when_inherited_block_missing_a_required_field(mis
     yaml_text = _INHERITED_ACCOUNT_YAML.replace(f"      {missing_field}", "")
     with pytest.raises(ScenarioParseError):
         parse_scenario(yaml_text, name="inherited_case")
+
+
+# -- rp-595: auto Roth-conversion window / named-bracket ceiling / netting --
+
+_AUTO_WINDOW_NAMED_BRACKET_YAML = FULL_SCENARIO_YAML.replace(
+    """roth_conversion:
+  strategy: fill_to_bracket
+  bracket_ceiling_or_amount: 206700
+  window: [2028, 2034]""",
+    """roth_conversion:
+  strategy: fill_to_bracket
+  window_mode: auto_gap_year
+  ceiling_mode: named_bracket
+  named_bracket_rate: 0.22""",
+).replace(
+    "spending:\n  annual_need_real: 110000",
+    "spending:\n  annual_need_real: 110000\n  net_earned_income_against_spending: true",
+)
+
+
+def test_parse_scenario_auto_window_and_named_bracket_and_netting():
+    scenario = parse_scenario(_AUTO_WINDOW_NAMED_BRACKET_YAML)
+
+    assert scenario.roth_conversion.window_mode == "auto_gap_year"
+    assert scenario.roth_conversion.window is None
+    assert scenario.roth_conversion.ceiling_mode == "named_bracket"
+    assert scenario.roth_conversion.named_bracket_rate == 0.22
+    assert scenario.roth_conversion.bracket_ceiling_or_amount is None
+    assert scenario.spending.net_earned_income_against_spending is True
+
+
+def test_parse_scenario_omits_window_mode_defaults_to_explicit_matching_every_prior_scenario():
+    """Backward compatibility: FULL_SCENARIO_YAML has no window_mode/
+    ceiling_mode keys at all -- confirms window_mode/ceiling_mode default
+    exactly as every scenario written before rp-595 already parses."""
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+
+    assert scenario.roth_conversion.window_mode == "explicit"
+    assert scenario.roth_conversion.ceiling_mode == "dollar_amount"
+    assert scenario.roth_conversion.named_bracket_rate is None
+    assert scenario.spending.net_earned_income_against_spending is False
+
+
+def test_parse_scenario_raises_when_auto_gap_year_omits_window_mode_but_named_bracket_omits_rate():
+    """ceiling_mode=="named_bracket" still requires named_bracket_rate --
+    only window_mode=="auto_gap_year" is exempted from requiring window."""
+    yaml_text = _AUTO_WINDOW_NAMED_BRACKET_YAML.replace("  named_bracket_rate: 0.22\n", "")
+    with pytest.raises(ScenarioParseError):
+        parse_scenario(yaml_text, name="bad_named_bracket_case")
+
+
+def test_parse_scenario_raises_when_explicit_window_mode_omits_window():
+    """window_mode defaults to "explicit" -- omitting window entirely (not
+    just window_mode) with no window_mode override still requires it,
+    reproducing 012's own pre-existing behavior unchanged."""
+    yaml_text = FULL_SCENARIO_YAML.replace("  window: [2028, 2034]\n", "")
+    with pytest.raises(ScenarioParseError):
+        parse_scenario(yaml_text, name="missing_window_case")

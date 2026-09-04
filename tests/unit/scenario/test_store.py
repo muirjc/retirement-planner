@@ -12,6 +12,7 @@ from retirement_planner.scenario import (
     IncomeStream,
     InheritedIraDetails,
     MarketAssumptions,
+    RothConversionPlan,
     Scenario,
     ScenarioParseError,
     SimulationSettings,
@@ -322,3 +323,67 @@ def test_delete_scenario_raises_the_same_error_shape_as_load_scenario_for_a_miss
     # missing-scenario error shape exactly (research.md §1).
     assert type(delete_exc_info.value) is type(load_exc_info.value)
     assert delete_exc_info.value.source == load_exc_info.value.source == "never_saved"
+
+
+# -- rp-595: auto Roth-conversion window / named-bracket ceiling / netting --
+
+
+def test_roth_conversion_auto_window_and_named_bracket_survive_a_save_load_round_trip(scenario_store_dir):
+    scenario = _scenario("auto_window_case")
+    scenario.roth_conversion = RothConversionPlan(
+        strategy="fill_to_bracket",
+        window_mode="auto_gap_year",
+        window=None,
+        ceiling_mode="named_bracket",
+        bracket_ceiling_or_amount=None,
+        named_bracket_rate=0.22,
+    )
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("auto_window_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.roth_conversion.window_mode == "auto_gap_year"
+    assert reloaded.roth_conversion.window is None
+    assert reloaded.roth_conversion.ceiling_mode == "named_bracket"
+    assert reloaded.roth_conversion.bracket_ceiling_or_amount is None
+    assert reloaded.roth_conversion.named_bracket_rate == 0.22
+
+
+def test_roth_conversion_explicit_window_and_dollar_ceiling_still_round_trip_unchanged(scenario_store_dir):
+    """Regression: the pre-rp-595 shape (every existing scenario) still
+    round-trips identically -- window_mode/ceiling_mode default to their
+    original-behavior values."""
+    scenario = _scenario("explicit_window_case")
+    scenario.roth_conversion = RothConversionPlan(
+        strategy="fill_to_bracket",
+        window=(2028, 2034),
+        bracket_ceiling_or_amount=206_700.0,
+    )
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("explicit_window_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.roth_conversion.window_mode == "explicit"
+    assert reloaded.roth_conversion.window == (2028, 2034)
+    assert reloaded.roth_conversion.ceiling_mode == "dollar_amount"
+    assert reloaded.roth_conversion.bracket_ceiling_or_amount == 206_700.0
+    assert reloaded.roth_conversion.named_bracket_rate is None
+
+
+def test_net_earned_income_against_spending_survives_a_save_load_round_trip(scenario_store_dir):
+    scenario = _scenario("netting_case")
+    scenario.spending.net_earned_income_against_spending = True
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("netting_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.spending.net_earned_income_against_spending is True
+
+
+def test_net_earned_income_against_spending_defaults_to_false_after_a_save_load_round_trip(scenario_store_dir):
+    scenario = _scenario("netting_default_case")
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("netting_default_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.spending.net_earned_income_against_spending is False

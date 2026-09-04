@@ -203,13 +203,18 @@ class SpendingProfile:
 
     annual_need_real: float
     net_earned_income_against_spending: bool = False
-    """rp-595: when True, each plan year's discretionary (non-RMD)
-    withdrawal draw is reduced by that year's household earned_income
-    total, floored at 0 -- graduates the "earned_income double-counting
-    trap" (docs/BRD.md §6.2d, rp-uaf) from a documentation-only warning
-    to a real engine option. Scope: earned_income streams only, never
-    pension/annuity/Social Security (a deliberate non-goal, avoids scope
-    creep). Does NOT reduce the mandatory RMD draw itself --
+    """rp-595 (extended by rp-89t): when True, each plan year's
+    discretionary (non-RMD) withdrawal draw is reduced by that year's
+    household earned_income total, floored at 0 -- graduates the
+    "earned_income double-counting trap" (docs/BRD.md §6.2d, rp-uaf) from
+    a documentation-only warning to a real engine option. rp-89t: any
+    earned_income left over once that draw is fully covered is then
+    applied to that same year's tax bill, before the second, tax-funding
+    withdrawal pass touches accounts -- a working household's wages fund
+    spending first, taxes next, accounts only cover what's left; no wage
+    dollar is netted against both draws. Scope: earned_income streams
+    only, never pension/annuity/Social Security (a deliberate non-goal,
+    avoids scope creep). Does NOT reduce the mandatory RMD draw itself --
     compute_withdrawal_plan()'s rmd_drawn is computed independently of
     spending_need (withdrawal_sequencing.py). Defaults to False,
     reproducing every existing scenario's exact current output

@@ -87,7 +87,7 @@ Open the URL Streamlit prints (default `http://localhost:8501`) to create a scen
 Four independent suites, one per layer of the test pyramid (each package's own suite runs independently — they share test-directory names, so a single combined `pytest` invocation across packages isn't supported):
 
 ```bash
-pytest tests/                        # core library       -- 670 tests
+pytest tests/                        # core library       -- 674 tests
 pytest services/bff/tests/           # BFF API service     -- 116 tests
 pytest apps/streamlit_ui/tests/      # Streamlit UI         -- 161 tests
 cd e2e && ../.venv/bin/python3.12 -m pytest -q   # browser-driven e2e -- 16 tests

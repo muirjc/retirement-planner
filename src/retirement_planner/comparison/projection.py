@@ -535,16 +535,22 @@ def run_plan_projection(
     never touches an unseasoned Roth conversion lot sees a penalty of
     exactly 0.0 for every plan year (FR-010).
 
-    net_earned_income_against_spending (rp-595): when True, each plan
-    year's effective_spending_need is reduced by that year's household
-    earned_income total (floored at 0) before withdrawal sequencing runs
-    -- stops a household from having the full spending need drawn from
-    accounts while wages already cover part or all of it (the
-    "earned_income double-counting trap," docs/BRD.md §6.2d). Never
-    reduces the mandatory RMD draw itself (compute_withdrawal_plan()'s
-    rmd_drawn is computed independently of spending_need). Defaults to
-    False, reproducing every existing caller's exact prior output
-    unchanged.
+    net_earned_income_against_spending (rp-595, extended by rp-89t): when
+    True, each plan year's effective_spending_need is reduced by that
+    year's household earned_income total (floored at 0) before
+    withdrawal sequencing runs -- stops a household from having the full
+    spending need drawn from accounts while wages already cover part or
+    all of it (the "earned_income double-counting trap," docs/BRD.md
+    §6.2d). Never reduces the mandatory RMD draw itself
+    (compute_withdrawal_plan()'s rmd_drawn is computed independently of
+    spending_need). rp-89t: whatever's left of that same wage total once
+    it has funded effective_spending_need (leftover_earned_income_after_
+    spending) is then netted against that year's own tax_owed before the
+    second, tax-funding compute_withdrawal_plan() call further down this
+    loop -- the same wage dollars fund spending first, then taxes, then
+    accounts only make up the residual, with no dollar counted against
+    both draws. Defaults to False, reproducing every existing caller's
+    exact prior output unchanged.
 
     strategy.conversion_window_mode/conversion_ceiling_mode (rp-595,
     comparison-api.md): when "auto_gap_year"/"named_bracket" respectively,
@@ -695,8 +701,21 @@ def run_plan_projection(
         # independently of spending_need, withdrawal_sequencing.py) --
         # only shrinks/zeroes the *discretionary* sequencing draw on top
         # of it. max(0.0, ...): spending need is never negative.
+        #
+        # rp-89t: leftover_earned_income_after_spending -- whatever's left
+        # of this year's household_earned_income_total once it has funded
+        # effective_spending_need (computed here, against the pre-netting
+        # value, before the line below reduces it) -- is carried forward
+        # to the tax-funding withdrawal pass further down this same loop
+        # iteration (~line 1005) and netted against that year's tax_owed
+        # there, the same wage dollars never counted twice. Stays 0.0 (its
+        # default below) when the toggle is off, so that second pass's
+        # spending_need is unchanged in that case (max(0.0, tax_owed -
+        # 0.0) == tax_owed) -- default preserves current behavior exactly.
+        leftover_earned_income_after_spending = 0.0
         if net_earned_income_against_spending:
             household_earned_income_total = sum(member_earned_income.values())
+            leftover_earned_income_after_spending = max(0.0, household_earned_income_total - effective_spending_need)
             effective_spending_need = max(0.0, effective_spending_need - household_earned_income_total)
 
         # 021-pension-annuity-income (rp-pid): each member's own pension/
@@ -1002,8 +1021,17 @@ def run_plan_projection(
         # unaffected -- that reporting figure is a separate computation
         # in _derive_outcome(), untouched by this local funding variable.
         tax_owed = federal_tax.federal_tax_owed + state_tax.state_tax_owed + irmaa.surcharge_owed + niit.surtax_owed + early_withdrawal_penalty.penalty_owed + fica_tax.total_fica_tax
+
+        # rp-89t: leftover_earned_income_after_spending (computed above,
+        # ~line 698, alongside net_earned_income_against_spending's
+        # existing spending-need netting) funds this year's tax bill next,
+        # before accounts are touched -- the same wage dollars a working
+        # household already has on hand this year, applied to the second
+        # of the two draws rp-595 left unaware of earned income (this
+        # issue's own report). max(0.0, ...): never negative, and equals
+        # tax_owed unchanged when the toggle is off (leftover stays 0.0).
         tax_funding_withdrawal: WithdrawalPlan = compute_withdrawal_plan(
-            spending_need=tax_owed,
+            spending_need=max(0.0, tax_owed - leftover_earned_income_after_spending),
             rmd_amount=0.0,
             starting_balances=mechanics_result.ending_balances,
             strategy=strategy.withdrawal_strategy,

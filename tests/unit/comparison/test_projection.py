@@ -2942,6 +2942,186 @@ def test_net_earned_income_against_spending_defaults_to_false_reproducing_prior_
     assert default_call.resolved_conversion_window == explicit_false.resolved_conversion_window
 
 
+def test_net_earned_income_against_spending_also_nets_leftover_wages_against_tax_bill():
+    """rp-89t: rp-595's netting only ever reached the discretionary
+    spending-need withdrawal (the first of two withdrawal-sequencing
+    passes) -- the second, tax-funding compute_withdrawal_plan() call had
+    zero awareness of earned income, so a household's own wages sat
+    unused while its tax bill (often driven by those same wages) was
+    drawn from accounts regardless. annual_spending_need=0 here means
+    effective_spending_need is already floored at 0 with netting either
+    on or off, so the first pass -- and every tax figure derived from it
+    -- is byte-identical between the two runs; only the second, tax-
+    funding pass can differ, isolating exactly the behavior this issue
+    reports. $100,000 of wages comfortably exceeds the resulting tax
+    bill (income tax + FICA on those same wages, no other income), so
+    the fix must zero the tax-funding withdrawal entirely."""
+    household = _earned_income_household(100_000, current_age=63, start_age=63, end_age=None)
+    common_kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=63,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
+    with_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=True)
+
+    year_without = without_netting.years[0]
+    year_with = with_netting.years[0]
+
+    assert year_with.mechanics == year_without.mechanics
+    assert year_with.federal_tax == year_without.federal_tax
+    assert year_with.fica_tax == year_without.fica_tax
+
+    tax_owed = (
+        year_without.federal_tax.federal_tax_owed
+        + year_without.state_tax.state_tax_owed
+        + year_without.irmaa.surcharge_owed
+        + year_without.niit.surtax_owed
+        + year_without.early_withdrawal_penalty.penalty_owed
+        + year_without.fica_tax.total_fica_tax
+    )
+    assert tax_owed > 0.0
+
+    without_draw = sum(item.amount for item in year_without.tax_funding_withdrawal.sequence_withdrawals)
+    with_draw = sum(item.amount for item in year_with.tax_funding_withdrawal.sequence_withdrawals)
+
+    assert without_draw == pytest.approx(tax_owed)
+    assert with_draw == pytest.approx(0.0)
+
+
+def test_net_earned_income_against_spending_partially_offsets_a_larger_tax_bill():
+    """Partial-offset case: leftover wages reduce, but don't eliminate,
+    the tax-funding withdrawal, when the tax bill exceeds what's left
+    over. annual_spending_need=0 again isolates the effect to the
+    tax-funding pass alone (the mandatory RMD -- unaffected by spending
+    netting either way -- is this year's only other ordinary income, so
+    both runs' mechanics/tax figures match exactly); $20,000 of leftover
+    wages doesn't fully cover the tax bill a $3,000,000 traditional
+    balance's RMD drives at age 75."""
+    household = _earned_income_household(20_000, current_age=75, start_age=75, end_age=None)
+    common_kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=3_000_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
+    with_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=True)
+
+    year_without = without_netting.years[0]
+    year_with = with_netting.years[0]
+
+    assert year_with.mechanics == year_without.mechanics
+    assert year_with.mechanics.withdrawal_plan.rmd_drawn > 0.0
+
+    without_draw = sum(item.amount for item in year_without.tax_funding_withdrawal.sequence_withdrawals)
+    with_draw = sum(item.amount for item in year_with.tax_funding_withdrawal.sequence_withdrawals)
+
+    assert with_draw == pytest.approx(without_draw - 20_000)
+    assert with_draw > 0.0
+
+
+def test_net_earned_income_against_spending_tax_funding_offset_defaults_to_false_reproducing_prior_output():
+    """Regression: with the toggle off, the tax-funding withdrawal is
+    completely unaffected by rp-89t -- leftover_earned_income_after_
+    spending stays 0.0, so max(0.0, tax_owed - 0.0) == tax_owed, the
+    exact pre-fix computation."""
+    household = _earned_income_household(80_000, current_age=63, start_age=63, end_age=None)
+    kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=500_000, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=60_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 67}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    default_call = run_plan_projection(**kwargs)
+    explicit_false = run_plan_projection(**kwargs, net_earned_income_against_spending=False)
+
+    assert default_call.years == explicit_false.years
+    assert any(year.tax_funding_withdrawal.sequence_withdrawals for year in default_call.years)
+
+
+def test_rp_89t_reported_scenario_year_one_tax_funding_withdrawal_is_empty_once_fixed():
+    """Pins this issue's own reported reproduction (rp-89t's description):
+    married household, John (64, wages $225k/yr through age 67) and Susan
+    (60, wages $185k/yr through age 65), annual_need_real=$180,000,
+    net_earned_income_against_spending=True. Year 1 (2026): combined
+    wages $410,000, effective_spending_need correctly nets to $0 (rp-595,
+    unaffected by this fix), no RMD (both under RMD age), no Roth
+    conversion. The reported federal ($75,868) and FICA ($30,263) tax
+    figures -- $106,131 combined, with $0 state (FL) -- are pinned here
+    unchanged (this fix touches which balance funds tax_owed, never its
+    computation); before this fix, that $106,131 was drawn from accounts
+    (draining the $40,000 taxable balance, then $66,131 more from
+    Traditional) despite $410,000 of the same year's own wages sitting
+    completely unused for it. Fixed: $230,000 of wages is left over after
+    funding the $180,000 spending need, comfortably covering the
+    $106,131 tax bill, so tax_funding_withdrawal is empty."""
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="john", current_age=64, ss_claim_age=67, ss_annual_benefit=0, full_retirement_age=67.0),
+            HouseholdMember(person_name="susan", current_age=60, ss_claim_age=67, ss_annual_benefit=0, full_retirement_age=67.0),
+        ],
+    )
+    household.members[0].income_streams = [
+        IncomeStream(label="John's wages", stream_type="earned_income", start_age=64, end_age=67, annual_amount=225_000, inflation_adjustment="cola_adjusted")
+    ]
+    household.members[1].income_streams = [
+        IncomeStream(label="Susan's wages", stream_type="earned_income", start_age=60, end_age=65, annual_amount=185_000, inflation_adjustment="cola_adjusted")
+    ]
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=200_000, roth=0, taxable=40_000),
+        traditional_ownership_shares={"john": 0.5, "susan": 0.5},
+        annual_spending_need=180_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=64,
+        strategy=_strategy(claiming_ages={"john": 67, "susan": 67}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        net_earned_income_against_spending=True,
+    )
+
+    year_one = result.years[0]
+
+    assert sum(item.amount for item in year_one.mechanics.withdrawal_plan.sequence_withdrawals) == pytest.approx(0.0)
+    assert year_one.mechanics.withdrawal_plan.rmd_drawn == pytest.approx(0.0)
+    assert year_one.mechanics.conversion.amount_converted == pytest.approx(0.0)
+    assert year_one.federal_tax.federal_tax_owed == pytest.approx(75_868.0, abs=1.0)
+    assert year_one.fica_tax.total_fica_tax == pytest.approx(30_263.0, abs=1.0)
+    assert year_one.state_tax.state_tax_owed == pytest.approx(0.0)
+
+    assert year_one.tax_funding_withdrawal.sequence_withdrawals == []
+
+
 def test_explicit_window_mode_is_unaffected_by_rp_595_and_matches_prior_static_behavior():
     """Regression: window_mode="explicit" (the default/every scenario
     predating rp-595) round-trips strategy.conversion_window through to

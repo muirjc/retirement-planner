@@ -557,6 +557,23 @@ workaround above remains the default, unchanged behavior — this is an
 additive alternative for a household that wants the engine to handle the
 netting itself, not a replacement for it.
 
+**Update (rp-89t)**: rp-595's netting only ever touched the first of two
+withdrawal passes in `comparison/projection.py` — the discretionary
+spending draw. A second, separate `compute_withdrawal_plan()` call funds
+that year's total `tax_owed` (federal + state + IRMAA + NIIT + early-
+withdrawal penalty + FICA) purely from account balances, with no
+awareness of earned income at all, so a working household's own wages
+— often the very thing driving that tax bill — sat unused while the
+same toggle's namesake trap reopened one draw over. Fixed as an
+extension of the same `net_earned_income_against_spending` toggle
+rather than a new opt-in: whatever earned income is left over once it
+has funded that year's spending need is carried forward and netted
+against `tax_owed` before the tax-funding pass touches accounts —
+wages fund spending first, the tax bill next, accounts only cover the
+residual. Still opt-in and still `earned_income`-only, matching this
+section's existing discipline; default (`False`) reproduces prior
+output unchanged.
+
 Streams round-trip through the scenario YAML and the BFF API, and the
 Streamlit Scenarios page now offers real per-member add/edit/remove
 widgets for them (`rp-5cq`) — not just silent preservation of an

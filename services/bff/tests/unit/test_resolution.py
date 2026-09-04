@@ -469,6 +469,39 @@ def test_default_generation_mode_matches_generate_return_paths_directly(tmp_path
     assert configured == direct
 
 
+def test_path_count_and_seed_overrides_default_to_context_values_when_omitted(tmp_path):
+    """rp-9hl: omitting path_count/seed reproduces every existing caller's
+    exact prior behavior (context.n_paths/context.seed) unchanged."""
+    from rp_bff.resolution import generate_configured_return_paths
+
+    context = _resolved_context(tmp_path, n_paths=20, seed=42)
+
+    without_override = generate_configured_return_paths(
+        context, horizon_years=10, start_plan_year=1, generation_mode="parametric", historical_block_length=10, stress_scenario=None,
+    )
+    with_explicit_matching_values = generate_configured_return_paths(
+        context, horizon_years=10, start_plan_year=1, generation_mode="parametric", historical_block_length=10, stress_scenario=None,
+        path_count=20, seed=42,
+    )
+
+    assert without_override == with_explicit_matching_values
+
+
+def test_path_count_override_changes_the_number_of_paths_generated(tmp_path):
+    """rp-9hl: the sustainable-spending search's own reason for this
+    override -- a reduced path count independent of context.n_paths."""
+    from rp_bff.resolution import generate_configured_return_paths
+
+    context = _resolved_context(tmp_path, n_paths=20, seed=42)
+
+    reduced = generate_configured_return_paths(
+        context, horizon_years=10, start_plan_year=1, generation_mode="parametric", historical_block_length=10, stress_scenario=None,
+        path_count=5,
+    )
+
+    assert len(reduced) == 5
+
+
 def test_historical_bootstrap_mode_returns_paths_citing_historical_returns(tmp_path):
     from rp_bff.resolution import generate_configured_return_paths
 

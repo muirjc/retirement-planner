@@ -891,6 +891,43 @@ every drawn death year this capability produces is therefore no more
 reliable than the illustrative curve it came from, exactly like
 survival-adjusted scoring already was.
 
+### 6.10 Sustainable-spending range search (rp-3g0)
+
+Answers "what can this household actually afford to spend?" as a real,
+simulation-backed search over `run_simulation()`'s own `success_rate`
+output, rather than a formula — replacing (as a *complement* to, not a
+replacement for) the scenario-save-time plausibility check in §2.1's
+validation rules, which is a cheap straight-line heuristic
+(`annual_spend × horizon_years` vs. total starting assets, ignoring
+growth, taxes, RMDs, and Social Security entirely) and was never intended
+to be a precise answer.
+
+`simulation.find_sustainable_spending_range()` runs two independent
+searches — a "conservative" target success rate (95% by default) and a
+"flexible" one (75% by default) — each a bracket-expansion-then-bisection
+search over `annual_spending_need`, holding every other input fixed.
+Both searches share **one fixed set of Monte Carlo return paths**,
+generated once by the caller and never regenerated per candidate — this
+is load-bearing, not an optimization: against one fixed path set,
+`success_rate` is a deterministic, monotonically non-increasing function
+of spending (more spending can only reduce or hold steady the fraction of
+paths that don't run out of money, never raise it), which is exactly what
+bisection requires to converge to a single answer. Re-randomizing paths
+per candidate would make the search unstable and its result path-
+dependent rather than spending-dependent.
+
+**Precision (deliberate, disclosed simplification)**: the search runs at
+a reduced path count relative to a full simulation run (e.g. 200 vs. a
+typical default of 1000+), trading Monte Carlo precision for search speed
+— a search is 10-30+ simulation runs, not one, so this stays within the
+constitution's performance budget (§8) the same way a comparison's
+`candidate_count` already does. The resulting range is reported as an
+estimate, explicitly labeled as such wherever it's surfaced — never
+presented with the same confidence as a single full-precision run
+(constitution Principle I). A household that wants a precise number for
+one particular spending figure should run the normal, full-precision
+simulation at that figure directly.
+
 ## 7. Known Limitations & Open Items
 
 - Only 4 of the 9 states the reference use case names (§2.3) have real

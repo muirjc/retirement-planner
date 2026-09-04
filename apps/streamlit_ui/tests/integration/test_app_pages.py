@@ -1559,6 +1559,109 @@ def test_run_historical_bootstrap_mode_shows_the_unverified_figure_warning():
     assert any("historical_annual_real_returns" in w.value for w in at.warning)
 
 
+# -- rp-430: sustainable-spending range search --------------------------------
+
+
+def _spending_search_result(conservative_bracket_exhausted=False, flexible_bracket_exhausted=False):
+    return {
+        "conservative": {
+            "spending": 70_000.0,
+            "achieved_success_rate": 0.95,
+            "target_success_rate": 0.95,
+            "iterations_used": 12,
+            "bracket_exhausted": conservative_bracket_exhausted,
+        },
+        "flexible": {
+            "spending": 95_000.0,
+            "achieved_success_rate": 0.75,
+            "target_success_rate": 0.75,
+            "iterations_used": 10,
+            "bracket_exhausted": flexible_bracket_exhausted,
+        },
+        "path_count_used": 200,
+    }
+
+
+def test_spending_search_button_displays_the_range_as_an_estimate():
+    def search_response(request):
+        body = json.loads(request.content)
+        assert body["scenario_name"] == "base_case"
+        assert body["reference_tax_year"] == 2026
+        assert "n_paths" not in body  # rp-430: never sent -- the search always uses its own fixed path count
+        assert "detail_path_index" not in body
+        return httpx.Response(200, json=_spending_search_result())
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations/sustainable-spending-range")] = search_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="spending_search_button").click().run()
+
+    assert not at.exception
+    assert any("$70,000" in i.value and "$95,000" in i.value for i in at.info)
+    assert any("estimate" in i.value.lower() for i in at.info)
+
+
+def test_spending_search_bracket_exhausted_shows_a_caption_not_a_precise_figure():
+    def search_response(request):
+        return httpx.Response(200, json=_spending_search_result(conservative_bracket_exhausted=True))
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations/sustainable-spending-range")] = search_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="spending_search_button").click().run()
+
+    assert not at.exception
+    assert any("didn't fully converge" in c.value for c in at.caption)
+
+
+def test_spending_search_cost_budget_exceeded_shows_a_friendly_error():
+    def search_response(request):
+        return httpx.Response(413, json={"error": "estimated_cost_exceeds_budget", "estimated_seconds": 45.0, "budget_seconds": 30.0})
+
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations/sustainable-spending-range")] = search_response
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="spending_search_button").click().run()
+
+    assert not at.exception
+    assert any("too large" in e.value for e in at.error)
+    assert "spending_search_result" not in at.session_state
+
+
+def test_spending_search_does_not_interfere_with_a_normal_run():
+    """The two buttons/actions are independent -- running one doesn't
+    clobber or require the other."""
+    summary = {
+        "candidate_label": "base_case",
+        "success_rate": 0.91,
+        "ending_balance": 1_800_000.0,
+        "percentile_bands": [],
+        "median_depletion_age": None,
+        "median_lifetime_tax_paid": 300_000.0,
+        "unverified_figure_names": [],
+    }
+    routes = _run_reference_routes()
+    routes[("POST", "/api/v1/simulations")] = httpx.Response(200, json={"run": {"candidate_label": "base_case", "path_results": [{}] * 100}, "summary": summary})
+    routes[("POST", "/api/v1/simulations/sustainable-spending-range")] = httpx.Response(200, json=_spending_search_result())
+    _install(_route(routes))
+
+    at = _run_page_ready(AppTest.from_file(str(RUN_PAGE)).run())
+    at.button(key="run_button").click().run()
+    assert not at.exception
+    assert at.metric[0].value == "91.0%"
+
+    at.button(key="spending_search_button").click().run()
+    assert not at.exception
+    assert any("$70,000" in i.value for i in at.info)
+    assert at.metric[0].value == "91.0%"  # the earlier run result is still shown, unaffected
+
+
 # -- User Story 3: Compare candidates (T020-T023) -----------------------------
 
 

@@ -8,7 +8,7 @@ independently testable without either (tasks.md's own sequencing note).
 import streamlit as st
 
 from rp_ui.account_table import render_account_table
-from rp_ui.api_client import export_simulation_csv, list_scenarios, list_withdrawal_strategies, run_simulation
+from rp_ui.api_client import export_simulation_csv, list_scenarios, list_withdrawal_strategies, run_simulation, search_sustainable_spending_range
 from rp_ui.charts import fan_chart
 from rp_ui.narration import render_results_explanation
 from rp_ui.verification import render_verification_indicator
@@ -207,7 +207,103 @@ def _build_run_body() -> dict:
     return body
 
 
-if st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for the selected scenario with the settings above."):
+def _build_spending_search_body() -> dict:
+    """rp-430: the sustainable-spending-range endpoint's own request shape
+    -- a subset of _build_run_body()'s fields (no detail_path_index/
+    survival_adjusted, out of scope for a search; no n_paths/seed
+    override, since the search always uses its own fixed, reduced path
+    count independent of whatever the scenario or the override above
+    configures -- see docs/BRD.md §6.10)."""
+    body = {
+        "scenario_name": st.session_state["run_scenario_select"],
+        "withdrawal_strategy": st.session_state["run_withdrawal_strategy"],
+        "reference_tax_year": st.session_state["run_reference_tax_year"],
+        "start_plan_year": st.session_state["run_start_plan_year"],
+        "start_tax_year": st.session_state["run_start_tax_year"],
+        "generation_mode": st.session_state["run_generation_mode"],
+        "historical_block_length": st.session_state["run_historical_block_length"],
+    }
+    if st.session_state.get("run_override_advanced"):
+        body["plan_to_age"] = st.session_state["run_plan_to_age_override"]
+    if st.session_state.get("run_apply_stress"):
+        body["stress_scenario"] = {
+            "magnitude": st.session_state["run_stress_magnitude"],
+            "duration_years": st.session_state["run_stress_duration_years"],
+            "start_plan_year": st.session_state["run_stress_start_plan_year"],
+        }
+    return body
+
+
+run_col, search_col = st.columns(2)
+
+with run_col:
+    run_clicked = st.button("Run", key="run_button", help="Runs a Monte Carlo simulation for the selected scenario with the settings above.")
+with search_col:
+    search_clicked = st.button(
+        "Suggest a sustainable spending range",
+        key="spending_search_button",
+        help=(
+            "A real, simulation-backed estimate (not a formula) of what this scenario's household can "
+            "afford to spend -- searches for the spending levels that hit a 95% ('conservative') and a "
+            "75% ('flexible') success rate. Runs a reduced-precision search (fewer Monte Carlo paths than "
+            "a full Run) for speed, roughly 10-20 seconds -- treat the result as an estimate, and confirm "
+            "by running the full simulation above at whichever figure you land on."
+        ),
+    )
+
+if search_clicked:
+    with st.spinner("Searching for a sustainable spending range (reduced-precision estimate, ~10-20s)..."):
+        try:
+            st.session_state["spending_search_result"] = search_sustainable_spending_range(_build_spending_search_body())
+        except ScenarioNotFoundError:
+            st.error("This scenario no longer exists.")
+        except BlockingValidationError as err:
+            st.error("Fix these problems on the Scenarios page first:")
+            for flag in err.flags:
+                st.error(f"**{flag['field']}**: {flag['message']}")
+        except UnknownReferenceValueError as err:
+            st.error(f"{err.field!r} value {err.value!r} isn't currently supported -- pick from the list.")
+        except UnsupportedTaxYearError as err:
+            years = err.documented_years
+            st.error(
+                f"Tax year {err.requested_year} isn't supported for {err.figure_name!r} -- enter a year between {min(years)} and {max(years)}."
+                if years
+                else f"Tax year {err.requested_year} isn't supported for {err.figure_name!r}."
+            )
+        except CostBudgetExceededError as err:
+            st.error(f"This search is too large (estimated {err.estimated_seconds:.0f}s against a {err.budget_seconds:.0f}s budget) -- try a shorter horizon.")
+        except InvalidSimulationOptionsError as err:
+            st.error(err.detail)
+        except BackendUnreachableError as err:
+            st.error(str(err))
+        except RpUiError as err:
+            st.error(str(err))
+        # No `else:` needed -- the assignment inside `try` already stored
+        # the result in session_state on success; nothing further to do.
+
+if "spending_search_result" in st.session_state:
+    result = st.session_state["spending_search_result"]
+    conservative, flexible = result["conservative"], result["flexible"]
+    st.info(
+        f"**Estimated sustainable spending: ${conservative['spending']:,.0f} - ${flexible['spending']:,.0f}/yr** "
+        f"({conservative['target_success_rate']:.0%} conservative to {flexible['target_success_rate']:.0%} flexible "
+        f"success rate) -- a fast, reduced-precision estimate ({result['path_count_used']} paths), not a full-"
+        "precision answer. Confirm by running the full simulation above at a spending figure in this range."
+    )
+    if conservative["bracket_exhausted"]:
+        st.caption(
+            f"The conservative ({conservative['target_success_rate']:.0%}) end didn't fully converge -- this "
+            f"household stays above that success rate even at ${conservative['spending']:,.0f}/yr, so the true "
+            "conservative ceiling is higher than shown."
+        )
+    if flexible["bracket_exhausted"]:
+        st.caption(
+            f"The flexible ({flexible['target_success_rate']:.0%}) end didn't fully converge -- this household "
+            f"stays above that success rate even at ${flexible['spending']:,.0f}/yr, so the true flexible ceiling "
+            "is higher than shown."
+        )
+
+if run_clicked:
     with st.spinner("Running simulation..."):
         try:
             result = run_simulation(_build_run_body())

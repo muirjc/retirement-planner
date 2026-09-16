@@ -161,6 +161,7 @@ methodology this table's federal rows were most recently produced by.
 | Net Investment Income Tax (NIIT) rate & thresholds | 26 U.S.C. §1411(a)(1), (b)(1)/(3) (fixed by statute) | `tax/niit.py` |
 | Medicare IRMAA surcharge tiers (Parts B & D, combined) | CMS.gov, 2026 IRMAA tables (CMS-8089-N/8090-N/8091-N) | `tax/irmaa.py` |
 | HSA contribution limits (self-only, family, 55+ catch-up) | IRS Rev. Proc. 2025-19, tax year 2026 (catch-up fixed by IRC §223(b)(3)) | `mechanics/hsa.py` |
+| 401(k)/Roth 401(k) elective-deferral limit, incl. 50+ catch-up | IRC §402(g)(1)(B) (catch-up per §414(v)) — **unverified placeholder**, not yet cross-checked against a real IRS Revenue Procedure for tax year 2026 | `mechanics/contribution_401k.py` |
 | RMD start age, including the scheduled 2033 73→75 step | 26 U.S.C. §401(a)(9)(C)(v), as amended by SECURE 2.0 Act (Pub. L. 117-328) §107 | `mechanics/rmd.py` |
 | Uniform Lifetime Table (RMD divisors, ages 72–120+) | IRS Pub. 590-B (2025), Appendix B, Table III | `mechanics/rmd.py` |
 | Single Life Expectancy Table (inherited-account divisors, ages 0–120+) | IRS Pub. 590-B (2025), Appendix B, Table I | `mechanics/inherited_rmd.py` |
@@ -180,6 +181,17 @@ age 75 for 1960+). Full cohort modeling would require threading the
 account owner's birth year through `compute_rmd()`'s locked signature — a
 larger, separately-scoped change (`014-figure-verification`, research.md
 §3).
+
+**401(k)/Roth 401(k) elective-deferral limit is a placeholder** (`rp-wei`):
+unlike every other federal figure in the table above, this one was not
+cross-checked against a real IRS Revenue Procedure at the time it shipped
+— the dollar figures in `mechanics/contribution_401k.py` are a plausible
+placeholder only, `SourcedFigure(..., verified=False)`. This mirrors South
+Carolina/Delaware's own placeholder status (§5.4) rather than HSA's or
+RMD's verified status directly above/below it in this same table.
+Verifying it against the real Revenue Procedure is tracked as separate,
+not-yet-scheduled follow-on work, the same way SC/DE's own verification
+is.
 
 ### 5.2 Federal — real math, "real-dollar" bracket/tier convention
 
@@ -624,6 +636,98 @@ self-employment income will see this feature understate their true
 payroll-tax cost. `pension`/`annuity` streams never incur FICA at all
 (they are not wages) — this is the correct treatment, not a gap.
 
+### 6.2f 401(k)/Roth 401(k) accumulation-phase contributions (`rp-wei`)
+
+Until this feature, the engine was decumulation-only: every plan year's
+loop in `comparison/projection.py` only ever *subtracted* from the pooled
+`AccountBalances` (RMD, discretionary withdrawal, tax-funding withdrawal)
+and applied investment growth — nothing ever added to a balance. A
+household member still earning wages during the plan horizon could have
+any 401(k)/Roth 401(k) contribution they were actually making completely
+invisible: the full `earned_income` stream taxed as if received in cash,
+with none of the deferred dollars ever appearing in the Traditional/Roth
+balance the withdrawal/RMD/conversion machinery consumes (the exact gap
+the reference use case's own working years exposed).
+
+**What it models**: an optional `Contribution401kPlan` per household
+member — `pretax_annual_amount` and `roth_annual_amount`, each defaulting
+to `0.0`. A member is eligible in a plan year iff they have `earned_income`
+that year (IRC §402(g): an elective deferral is withheld from wages, so
+zero wages means zero deferral); an ineligible or unconfigured member
+always contributes `0.0`. Both amounts are assumed to already be *part
+of* (withheld from) that member's own configured `earned_income.annual_amount`
+(§6.2d) — never an additional income source layered on top.
+
+**Tax treatment**: `pretax_annual_amount` reduces that year's
+`ordinary_income` by the exact same mechanism HSA's own
+`amount_contributed` already does (`mechanics/plan_year.py`);
+`roth_annual_amount` has no tax effect at all — already-taxed wages,
+exactly like a Roth conversion's own destination balance.
+
+**Contribution limits**: unlike HSA's household-pooled self-only/family
+tiers, the IRS elective-deferral limit (IRC §402(g)) is a *per-person*
+limit, plus a per-eligible-member 50+ catch-up (`mechanics/contribution_401k.py`).
+A member's own ceiling is further capped at their own `earned_income`
+that year (can't defer more than you earned). When a member's combined
+pretax+Roth intent exceeds their own ceiling, pretax is capped first and
+Roth fills whatever headroom remains — an arbitrary but fixed tiebreak
+(no real IRS ordering rule governs this split; a real plan election
+simply can't exceed the limit to begin with). Mirrors HSA's own
+never-raise discipline: an over-limit or ineligible configuration is
+silently capped, never an exception — see §5.1's verified-figures table
+for this limit's own (currently unverified) citation. The limit is only
+ever consulted, and only ever reported in a plan year's `figures_used`,
+when a household actually configures a nonzero contribution — a
+household using none of this feature never surfaces the placeholder
+figure at all, so its own reporting output is completely unaffected by
+this feature shipping.
+
+**Cash-flow interaction with `net_earned_income_against_spending`
+(rp-595/rp-89t)**: contribution dollars never reach the household as
+spendable cash, so they must not be counted as "leftover wages" that
+toggle nets against spending or (rp-89t) the tax bill. The fix:
+`household_earned_income_total` is reduced by *both* the pretax and Roth
+deferral totals before that netting runs — not just the pretax portion,
+even though only pretax affects `ordinary_income` — since the netting
+question is "how much cash does the household actually have on hand,"
+not a tax question. FICA wages (`tax/fica.py`, §6.2e) are deliberately
+**not** reduced by either deferral type — real law: an elective deferral
+lowers federal ordinary income but never FICA wages.
+
+**Balance-crediting mechanics**: the contributed amount is credited into
+the pooled `AccountBalances.traditional`/`.roth` in `comparison/
+projection.py`, after that same plan year's own RMD/withdrawal/conversion/
+tax-funding sequence has already run (so a contribution is never itself
+withdrawable, RMD-able, or convertible the same year it arrives) and
+before that year's investment growth is applied (so it gets the same
+partial-year compounding every other same-year cash flow in the loop
+already gets). `traditional_ownership_shares` (`011-per-owner-accounts`) is
+deliberately left untouched by a contribution credit: that ratio is a
+fixed, scenario-entry-only approximation already — `specs/011-per-owner-
+accounts/research.md` §1 rejected genuine per-member dynamic balance
+tracking as unprincipled given this schema's lack of cost-basis/lot data,
+and updating the ratio for only this one well-defined inflow while every
+withdrawal/conversion/growth event continues to silently drift it every
+other year would be false precision layered on an already-approximate
+model, not a real fix. Tracked as a documented limitation (§7), not
+resolved here.
+
+**Not modeled**: employer match (a structurally different rule —
+excluded from the §402(g) elective-deferral limit, subject instead to
+the separate §415(c) total-additions limit, and routinely
+vesting-schedule-gated, a concept this engine has none of anywhere);
+SECURE 2.0's enhanced age-60–63 "super" catch-up (only the flat 50+
+catch-up is modeled); after-tax/mega-backdoor contributions; more than
+one concurrent 401(k)/403(b) plan per member (the IRS elective-deferral
+limit is shared across every plan one person has anyway, so a single
+per-member pretax/Roth pair is the more, not less, correct v1
+simplification); and no post-death cutoff — a deceased member's
+configured contribution keeps firing exactly as their `earned_income`
+stream already does today (018-survivor-scenario-projection only
+switches filing status/Social Security income/spending need, never zeros
+out a member's own income or contribution configuration) — an inherited,
+pre-existing gap this feature does not introduce and does not fix.
+
 ### 6.3 Net Investment Income Tax (NIIT)
 
 `surtax_owed = min(investment_income, magi − threshold) × 0.038`, applied
@@ -1013,6 +1117,21 @@ simulation at that figure directly.
   generation and the sequence-of-returns stress overlay, the other two, were
   closed by `026-advanced-simulation-options`; survival-adjusted success
   scoring was closed earlier by `rp-9vl`).
+- The 401(k)/Roth 401(k) elective-deferral limit (§5.1, §6.2f, `rp-wei`)
+  is an unverified placeholder — cross-checking it against a real IRS
+  Revenue Procedure is separate, not-yet-scheduled follow-on work, the
+  same status South Carolina/Delaware's own figures already carry (§5.4).
+- 401(k)/Roth 401(k) employer match is not modeled at all (§6.2f) — only
+  a member's own employee elective deferral is; a household relying on
+  employer matching to reach its projected balances will see this tool
+  understate real accumulation.
+- `traditional_ownership_shares` (`011-per-owner-accounts`) is fixed at
+  scenario entry and never updated as balances actually change —
+  including for a 401(k) contribution credited during the plan horizon
+  (§6.2f) — so a long working-years-then-retirement household's true
+  per-member RMD/early-withdrawal-penalty attribution can drift from this
+  tool's reported figures over time; a pre-existing simplification this
+  feature inherits rather than introduces.
 
 ## 8. Non-Functional Requirements
 

@@ -26,6 +26,15 @@ verified=True HSA limits) -- shipped verified=False pending a
 project's SC/DE tax modules originally shipped before their own
 verification passes. Do not treat these figures as authoritative.
 
+Because that limit figure is unverified, compute_401k_contribution() only
+consults it (and only reports it in figures_used) when at least one
+household member actually has a nonzero configured pretax or Roth
+amount -- unlike hsa.py's own unconditional lookup (safe there only
+because HSA's limit ships verified=True). A scenario with no 401(k)
+contribution configured anywhere therefore never surfaces this
+placeholder figure at all, preserving every such scenario's exact prior
+reporting output.
+
 See /home/jmuir/.claude/plans/rustling-chasing-cat.md for the full rp-wei
 design (this module implements that plan's Phase 1, rp-wei.1).
 """
@@ -111,8 +120,21 @@ def compute_401k_contribution(
     intends, regardless of eligibility (an ineligible or unconfigured
     member simply contributes 0.0 either way).
 
-    Looks up tax_year's elective-deferral limit once (raises
-    UnsupportedTaxYearError if undocumented). For each eligible member:
+    Looks up tax_year's elective-deferral limit -- but ONLY when at least
+    one member has a nonzero configured pretax or Roth amount anywhere in
+    configured_amounts; when nothing is configured household-wide, the
+    limit is never consulted at all (figures_used stays [], and
+    UnsupportedTaxYearError is never raised) -- the limit figure genuinely
+    didn't matter to this year's output, so it isn't reported as having
+    been used. This matters concretely because the limit figure ships
+    verified=False (a placeholder): unconditionally reporting it every
+    plan year regardless of configuration, the way hsa.py's own verified
+    limit safely does, would make every scenario -- including every one
+    that never configures a 401(k) contribution at all -- show an
+    "unverified figure" in reporting, breaking this feature's own
+    default-preserving requirement.
+
+    When something IS configured: for each eligible member,
     applicable_limit = elective_deferral_limit + (catch_up if age >= 50
     else 0.0); that member's own effective ceiling is further capped at
     their own earned_income_this_year (can't defer more than you earned).
@@ -123,11 +145,33 @@ def compute_401k_contribution(
     ineligible member always gets pretax_contributed=roth_contributed=0.0
     with that member's own eligibility reason.
     """
+    any_configured = any(pretax != 0.0 or roth != 0.0 for pretax, roth in configured_amounts.values())
+
+    if not any_configured:
+        member_results = [
+            Contribution401kMemberResult(
+                person_name=e.person_name,
+                age=e.age,
+                eligible=e.eligible,
+                applicable_limit=0.0,
+                pretax_contributed=0.0,
+                roth_contributed=0.0,
+                rejected_reason=e.reason if not e.eligible else None,
+            )
+            for e in eligibility
+        ]
+        return Contribution401kResult(
+            member_results=member_results,
+            total_pretax_contributed=0.0,
+            total_roth_contributed=0.0,
+            figures_used=[],
+        )
+
     limits_figure = _401K_LIMITS
     limits = limits_figure.value_for_year(tax_year)  # raises UnsupportedTaxYearError
     figures_used: list[FigureUsage] = [limits_figure.usage_for_year(tax_year)]
 
-    member_results: list[Contribution401kMemberResult] = []
+    member_results = []
 
     for e in eligibility:
         configured_pretax, configured_roth = configured_amounts.get(e.person_name, (0.0, 0.0))

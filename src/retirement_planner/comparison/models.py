@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from retirement_planner.mechanics import AccountBalances, HsaContributionResult, PlanYearMechanicsResult, WithdrawalPlan
+from retirement_planner.mechanics import AccountBalances, Contribution401kResult, HsaContributionResult, PlanYearMechanicsResult, WithdrawalPlan
 from retirement_planner.scenario import HsaContributionPlan
 from retirement_planner.tax import (
     EarlyWithdrawalPenaltyResult,
@@ -107,6 +107,13 @@ class PlanYearProjection:
     (021-pension-annuity-income) -- never pension/annuity. Required, no
     default, mirroring irmaa/niit/early_withdrawal_penalty's own
     precedent: always computed by run_plan_projection(), never opt-in."""
+    contribution_401k: Contribution401kResult
+    """rp-wei: this plan year's own 401(k)/Roth 401(k) elective-deferral
+    contribution result, across every household member -- required, no
+    default, mirroring irmaa/niit/early_withdrawal_penalty/fica_tax's own
+    precedent: always computed by run_plan_projection(), never opt-in
+    (a member with no contribution_401k configured, or ineligible this
+    year, simply contributes 0.0 -- reflected here, never omitted)."""
     figures_used: list[FigureUsage] = field(default_factory=list)
     # 015-per-account-projection-detail (data-model.md § PlanYearProjection
     # extension): four additive fields, each retaining a figure the engine
@@ -137,6 +144,16 @@ class PlanYearProjection:
     no earned_income stream active this year, never omitted. A subset of
     (never larger than) that member's own member_income_stream_amounts
     entry."""
+    member_401k_pretax_contributions: dict[str, float] = field(default_factory=dict)
+    """rp-wei: person_name -> that member's own pretax 401(k) contribution
+    actually made this year (post-eligibility, post-limit-capping) --
+    0.0 for a member with no contribution_401k configured, or ineligible
+    this year (no earned_income), never omitted. Mirrors
+    member_earned_income's own always-present convention."""
+    member_401k_roth_contributions: dict[str, float] = field(default_factory=dict)
+    """rp-wei: person_name -> that member's own Roth 401(k) contribution
+    actually made this year -- same presence/zero convention as
+    member_401k_pretax_contributions immediately above."""
     inherited_account_balances: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own ending balance this
     year, snapshotted from InheritedAccountBalance.balance (012/013's own

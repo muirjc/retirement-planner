@@ -25,6 +25,13 @@ class IncomeStreamRequest(BaseModel):
     end_age: int | None = None
 
 
+class Contribution401kPlanRequest(BaseModel):
+    """Mirrors 001's Contribution401kPlan fields exactly (rp-wei)."""
+
+    pretax_annual_amount: float = 0.0
+    roth_annual_amount: float = 0.0
+
+
 class HouseholdMemberRequest(BaseModel):
     """Mirrors 001's HouseholdMember fields exactly."""
 
@@ -51,6 +58,13 @@ class HouseholdMemberRequest(BaseModel):
     converts every ScenarioRequest to YAML via
     body.model_dump(mode="json") before calling parse_scenario(), so this
     field-name-matching addition round-trips automatically."""
+    contribution_401k: Contribution401kPlanRequest | None = None
+    """rp-wei: defaults to None (no 401(k)/Roth 401(k) contribution
+    configured), reproducing every existing request's exact current
+    behavior. Lives on HouseholdMember (not scenario-level, unlike
+    hsa_contribution below) -- mechanics reads it directly the same way
+    income_streams already is, so no resolution.py change is needed
+    here either, for the same reason noted immediately above."""
 
 
 class HouseholdRequest(BaseModel):

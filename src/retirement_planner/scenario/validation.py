@@ -219,6 +219,37 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                         severity="blocking",
                     )
                 )
+        # rp-wei: blocking, mirroring income_streams' own annual_amount
+        # check immediately above -- a negative contribution amount is not
+        # a plausible figure. No limit-related check here -- capping
+        # against the IRS elective-deferral limit happens at compute time
+        # (mechanics/contribution_401k.py), matching hsa_contribution's own
+        # existing "no validation.py rule beyond shape" precedent (this
+        # function has no _validate_hsa_contribution counterpart either).
+        if member.contribution_401k is not None:
+            contribution_prefix = f"household.members[{index}].contribution_401k"
+            if member.contribution_401k.pretax_annual_amount < 0:
+                flags.append(
+                    ValidationFlag(
+                        field=f"{contribution_prefix}.pretax_annual_amount",
+                        message=(
+                            f"Pretax annual amount is negative "
+                            f"(${member.contribution_401k.pretax_annual_amount:,.2f}); it cannot be negative."
+                        ),
+                        severity="blocking",
+                    )
+                )
+            if member.contribution_401k.roth_annual_amount < 0:
+                flags.append(
+                    ValidationFlag(
+                        field=f"{contribution_prefix}.roth_annual_amount",
+                        message=(
+                            f"Roth annual amount is negative "
+                            f"(${member.contribution_401k.roth_annual_amount:,.2f}); it cannot be negative."
+                        ),
+                        severity="blocking",
+                    )
+                )
     # 018-survivor-scenario-projection: a plausibility warning, not a
     # blocking rejection -- a household deliberately modeling spending
     # going UP after a death (e.g. new caregiving costs) is a legitimate,

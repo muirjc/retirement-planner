@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from .loader import ScenarioParseError, parse_scenario
-from .models import Account, IncomeStream, Scenario
+from .models import Account, HouseholdMember, IncomeStream, Scenario
 from .validation import validate
 
 DEFAULT_SCENARIOS_DIR = Path("config/scenarios")
@@ -75,6 +75,30 @@ def _income_stream_to_dict(stream: IncomeStream) -> dict:
     }
 
 
+def _household_member_to_dict(member: HouseholdMember) -> dict:
+    """rp-wei: extracted from _scenario_to_dict()'s own inline member dict
+    literal so contribution_401k -- an optional nested block, like
+    Account.inherited -- can be conditionally added the way
+    _account_to_dict() already does for `inherited`, rather than always
+    present the way income_streams (a list, empty by default) is."""
+    data: dict = {
+        "person_name": member.person_name,
+        "current_age": member.current_age,
+        "ss_claim_age": member.ss_claim_age,
+        "ss_annual_benefit": member.ss_annual_benefit,
+        "full_retirement_age": member.full_retirement_age,
+        "hdhp_coverage": member.hdhp_coverage,
+        "predicted_death_age": member.predicted_death_age,
+        "income_streams": [_income_stream_to_dict(stream) for stream in member.income_streams],
+    }
+    if member.contribution_401k is not None:
+        data["contribution_401k"] = {
+            "pretax_annual_amount": member.contribution_401k.pretax_annual_amount,
+            "roth_annual_amount": member.contribution_401k.roth_annual_amount,
+        }
+    return data
+
+
 def _scenario_to_dict(scenario: Scenario) -> dict:
     data: dict = {
         "name": scenario.name,
@@ -85,36 +109,15 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             # round-trip gap class as full_retirement_age/hdhp_coverage/
             # predicted_death_age above -- fixed proactively here rather
             # than caught later via a save/read round-trip test.
-            "members": [
-                {
-                    "person_name": member.person_name,
-                    "current_age": member.current_age,
-                    "ss_claim_age": member.ss_claim_age,
-                    "ss_annual_benefit": member.ss_annual_benefit,
-                    "full_retirement_age": member.full_retirement_age,  # 016-ss-claiming-age-actuarial-adjustment:
-                    # found missing here via a real BFF save/read round-trip
-                    # regression test, the same class of gap hdhp_coverage
-                    # hit in 010 (this function builds its dict field-by-
-                    # field rather than generically -- see hsa_contribution's
-                    # own note below). Always a concrete float by the time a
-                    # Scenario reaches here (parse_scenario() resolves it),
-                    # so this round-trips the resolved default, not None.
-                    "hdhp_coverage": member.hdhp_coverage,  # 010-advanced-tax-benefits
-                    "predicted_death_age": member.predicted_death_age,  # 017-ss-spousal-survivor-benefits:
-                    # same field-by-field gap as full_retirement_age/
-                    # hdhp_coverage above, caught the same way (a real BFF
-                    # save/read round-trip test) -- None round-trips as
-                    # None (this field has no resolved-default behavior to
-                    # preserve, unlike full_retirement_age).
-                    "income_streams": [  # 021-pension-annuity-income (rp-pid):
-                        # same field-by-field round-trip discipline, via
-                        # _income_stream_to_dict() since each stream is
-                        # itself a nested block (mirrors _account_to_dict()).
-                        _income_stream_to_dict(stream) for stream in member.income_streams
-                    ],
-                }
-                for member in scenario.household.members
-            ],
+            # 016-ss-claiming-age-actuarial-adjustment/017-ss-spousal-
+            # survivor-benefits/rp-wei: full_retirement_age/
+            # predicted_death_age/contribution_401k were each found
+            # missing here via a real BFF save/read round-trip regression
+            # test -- built via _household_member_to_dict() (mirrors
+            # _account_to_dict()'s own field-by-field discipline for a
+            # nested type) rather than inline, so a future field is added
+            # in one place, not re-discovered the same way each time.
+            "members": [_household_member_to_dict(member) for member in scenario.household.members],
         },
         "accounts": [
             # 011-per-owner-accounts: owner must round-trip through save/load

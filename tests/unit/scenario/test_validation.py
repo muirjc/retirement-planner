@@ -2,6 +2,7 @@
 
 from retirement_planner.scenario import (
     Account,
+    Contribution401kPlan,
     Household,
     HouseholdMember,
     IncomeStream,
@@ -28,7 +29,14 @@ def _market_assumptions():
 
 
 def _member(
-    name="you", age=60, claim_age=67, benefit=32_000.0, fra=None, predicted_death_age=None, income_streams=None
+    name="you",
+    age=60,
+    claim_age=67,
+    benefit=32_000.0,
+    fra=None,
+    predicted_death_age=None,
+    income_streams=None,
+    contribution_401k=None,
 ):
     return HouseholdMember(
         person_name=name,
@@ -38,6 +46,7 @@ def _member(
         full_retirement_age=fra,
         predicted_death_age=predicted_death_age,
         income_streams=income_streams or [],
+        contribution_401k=contribution_401k,
     )
 
 
@@ -145,6 +154,51 @@ def test_validate_flags_negative_income_stream_annual_amount_as_blocking():
     assert len(flags) == 1
     assert flags[0].field == "household.members[0].income_streams[0].annual_amount"
     assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_contribution_401k_pretax_amount_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[_member(contribution_401k=Contribution401kPlan(pretax_annual_amount=-1_000.0, roth_annual_amount=0.0))],
+        )
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.pretax_annual_amount"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_contribution_401k_roth_amount_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[_member(contribution_401k=Contribution401kPlan(pretax_annual_amount=0.0, roth_annual_amount=-500.0))],
+        )
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.roth_annual_amount"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_accepts_well_formed_contribution_401k():
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[_member(contribution_401k=Contribution401kPlan(pretax_annual_amount=20_000.0, roth_annual_amount=5_000.0))],
+        )
+    )
+    flags = validate(scenario)
+    assert flags == []
+
+
+def test_validate_accepts_no_contribution_401k_configured():
+    """Every existing scenario (created before this feature) validates
+    unchanged."""
+    scenario = _clean_scenario(household=Household(filing_status="single", members=[_member()]))
+    flags = validate(scenario)
+    assert flags == []
 
 
 def test_validate_accepts_well_formed_income_stream():

@@ -9,6 +9,7 @@ from .loader import ScenarioParseError, parse_scenario
 from .store import delete_scenario, list_scenarios, load_scenario, save_scenario
 from .models import (
     Account,
+    Contribution401kPlan,
     Household,
     HouseholdMember,
     HsaContributionPlan,
@@ -25,6 +26,7 @@ from .validation import validate
 
 __all__ = [
     "Account",
+    "Contribution401kPlan",
     "Household",
     "HouseholdMember",
     "HsaContributionPlan",

@@ -229,6 +229,56 @@ class HsaContributionResult:
 
 
 @dataclass
+class Contribution401kEligibility:
+    """rp-wei: one household member's own 401(k)/Roth 401(k)
+    elective-deferral eligibility this plan year -- eligible iff
+    earned_income_this_year > 0 (IRC §402(g): can't defer more than you
+    earn, can't contribute at all with zero wages this year). Mirrors
+    HsaEligibility's own shape; carries earned_income_this_year (rather
+    than HSA's plain coverage bool) since it doubles as this member's own
+    contribution ceiling in compute_401k_contribution()."""
+
+    person_name: str
+    age: int
+    earned_income_this_year: float
+    eligible: bool
+    reason: str | None
+
+
+@dataclass
+class Contribution401kMemberResult:
+    """rp-wei: one household member's own 401(k)/Roth 401(k) contribution
+    result this plan year -- unlike HSA's household-pooled limit, the IRS
+    elective-deferral limit (IRC §402(g)) applies per person, so each
+    member gets their own applicable_limit here rather than one shared
+    household figure."""
+
+    person_name: str
+    age: int
+    eligible: bool
+    applicable_limit: float
+    pretax_contributed: float
+    roth_contributed: float
+    rejected_reason: str | None
+
+
+@dataclass
+class Contribution401kResult:
+    """rp-wei: the household-level aggregate for one plan year, mirrors
+    HsaContributionResult's shape -- member_results retains each member's
+    own Contribution401kMemberResult (015-per-account-projection-detail's
+    own "don't discard the per-member figure" precedent), while
+    total_pretax_contributed/total_roth_contributed are the summed
+    household totals mechanics/plan_year.py and comparison/projection.py
+    actually consume."""
+
+    member_results: list[Contribution401kMemberResult]
+    total_pretax_contributed: float
+    total_roth_contributed: float
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
 class PlanYearMechanicsResult:
     """data-model.md § PlanYearMechanicsResult."""
 

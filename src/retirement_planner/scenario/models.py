@@ -123,6 +123,15 @@ class HouseholdMember:
     scenario predating this feature) -- a true no-op, reproducing every
     existing scenario's exact current behavior unchanged; nothing
     consumes this field unless it's non-empty (data-model.md)."""
+    contribution_401k: Contribution401kPlan | None = None
+    """rp-wei: this member's own intended annual 401(k)/Roth 401(k)
+    elective-deferral contribution, in years they have earned_income.
+    None (the default, and every scenario predating this feature) means
+    no contribution is configured -- a true no-op, reproducing every
+    existing scenario's exact current behavior unchanged. Lives per-member
+    (not at scenario level, unlike HsaContributionPlan) because the IRS
+    elective-deferral limit (IRC §402(g)) applies per employee, not per
+    household."""
 
 
 @dataclass
@@ -261,6 +270,25 @@ class HsaContributionPlan:
     """
 
     annual_amount: float
+
+
+@dataclass
+class Contribution401kPlan:
+    """rp-wei: one household member's own intended annual 401(k)/Roth
+    401(k) elective-deferral contribution, in years they have
+    earned_income. Mirrors HsaContributionPlan's optional-block shape (one
+    dataclass, presence on the owning HouseholdMember is the opt-in) but
+    lives per-member rather than at scenario level -- the IRS
+    elective-deferral limit (IRC §402(g)) applies per employee, not per
+    household, the way HSA's family limit applies per household.
+
+    Both amounts are assumed to already be part of (withheld from) this
+    member's own configured earned_income.annual_amount -- not an
+    additional income source. Do not separately add the contribution on
+    top of annual_amount."""
+
+    pretax_annual_amount: float = 0.0
+    roth_annual_amount: float = 0.0
 
 
 @dataclass

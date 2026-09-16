@@ -132,6 +132,31 @@ def test_unconfigured_member_present_in_eligibility_contributes_nothing():
     assert member.rejected_reason is None
 
 
+def test_nothing_configured_household_wide_never_consults_the_limit_figure():
+    """The unverified placeholder limit must never be reported as "used"
+    for a household that hasn't configured any 401(k) contribution at
+    all -- otherwise every such scenario (the overwhelming majority)
+    would show an unverified figure in reporting it never actually
+    needed, breaking this feature's default-preserving requirement."""
+    eligibility = compute_401k_eligibility(members=[("you", 45, 150_000.0), ("spouse", 43, 0.0)])
+    result = compute_401k_contribution(
+        eligibility, configured_amounts={"you": (0.0, 0.0), "spouse": (0.0, 0.0)}, tax_year=2026
+    )
+    assert result.figures_used == []
+    assert result.total_pretax_contributed == 0.0
+    assert result.total_roth_contributed == 0.0
+
+
+def test_nothing_configured_never_raises_even_for_an_undocumented_tax_year():
+    """The limit lookup (and therefore UnsupportedTaxYearError) is
+    entirely skipped when nothing is configured -- a household not using
+    this feature at all must never be affected by an out-of-range
+    tax_year this feature's own limit table doesn't document."""
+    eligibility = compute_401k_eligibility(members=[("you", 45, 150_000.0)])
+    result = compute_401k_contribution(eligibility, configured_amounts={}, tax_year=1999)
+    assert result.figures_used == []
+
+
 def test_figures_used_reflects_the_limit_table_unverified_status():
     eligibility = compute_401k_eligibility(members=[("you", 45, 150_000.0)])
     result = compute_401k_contribution(

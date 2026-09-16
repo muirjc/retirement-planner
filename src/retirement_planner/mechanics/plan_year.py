@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from retirement_planner.tax import FigureUsage, FilingStatus
 
-from .models import AccountBalances, HsaContributionResult, PlanYearMechanicsResult
+from .models import AccountBalances, Contribution401kResult, HsaContributionResult, PlanYearMechanicsResult
 from .roth_conversion import compute_roth_conversion
 from .withdrawal_sequencing import compute_withdrawal_plan
 
@@ -43,6 +43,7 @@ def compute_plan_year_mechanics(
     withdrawal_strategy: str = "rmd_taxable_traditional_roth",
     rmd_figures_used: list[FigureUsage] | None = None,
     hsa_contribution: HsaContributionResult | None = None,
+    contribution_401k: Contribution401kResult | None = None,
     inherited_distribution_amount: float = 0.0,
     inherited_rmd_figures_used: list[FigureUsage] | None = None,
     income_stream_total: float = 0.0,
@@ -65,6 +66,22 @@ def compute_plan_year_mechanics(
     same amount, and its figures_used are folded into the returned
     figures_used union. Optional, defaults to None (no HSA modeled —
     reproduces this function's exact prior behavior when omitted).
+
+    contribution_401k (rp-wei): when provided, its
+    total_pretax_contributed reduces the returned ordinary_income the
+    same way hsa_contribution.amount_contributed does immediately above
+    (Roth deferrals have no tax effect -- already-taxed wages -- so
+    total_roth_contributed is never subtracted here); its figures_used
+    are folded into the returned figures_used union. This function never
+    credits ending_balances for a 401(k) contribution -- unlike HSA
+    (which has no tracked account balance at all in this codebase), the
+    balance credit for a 401(k)/Roth 401(k) contribution happens one
+    level up, in comparison/projection.py's own per-plan-year loop, so
+    this year's own contribution is never itself part of
+    starting_balances for this same year's withdrawal/RMD/conversion
+    sequence above. Optional, defaults to None (no 401(k) contribution
+    modeled — reproduces this function's exact prior behavior when
+    omitted).
 
     inherited_distribution_amount/inherited_rmd_figures_used
     (012-inherited-ira-rmd, research.md §10): passed straight through to
@@ -139,11 +156,14 @@ def compute_plan_year_mechanics(
     ordinary_income = ordinary_income_established + conversion.ordinary_income_added
     if hsa_contribution is not None:
         ordinary_income -= hsa_contribution.amount_contributed
+    if contribution_401k is not None:
+        ordinary_income -= contribution_401k.total_pretax_contributed
 
     figures_used = [
         *(rmd_figures_used or []),
         *conversion.figures_used,
         *(hsa_contribution.figures_used if hsa_contribution is not None else []),
+        *(contribution_401k.figures_used if contribution_401k is not None else []),
         *(inherited_rmd_figures_used or []),
         *(income_stream_figures_used or []),
         *(bracket_ceiling_figures_used or []),

@@ -19,6 +19,8 @@ from retirement_planner.mechanics import (
     InheritedAccountBalance,
     RothConversionLot,
     WithdrawalPlan,
+    compute_401k_contribution,
+    compute_401k_eligibility,
     compute_earnings_test_recredit,
     compute_earnings_test_withholding,
     compute_hsa_contribution,
@@ -637,6 +639,32 @@ def run_plan_projection(
         # (025 contracts/mechanics-api.md).
         member_earned_income = _member_earned_income_amounts(household, ages_this_year, tax_year, reference_tax_year)
 
+        # rp-wei: computed here -- immediately after member_earned_income,
+        # well before HSA's own analogous insertion point further down
+        # (~line 847) -- specifically because the net_earned_income_
+        # against_spending netting block just below (rp-595/rp-89t) needs
+        # contribution_401k already in hand: leftover_earned_income_after_
+        # spending must be net of any 401(k)/Roth 401(k) deferral, since
+        # neither ever reaches the household as spendable cash. Eligible
+        # iff that member has earned_income this year (a member with none
+        # configured -- contribution_401k is None -- always contributes
+        # 0.0 regardless of eligibility).
+        member_401k_eligibility = compute_401k_eligibility(
+            members=[(member.person_name, ages_this_year[member.person_name], member_earned_income[member.person_name]) for member in household.members]
+        )
+        contribution_401k = compute_401k_contribution(
+            member_401k_eligibility,
+            configured_amounts={
+                member.person_name: (
+                    (member.contribution_401k.pretax_annual_amount, member.contribution_401k.roth_annual_amount)
+                    if member.contribution_401k is not None
+                    else (0.0, 0.0)
+                )
+                for member in household.members
+            },
+            tax_year=tax_year,
+        )
+
         # 015-per-account-projection-detail: the per-member breakdown is
         # retained (below, threaded into PlanYearProjection), not just the
         # household sum -- household_ss_benefit stays the same value
@@ -712,9 +740,20 @@ def run_plan_projection(
         # default below) when the toggle is off, so that second pass's
         # spending_need is unchanged in that case (max(0.0, tax_owed -
         # 0.0) == tax_owed) -- default preserves current behavior exactly.
+        #
+        # rp-wei: household_earned_income_total is further reduced by this
+        # year's total 401(k)/Roth 401(k) elective deferral (both pretax
+        # and Roth -- neither ever reaches the household as spendable
+        # cash, so neither should be treated as leftover cash available to
+        # fund spending or, later, taxes). contribution_401k was already
+        # computed above (~line 638) specifically so it's available here.
         leftover_earned_income_after_spending = 0.0
         if net_earned_income_against_spending:
-            household_earned_income_total = sum(member_earned_income.values())
+            household_earned_income_total = (
+                sum(member_earned_income.values())
+                - contribution_401k.total_pretax_contributed
+                - contribution_401k.total_roth_contributed
+            )
             leftover_earned_income_after_spending = max(0.0, household_earned_income_total - effective_spending_need)
             effective_spending_need = max(0.0, effective_spending_need - household_earned_income_total)
 
@@ -889,6 +928,7 @@ def run_plan_projection(
             withdrawal_strategy=strategy.withdrawal_strategy,
             rmd_figures_used=rmd_figures_used,
             hsa_contribution=hsa_contribution,
+            contribution_401k=contribution_401k,
             inherited_distribution_amount=inherited_distribution_total,
             inherited_rmd_figures_used=inherited_rmd_figures_used,
             income_stream_total=household_income_stream_total,
@@ -996,6 +1036,12 @@ def run_plan_projection(
         # Additional Medicare Tax threshold applies from that year
         # forward, consistent with every other filing-status-dependent
         # computation in this loop.
+        #
+        # rp-wei: deliberately uses the raw, undiminished member_earned_income
+        # here, NOT a figure netted for contribution_401k's pretax deferral --
+        # real law: a 401(k)/Roth 401(k) elective deferral reduces federal
+        # ordinary income (see plan_year.py's own ordinary_income reduction)
+        # but never FICA wages.
         fica_tax = compute_fica_tax(
             member_earned_income=member_earned_income,
             filing_status=effective_filing_status,
@@ -1040,14 +1086,38 @@ def run_plan_projection(
         shortfall = mechanics_result.withdrawal_plan.shortfall + tax_funding_withdrawal.shortfall
 
         post_tax_balances = tax_funding_withdrawal.ending_balances
+
+        # rp-wei: this year's own 401(k)/Roth 401(k) contribution is
+        # credited here -- after this year's own RMD/withdrawal/conversion/
+        # tax-funding sequence has already run (so it was never part of
+        # starting_balances for any of that, and can't be withdrawn/
+        # RMD'd/converted the same year it arrives), and before
+        # growth_factor is applied just below (so it gets the same
+        # partial-year compounding every other same-year cash flow in this
+        # loop already gets). Credited into the pooled traditional/roth
+        # floats directly -- traditional_ownership_shares (011-per-owner-
+        # accounts) stays a fixed, scenario-entry ratio and is deliberately
+        # NOT updated here; specs/011-per-owner-accounts/research.md §1
+        # already rejected real per-member dynamic balance tracking as
+        # unprincipled given this schema's lack of cost-basis/lot data, and
+        # updating the ratio for only this one inflow (while withdrawals/
+        # conversions/growth continue to silently drift it every other
+        # year) would be false precision on top of an already-approximate
+        # model, not a fix.
+        post_contribution_balances = AccountBalances(
+            traditional=post_tax_balances.traditional + contribution_401k.total_pretax_contributed,
+            roth=post_tax_balances.roth + contribution_401k.total_roth_contributed,
+            taxable=post_tax_balances.taxable,
+        )
+
         # return_assumption may be a DeterministicReturnAssumption (004, a
         # fixed value every plan year) or a ReturnPath (005, one value per
         # plan year) -- both satisfy ReturnSchedule (research.md §1).
         growth_factor = 1.0 + return_assumption.return_for_plan_year(plan_year)
         ending_balances = AccountBalances(
-            traditional=post_tax_balances.traditional * growth_factor,
-            roth=post_tax_balances.roth * growth_factor,
-            taxable=post_tax_balances.taxable * growth_factor,
+            traditional=post_contribution_balances.traditional * growth_factor,
+            roth=post_contribution_balances.roth * growth_factor,
+            taxable=post_contribution_balances.taxable * growth_factor,
         )
 
         # 012-inherited-ira-rmd (research.md §10): each inherited account
@@ -1066,8 +1136,8 @@ def run_plan_projection(
         inherited_account_balances = {inherited_account.account_id: inherited_account.balance for inherited_account in inherited_accounts}
 
         # mechanics_result.figures_used already includes hsa_contribution's
-        # own figures_used (compute_plan_year_mechanics() folds it in), so
-        # it is not repeated here.
+        # and contribution_401k's own figures_used (compute_plan_year_mechanics()
+        # folds both in), so neither is repeated here.
         figures_used = [
             *ss_benefit_figures_used,
             *mechanics_result.figures_used,
@@ -1096,11 +1166,14 @@ def run_plan_projection(
                 hsa_contribution=hsa_contribution,
                 early_withdrawal_penalty=early_withdrawal_penalty,
                 fica_tax=fica_tax,
+                contribution_401k=contribution_401k,
                 figures_used=figures_used,
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
                 member_income_stream_amounts=member_income_streams,
                 member_earned_income=member_earned_income,
+                member_401k_pretax_contributions={r.person_name: r.pretax_contributed for r in contribution_401k.member_results},
+                member_401k_roth_contributions={r.person_name: r.roth_contributed for r in contribution_401k.member_results},
                 inherited_account_balances=inherited_account_balances,
                 inherited_account_distributions=inherited_account_distributions,
                 inherited_account_distribution_reason=inherited_account_distribution_reason,

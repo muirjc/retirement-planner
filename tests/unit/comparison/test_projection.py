@@ -17,7 +17,7 @@ from retirement_planner.comparison import (
 )
 from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import Contribution401kPlan, Household, HouseholdMember, IncomeStream
 from retirement_planner.tax import FederalTaxResult, IncomeComponents, compute_taxable_social_security
 
 
@@ -3131,3 +3131,246 @@ def test_explicit_window_mode_is_unaffected_by_rp_595_and_matches_prior_static_b
     result = _run_ladder_projection(household)
 
     assert result.resolved_conversion_window == (2026, 2026)
+
+
+# --- rp-wei: 401(k)/Roth 401(k) contribution wiring (Phase 2, rp-wei.2) ---
+
+
+def test_contribution_401k_only_appears_in_years_with_earned_income():
+    """A member's contribution_401k plan is a standing configuration, but
+    it only actually produces a contribution in years that member has
+    earned_income (compute_401k_eligibility's own gate) -- here the
+    earned_income stream is active for exactly one year (end_age ==
+    start_age), so the contribution should appear in year 0 only."""
+    household = _earned_income_household(150_000, current_age=63, start_age=63, end_age=63)
+    household.members[0].contribution_401k = Contribution401kPlan(pretax_annual_amount=10_000.0, roth_annual_amount=5_000.0)
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.years[0].member_401k_pretax_contributions["you"] == 10_000.0
+    assert result.years[0].member_401k_roth_contributions["you"] == 5_000.0
+    # The income stream (and therefore eligibility) has ended -- the
+    # standing contribution_401k config produces $0 in every later year.
+    assert result.years[1].member_401k_pretax_contributions["you"] == 0.0
+    assert result.years[1].member_401k_roth_contributions["you"] == 0.0
+    assert result.years[2].member_401k_pretax_contributions["you"] == 0.0
+    assert result.years[2].member_401k_roth_contributions["you"] == 0.0
+
+
+def test_contribution_401k_no_cross_member_contamination():
+    """Only the configured member's own contribution appears -- the
+    other, unconfigured (but also earning) member's own entry stays 0.0,
+    and vice versa."""
+    household = _mfj_household(you_age=45, spouse_age=43)
+    household.members[0].income_streams = [
+        IncomeStream(label="you-wages", stream_type="earned_income", start_age=45, end_age=None, annual_amount=150_000.0, inflation_adjustment="cola_adjusted")
+    ]
+    household.members[1].income_streams = [
+        IncomeStream(label="spouse-wages", stream_type="earned_income", start_age=43, end_age=None, annual_amount=120_000.0, inflation_adjustment="cola_adjusted")
+    ]
+    household.members[0].contribution_401k = Contribution401kPlan(pretax_annual_amount=20_000.0, roth_annual_amount=0.0)
+    # spouse.contribution_401k stays None -- unconfigured, despite also earning.
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.5, "spouse": 0.5},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert year.member_401k_pretax_contributions["you"] == 20_000.0
+    assert year.member_401k_pretax_contributions["spouse"] == 0.0
+    assert year.member_401k_roth_contributions["you"] == 0.0
+    assert year.member_401k_roth_contributions["spouse"] == 0.0
+
+
+def test_contribution_401k_credited_before_growth_is_applied():
+    """The contributed amount must be present in the ending balance
+    already grown by this year's own return -- not added after growth,
+    and not simply matching the raw contributed amount when growth is
+    nonzero."""
+    household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+    household.members[0].contribution_401k = Contribution401kPlan(pretax_annual_amount=10_000.0, roth_annual_amount=5_000.0)
+    common_kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+    )
+
+    zero_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0))
+    assert zero_growth.years[0].ending_balances.traditional == pytest.approx(10_000.0)
+    assert zero_growth.years[0].ending_balances.roth == pytest.approx(5_000.0)
+
+    five_pct_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.05))
+    assert five_pct_growth.years[0].ending_balances.traditional == pytest.approx(10_000.0 * 1.05)
+    assert five_pct_growth.years[0].ending_balances.roth == pytest.approx(5_000.0 * 1.05)
+
+
+def test_contribution_401k_ordinary_income_reduced_by_pretax_portion_only():
+    """Pretax reduces ordinary_income; Roth does not; combined reduces by
+    exactly the pretax share, never pretax+roth."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    def _run(contribution):
+        household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+        household.members[0].contribution_401k = contribution
+        return run_plan_projection(household=household, **common_kwargs)
+
+    no_contribution = _run(None)
+    pretax_only = _run(Contribution401kPlan(pretax_annual_amount=10_000.0, roth_annual_amount=0.0))
+    roth_only = _run(Contribution401kPlan(pretax_annual_amount=0.0, roth_annual_amount=10_000.0))
+    both = _run(Contribution401kPlan(pretax_annual_amount=10_000.0, roth_annual_amount=5_000.0))
+
+    base_income = no_contribution.years[0].mechanics.ordinary_income
+    assert pretax_only.years[0].mechanics.ordinary_income == pytest.approx(base_income - 10_000.0)
+    assert roth_only.years[0].mechanics.ordinary_income == pytest.approx(base_income)
+    assert both.years[0].mechanics.ordinary_income == pytest.approx(base_income - 10_000.0)
+
+
+def test_contribution_401k_fica_wages_stay_undiminished_by_pretax_deferral():
+    """Real law: a 401(k) elective deferral reduces federal ordinary
+    income but never FICA wages -- fica_tax.total_fica_tax must be
+    identical whether or not a pretax deferral is configured."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    def _run(contribution):
+        household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+        household.members[0].contribution_401k = contribution
+        return run_plan_projection(household=household, **common_kwargs)
+
+    without = _run(None)
+    with_pretax = _run(Contribution401kPlan(pretax_annual_amount=20_000.0, roth_annual_amount=0.0))
+
+    assert with_pretax.years[0].fica_tax.total_fica_tax == pytest.approx(without.years[0].fica_tax.total_fica_tax)
+    assert with_pretax.years[0].fica_tax.total_fica_tax > 0.0
+
+
+def test_contribution_401k_does_not_double_net_against_spending_or_tax_funding():
+    """rp-wei's own load-bearing interaction fix: a Roth 401(k) deferral
+    (chosen specifically because it has zero effect on ordinary_income,
+    isolating this test to the netting interaction alone) must NOT be
+    treated as leftover cash available to fund taxes under
+    net_earned_income_against_spending (rp-595/rp-89t) -- those dollars
+    never reached the household. A large RMD-driven tax bill combined
+    with modest wages makes the difference concrete: with no 401(k)
+    contribution, $20,000 of leftover wages partially offsets the tax
+    bill; with the full $20,000 of wages deferred to Roth instead, NONE
+    of it is left over, so the full tax bill is drawn from accounts."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=3_000_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    def _run(contribution):
+        household = _earned_income_household(20_000, current_age=75, start_age=75, end_age=None)
+        household.members[0].contribution_401k = contribution
+        return run_plan_projection(household=household, **common_kwargs, net_earned_income_against_spending=True)
+
+    without = _run(None)
+    with_roth = _run(Contribution401kPlan(pretax_annual_amount=0.0, roth_annual_amount=20_000.0))
+
+    year_without = without.years[0]
+    year_with = with_roth.years[0]
+
+    # Roth-only deferral has zero effect on ordinary_income/mechanics --
+    # both runs' RMD-driven tax bill is identical, isolating this
+    # comparison to the netting interaction alone.
+    assert year_with.mechanics.ordinary_income == pytest.approx(year_without.mechanics.ordinary_income)
+    assert year_with.mechanics.withdrawal_plan.rmd_drawn == pytest.approx(year_without.mechanics.withdrawal_plan.rmd_drawn)
+    assert year_with.mechanics.withdrawal_plan.rmd_drawn > 0.0
+
+    draw_without = sum(item.amount for item in year_without.tax_funding_withdrawal.sequence_withdrawals)
+    draw_with = sum(item.amount for item in year_with.tax_funding_withdrawal.sequence_withdrawals)
+
+    assert draw_without > 0.0  # partially offset by the $20,000 of (undeferred) leftover wages
+    assert draw_with == pytest.approx(draw_without + 20_000.0)  # none of it left over once fully deferred to Roth
+
+
+def test_contribution_401k_defaults_to_none_reproducing_prior_output():
+    """Regression: a household with no contribution_401k configured on
+    any member (every scenario predating this feature) produces a
+    contribution_401k result of all zeros, an empty figures_used (the
+    unverified placeholder limit is never even consulted, let alone
+    reported), and leaves ordinary_income/fica_tax exactly as rp-wei.1
+    left them -- byte-for-byte unaffected by this feature's wiring."""
+    household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+    assert household.members[0].contribution_401k is None  # the default
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert year.contribution_401k.total_pretax_contributed == 0.0
+    assert year.contribution_401k.total_roth_contributed == 0.0
+    assert year.contribution_401k.figures_used == []
+    assert year.member_401k_pretax_contributions["you"] == 0.0
+    assert year.member_401k_roth_contributions["you"] == 0.0
+    assert year.mechanics.ordinary_income == pytest.approx(150_000.0)

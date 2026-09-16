@@ -211,6 +211,47 @@ def test_parse_scenario_income_stream_label_defaults_to_empty_string():
     assert scenario.household.members[0].income_streams[0].label == ""
 
 
+def test_parse_scenario_defaults_contribution_401k_to_none_when_omitted():
+    # rp-wei: FULL_SCENARIO_YAML above never sets contribution_401k --
+    # every scenario predating this feature should round-trip to None,
+    # mirroring hsa_contribution's own optional-block precedent.
+    scenario = parse_scenario(FULL_SCENARIO_YAML)
+    assert scenario.household.members[0].contribution_401k is None
+    assert scenario.household.members[1].contribution_401k is None
+
+
+def test_parse_scenario_passes_through_contribution_401k():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      contribution_401k:\n"
+        "        pretax_annual_amount: 20000\n"
+        "        roth_annual_amount: 5000\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].contribution_401k.pretax_annual_amount == 20_000
+    assert scenario.household.members[0].contribution_401k.roth_annual_amount == 5_000
+    # The second member still gets the default -- contribution_401k is per-member.
+    assert scenario.household.members[1].contribution_401k is None
+
+
+def test_parse_scenario_contribution_401k_amounts_individually_optional():
+    """Unlike hsa_contribution's single required annual_amount, a member
+    can configure just one of pretax_annual_amount/roth_annual_amount --
+    the other defaults to 0.0, no ScenarioParseError."""
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      contribution_401k:\n"
+        "        pretax_annual_amount: 20000\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].contribution_401k.pretax_annual_amount == 20_000
+    assert scenario.household.members[0].contribution_401k.roth_annual_amount == 0.0
+
+
 def test_parse_scenario_reports_missing_required_field():
     yaml_text = FULL_SCENARIO_YAML.replace(
         "spending:\n  annual_need_real: 110000\n", ""

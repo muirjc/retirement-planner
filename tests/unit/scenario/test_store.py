@@ -6,6 +6,7 @@ import pytest
 
 from retirement_planner.scenario import (
     Account,
+    Contribution401kPlan,
     Household,
     HouseholdMember,
     HsaContributionPlan,
@@ -267,6 +268,34 @@ def test_hdhp_coverage_defaults_false_and_hsa_contribution_defaults_none(scenari
 
     assert reloaded.household.members[0].hdhp_coverage is False
     assert reloaded.hsa_contribution is None
+
+
+def test_contribution_401k_survives_a_save_load_round_trip(scenario_store_dir):
+    """rp-wei: HouseholdMember.contribution_401k round-trips like every
+    other optional nested block (hsa_contribution above,
+    account.inherited below) -- built field-by-field in
+    _household_member_to_dict(), not generically."""
+    scenario = _scenario("contribution_401k_case")
+    scenario.household.members[0].contribution_401k = Contribution401kPlan(
+        pretax_annual_amount=20_000.0, roth_annual_amount=5_000.0
+    )
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("contribution_401k_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].contribution_401k == Contribution401kPlan(
+        pretax_annual_amount=20_000.0, roth_annual_amount=5_000.0
+    )
+
+
+def test_contribution_401k_defaults_to_none_on_round_trip(scenario_store_dir):
+    """Every existing scenario (created before this feature) round-trips
+    unchanged -- mirrors hdhp_coverage/hsa_contribution's own
+    defaults-preserving test above."""
+    save_scenario(_scenario("no_401k_case"), scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("no_401k_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].contribution_401k is None
 
 
 def test_save_list_load_round_trip_for_ten_scenarios_stays_isolated(scenario_store_dir):

@@ -21,6 +21,7 @@ import yaml
 
 from .models import (
     Account,
+    Contribution401kPlan,
     Household,
     HouseholdMember,
     HsaContributionPlan,
@@ -100,6 +101,21 @@ def _build_income_stream(data: object, source: str, context: str) -> IncomeStrea
     )
 
 
+def _build_contribution_401k(data: object, source: str, context: str) -> Contribution401kPlan | None:
+    """rp-wei: mirrors _build_hsa_contribution()'s own optional-block
+    pattern (absent key -> None), but -- unlike HSA's single required
+    annual_amount -- both pretax_annual_amount and roth_annual_amount are
+    individually optional, defaulting to 0.0 via .get() rather than
+    _require(), so a member can configure just one of the two without
+    the other raising ScenarioParseError."""
+    if data is None:
+        return None
+    return Contribution401kPlan(
+        pretax_annual_amount=data.get("pretax_annual_amount", 0.0) if isinstance(data, dict) else 0.0,
+        roth_annual_amount=data.get("roth_annual_amount", 0.0) if isinstance(data, dict) else 0.0,
+    )
+
+
 def _build_household_member(data: object, source: str, context: str) -> HouseholdMember:
     ss_claim_age = _require(data, "ss_claim_age", source, context)
     # full_retirement_age (016-ss-claiming-age-actuarial-adjustment):
@@ -138,6 +154,12 @@ def _build_household_member(data: object, source: str, context: str) -> Househol
             _build_income_stream(stream, source, f"{context}.income_streams[{i}]")
             for i, stream in enumerate(data.get("income_streams", []) if isinstance(data, dict) else [])
         ],
+        # contribution_401k (rp-wei): optional, defaults to None when
+        # omitted -- every scenario predating this feature round-trips
+        # unchanged.
+        contribution_401k=_build_contribution_401k(
+            data.get("contribution_401k") if isinstance(data, dict) else None, source, f"{context}.contribution_401k"
+        ),
     )
 
 

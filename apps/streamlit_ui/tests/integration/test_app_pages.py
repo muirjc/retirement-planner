@@ -460,6 +460,123 @@ def test_hsa_and_hdhp_load_round_trip_and_survive_an_untouched_save():
     assert saved["hsa_contribution"] == {"annual_amount": 3_850.0}
 
 
+def test_contribution_401k_hidden_until_checkbox_checked():
+    """rp-wei: mirrors test_hsa_contribution_hidden_until_checkbox_checked."""
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="member1_include_401k_contribution").value is False
+    with pytest.raises(KeyError):
+        at.number_input(key="member1_401k_pretax_amount")
+    with pytest.raises(KeyError):
+        at.number_input(key="member1_401k_roth_amount")
+
+    at.checkbox(key="member1_include_401k_contribution").set_value(True)
+    at.run()
+    assert at.number_input(key="member1_401k_pretax_amount") is not None
+    assert at.number_input(key="member1_401k_roth_amount") is not None
+
+
+def test_contribution_401k_save_round_trip():
+    """rp-wei: mirrors test_hsa_contribution_save_round_trip -- a checked
+    401(k) contribution saves as a per-member contribution_401k block."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="contribution_401k_case")
+    at.checkbox(key="member1_include_401k_contribution").set_value(True)
+    at.run()
+    at.number_input(key="member1_401k_pretax_amount").set_value(20_000.0)
+    at.number_input(key="member1_401k_roth_amount").set_value(5_000.0)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["contribution_401k_case"]["household"]["members"][0]["contribution_401k"] == {
+        "pretax_annual_amount": 20_000.0,
+        "roth_annual_amount": 5_000.0,
+    }
+
+
+def test_contribution_401k_unchecked_submits_no_key_for_that_member():
+    """rp-wei: mirrors test_hsa_contribution_unchecked_submits_none."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="no_401k_case")
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert "contribution_401k" not in store["no_401k_case"]["household"]["members"][0]
+
+
+def test_contribution_401k_load_round_trip_and_survives_an_untouched_save():
+    """rp-wei regression test, mirroring
+    test_hsa_and_hdhp_load_round_trip_and_survive_an_untouched_save
+    exactly -- before this class of fix (rp-83g's own precedent), loading
+    a scenario configured with a field this page had no widgets for and
+    clicking Save with nothing else touched SILENTLY DELETED that
+    configuration. Both the load and the untouched-save round trip must
+    preserve contribution_401k."""
+    handler, store = make_fake_bff()
+    _install(handler)
+    store["contribution_401k_preexisting_case"] = {
+        "name": "contribution_401k_preexisting_case",
+        "household": {
+            "filing_status": "single",
+            "members": [
+                {
+                    "person_name": "Alex",
+                    "current_age": 45,
+                    "ss_claim_age": 67,
+                    "ss_annual_benefit": 28_000,
+                    "full_retirement_age": 67.0,
+                    "contribution_401k": {"pretax_annual_amount": 18_000.0, "roth_annual_amount": 2_000.0},
+                }
+            ],
+        },
+        "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
+        "spending": {"annual_need_real": 60_000.0},
+        "state": "FL",
+        "market_assumptions": {
+            "equity_allocation": 0.6,
+            "equity_return_mean_real": 0.05,
+            "equity_return_std_real": 0.15,
+            "bond_allocation": 0.4,
+            "bond_return_mean_real": 0.02,
+            "bond_return_std_real": 0.05,
+            "correlation": 0.0,
+        },
+        "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
+        "roth_conversion": None,
+        "hsa_contribution": None,
+        "validation_flags": [],
+        "is_usable": True,
+    }
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("contribution_401k_preexisting_case")
+    at.button(key="load_button").click().run()
+
+    assert not at.exception
+    assert at.checkbox(key="member1_include_401k_contribution").value is True
+    assert at.number_input(key="member1_401k_pretax_amount").value == 18_000.0
+    assert at.number_input(key="member1_401k_roth_amount").value == 2_000.0
+
+    # Save without touching anything else -- must NOT delete the config.
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved = store["contribution_401k_preexisting_case"]
+    assert saved["household"]["members"][0]["contribution_401k"] == {
+        "pretax_annual_amount": 18_000.0,
+        "roth_annual_amount": 2_000.0,
+    }
+
+
 def test_income_stream_loads_into_editing_widgets_and_round_trips_unedited():
     """rp-5cq: loading a scenario with an already-configured income stream
     populates real per-field editing widgets (label/type/start age/end

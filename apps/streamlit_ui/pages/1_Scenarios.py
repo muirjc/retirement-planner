@@ -52,6 +52,9 @@ DEFAULTS = {
     "member1_full_retirement_age": 67.0,
     "member1_predicted_death_age": 0,  # 0 = not set (maps to None) -- see _build_body()
     "member1_hdhp_coverage": False,  # 010-advanced-tax-benefits
+    "member1_include_401k_contribution": False,  # rp-wei
+    "member1_401k_pretax_amount": 0.0,
+    "member1_401k_roth_amount": 0.0,
     # rp-5cq: income streams are NOT stored under a single key -- each
     # member's rows live under "member{1,2}_stream_ids" (a list of row
     # ids) plus per-row keys "member{1,2}_stream_{id}_{field}", seeded by
@@ -67,6 +70,9 @@ DEFAULTS = {
     "member2_full_retirement_age": 67.0,
     "member2_predicted_death_age": 0,
     "member2_hdhp_coverage": False,
+    "member2_include_401k_contribution": False,  # rp-wei
+    "member2_401k_pretax_amount": 0.0,
+    "member2_401k_roth_amount": 0.0,
     "member2_stream_ids": [],
     "member2_stream_next_id": 0,
     "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
@@ -150,6 +156,14 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     # actually IS resolved server-side to a concrete bool (schemas.py's own
     # `= False` default), so this is belt-and-suspenders, not load-bearing.
     st.session_state["member1_hdhp_coverage"] = m1.get("hdhp_coverage", False)
+    # rp-wei: mirrors the top-level HSA load block's own is-not-None-gated
+    # pattern (below), just per-member instead of scenario-level --
+    # contribution_401k lives on HouseholdMember, not Scenario.
+    member1_401k = m1.get("contribution_401k")
+    st.session_state["member1_include_401k_contribution"] = member1_401k is not None
+    if member1_401k is not None:
+        st.session_state["member1_401k_pretax_amount"] = member1_401k["pretax_annual_amount"]
+        st.session_state["member1_401k_roth_amount"] = member1_401k["roth_annual_amount"]
     _load_income_streams("member1", m1.get("income_streams") or [])
     if len(members) > 1:
         m2 = members[1]
@@ -160,6 +174,11 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["member2_full_retirement_age"] = m2["full_retirement_age"]
         st.session_state["member2_predicted_death_age"] = m2.get("predicted_death_age") or 0
         st.session_state["member2_hdhp_coverage"] = m2.get("hdhp_coverage", False)
+        member2_401k = m2.get("contribution_401k")
+        st.session_state["member2_include_401k_contribution"] = member2_401k is not None
+        if member2_401k is not None:
+            st.session_state["member2_401k_pretax_amount"] = member2_401k["pretax_annual_amount"]
+            st.session_state["member2_401k_roth_amount"] = member2_401k["roth_annual_amount"]
         _load_income_streams("member2", m2.get("income_streams") or [])
     # NOTE: when the loaded scenario has no member 2 (single filer), its
     # stream rows are left untouched here -- mirrors every other member2_*
@@ -397,6 +416,43 @@ def _render_income_streams(member_key: str) -> None:
     )
 
 
+_401K_CONTRIBUTION_HELP = (
+    "Leave unchecked if this member isn't contributing to a 401(k)/Roth 401(k). Both amounts are "
+    "assumed to already be part of (withheld from) this member's own earned_income above, not "
+    "additional income -- and only take effect in years this member has earned_income (rp-wei)."
+)
+
+
+def _render_401k_contribution(member_key: str) -> None:
+    """Checkbox-gated per-member optional block -- mirrors the top-level
+    HSA contribution section's own pattern (a single dataclass, presence
+    is the opt-in), just duplicated per member instead of scenario-level,
+    since a household member has at most one 401(k) contribution
+    configured (rp-wei's own data-model decision -- unlike income
+    streams, this is never a repeating list)."""
+    st.checkbox(
+        "Include a 401(k)/Roth 401(k) contribution",
+        key=f"{member_key}_include_401k_contribution",
+        help=_401K_CONTRIBUTION_HELP,
+    )
+    if st.session_state[f"{member_key}_include_401k_contribution"]:
+        p1, p2 = st.columns(2)
+        p1.number_input(
+            "Pretax 401(k) annual amount ($)",
+            min_value=0.0,
+            step=500.0,
+            key=f"{member_key}_401k_pretax_amount",
+            help="Reduces this member's taxable ordinary income in years contributed.",
+        )
+        p2.number_input(
+            "Roth 401(k) annual amount ($)",
+            min_value=0.0,
+            step=500.0,
+            key=f"{member_key}_401k_roth_amount",
+            help="No tax effect -- already-taxed wages.",
+        )
+
+
 def _collect_income_streams(member_key: str) -> list[dict]:
     """The _build_body() counterpart to _render_income_streams() -- reads
     every currently-live row's widget state back into a
@@ -562,6 +618,7 @@ c6.number_input(
 )
 c7.checkbox("HDHP coverage", key="member1_hdhp_coverage", help=_HDHP_COVERAGE_HELP)
 _render_income_streams("member1")
+_render_401k_contribution("member1")
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     st.markdown("**Member 2**")
@@ -580,6 +637,7 @@ if st.session_state["filing_status"] == "married_filing_jointly":
     )
     c7.checkbox("HDHP coverage", key="member2_hdhp_coverage", help=_HDHP_COVERAGE_HELP)
     _render_income_streams("member2")
+    _render_401k_contribution("member2")
     st.number_input(
         "Survivor spending reduction",
         min_value=0.0,
@@ -1105,6 +1163,16 @@ def _build_body() -> dict:
         }
     if st.session_state["include_hsa_contribution"]:
         body["hsa_contribution"] = {"annual_amount": st.session_state["hsa_annual_amount"]}
+    if st.session_state["member1_include_401k_contribution"]:
+        body["household"]["members"][0]["contribution_401k"] = {
+            "pretax_annual_amount": st.session_state["member1_401k_pretax_amount"],
+            "roth_annual_amount": st.session_state["member1_401k_roth_amount"],
+        }
+    if st.session_state["filing_status"] == "married_filing_jointly" and st.session_state["member2_include_401k_contribution"]:
+        body["household"]["members"][1]["contribution_401k"] = {
+            "pretax_annual_amount": st.session_state["member2_401k_pretax_amount"],
+            "roth_annual_amount": st.session_state["member2_401k_roth_amount"],
+        }
     if st.session_state["include_inherited_ira"]:
         inherited_account = {
             "account_type": st.session_state["inherited_account_type"],

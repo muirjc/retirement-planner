@@ -8,12 +8,16 @@ specs/010-advanced-tax-benefits/contracts/mechanics-api.md for the
 additive HSA extension.
 """
 
+from .contribution_401k import compute_401k_contribution, compute_401k_eligibility
 from .hsa import compute_hsa_contribution, compute_hsa_eligibility
 from .income_streams import INFLATION_RATE, compute_income_stream_amount
 from .models import (
     AccountBalances,
     AccountType,
     ConversionResult,
+    Contribution401kEligibility,
+    Contribution401kMemberResult,
+    Contribution401kResult,
     EarningsTestRecreditResult,
     EarningsTestWithholdingResult,
     GapWindowMemberInputs,
@@ -58,6 +62,9 @@ __all__ = [
     "AccountType",
     "CONVERSION_STRATEGIES",
     "ConversionResult",
+    "Contribution401kEligibility",
+    "Contribution401kMemberResult",
+    "Contribution401kResult",
     "EarningsTestRecreditResult",
     "EarningsTestWithholdingResult",
     "GapWindowMemberInputs",
@@ -83,6 +90,8 @@ __all__ = [
     "WITHDRAWAL_STRATEGIES",
     "WithdrawalLineItem",
     "WithdrawalPlan",
+    "compute_401k_contribution",
+    "compute_401k_eligibility",
     "compute_hsa_contribution",
     "compute_hsa_eligibility",
     "compute_income_stream_amount",

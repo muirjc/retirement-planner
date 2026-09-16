@@ -180,6 +180,38 @@ def test_income_streams_round_trip_and_default_to_empty_list_when_omitted(client
     assert read_response["household"]["members"][1]["income_streams"] == []
 
 
+def test_contribution_401k_round_trips_and_defaults_to_none_when_omitted(client):
+    """rp-wei: explicit contribution_401k rounds-trips through PUT/GET; a
+    member that omits it entirely (like _SCENARIO_BODY's own members)
+    stays None -- no resolution.py change was needed for this
+    (field-name-matching through model_dump(mode="json") -> YAML ->
+    parse_scenario()), so this test is the actual proof, mirroring
+    income_streams' own equivalent test immediately above."""
+    body_with_contribution_401k = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {
+                    **_SCENARIO_BODY["household"]["members"][0],
+                    "contribution_401k": {"pretax_annual_amount": 20_000, "roth_annual_amount": 5_000},
+                },
+                _SCENARIO_BODY["household"]["members"][1],
+            ],
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/contribution_401k_case", json=body_with_contribution_401k)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/contribution_401k_case").json()
+    assert read_response["household"]["members"][0]["contribution_401k"] == {
+        "pretax_annual_amount": 20_000,
+        "roth_annual_amount": 5_000,
+    }
+    # The second member never set it -- stays None.
+    assert read_response["household"]["members"][1]["contribution_401k"] is None
+
+
 def test_survivor_spending_reduction_pct_round_trips_and_defaults_to_zero_when_omitted(client):
     """018-survivor-scenario-projection: an explicit
     survivor_spending_reduction_pct round-trips through PUT/GET; a

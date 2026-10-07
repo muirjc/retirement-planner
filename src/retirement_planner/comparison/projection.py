@@ -23,6 +23,7 @@ from retirement_planner.mechanics import (
     compute_401k_eligibility,
     compute_earnings_test_recredit,
     compute_earnings_test_withholding,
+    compute_employer_contribution,
     compute_hsa_contribution,
     compute_hsa_eligibility,
     compute_income_stream_amount,
@@ -665,6 +666,35 @@ def run_plan_projection(
             tax_year=tax_year,
         )
 
+        # rp-04u: employer match/lump-sum contribution, computed right
+        # after contribution_401k since it needs that call's own
+        # already-§402(g)-capped member_results as its own matching base.
+        # Unlike contribution_401k above, this is NOT needed by the
+        # net_earned_income_against_spending netting block below -- an
+        # employer contribution was never part of the household's own
+        # wages/earned_income to begin with, so there's nothing to net out
+        # (see docs/BRD.md §6.2f). employer_plans maps person_name -> a
+        # plain (match_rate, match_cap_pct_of_pay, lump_sum_annual_amount)
+        # tuple, mirroring configured_amounts' own tuple convention above
+        # (mechanics/ never imports a scenario-layer dataclass directly).
+        employer_contribution_401k = compute_employer_contribution(
+            contribution_401k.member_results,
+            employer_plans={
+                member.person_name: (
+                    (
+                        member.contribution_401k.employer_contribution.match_rate,
+                        member.contribution_401k.employer_contribution.match_cap_pct_of_pay,
+                        member.contribution_401k.employer_contribution.lump_sum_annual_amount,
+                    )
+                    if member.contribution_401k is not None and member.contribution_401k.employer_contribution is not None
+                    else None
+                )
+                for member in household.members
+            },
+            member_earned_income=member_earned_income,
+            tax_year=tax_year,
+        )
+
         # 015-per-account-projection-detail: the per-member breakdown is
         # retained (below, threaded into PlanYearProjection), not just the
         # household sum -- household_ss_benefit stays the same value
@@ -1104,8 +1134,19 @@ def run_plan_projection(
         # conversions/growth continue to silently drift it every other
         # year) would be false precision on top of an already-approximate
         # model, not a fix.
+        #
+        # rp-04u: employer match/lump-sum dollars are credited the same
+        # way, at the same point, for the same reasons -- both always land
+        # in the Traditional float (never Roth; the correct historical
+        # default -- SECURE 2.0's plan-sponsor-optional Roth employer
+        # contribution is a v1 non-goal, docs/BRD.md §6.2f).
         post_contribution_balances = AccountBalances(
-            traditional=post_tax_balances.traditional + contribution_401k.total_pretax_contributed,
+            traditional=(
+                post_tax_balances.traditional
+                + contribution_401k.total_pretax_contributed
+                + employer_contribution_401k.total_match
+                + employer_contribution_401k.total_lump_sum
+            ),
             roth=post_tax_balances.roth + contribution_401k.total_roth_contributed,
             taxable=post_tax_balances.taxable,
         )
@@ -1137,7 +1178,11 @@ def run_plan_projection(
 
         # mechanics_result.figures_used already includes hsa_contribution's
         # and contribution_401k's own figures_used (compute_plan_year_mechanics()
-        # folds both in), so neither is repeated here.
+        # folds both in), so neither is repeated here. employer_contribution_401k
+        # is different -- rp-04u never passes it into compute_plan_year_mechanics()
+        # (it has no ordinary_income effect, so plan_year.py has no reason to
+        # see it), so its own figures_used (the unverified §415(c) placeholder,
+        # when actually consulted) is unioned in explicitly here instead.
         figures_used = [
             *ss_benefit_figures_used,
             *mechanics_result.figures_used,
@@ -1148,6 +1193,7 @@ def run_plan_projection(
             *ladder_result.figures_used,
             *early_withdrawal_penalty.figures_used,
             *fica_tax.figures_used,
+            *employer_contribution_401k.figures_used,
         ]
 
         years.append(
@@ -1167,6 +1213,7 @@ def run_plan_projection(
                 early_withdrawal_penalty=early_withdrawal_penalty,
                 fica_tax=fica_tax,
                 contribution_401k=contribution_401k,
+                employer_contribution_401k=employer_contribution_401k,
                 figures_used=figures_used,
                 member_rmd_amounts=member_rmd_amounts,
                 member_social_security_benefits=member_ss_benefits,
@@ -1174,6 +1221,8 @@ def run_plan_projection(
                 member_earned_income=member_earned_income,
                 member_401k_pretax_contributions={r.person_name: r.pretax_contributed for r in contribution_401k.member_results},
                 member_401k_roth_contributions={r.person_name: r.roth_contributed for r in contribution_401k.member_results},
+                member_401k_employer_match={r.person_name: r.match_amount for r in employer_contribution_401k.member_results},
+                member_401k_employer_lump_sum={r.person_name: r.lump_sum_amount for r in employer_contribution_401k.member_results},
                 inherited_account_balances=inherited_account_balances,
                 inherited_account_distributions=inherited_account_distributions,
                 inherited_account_distribution_reason=inherited_account_distribution_reason,

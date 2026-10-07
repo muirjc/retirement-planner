@@ -9,6 +9,7 @@ additive HSA extension.
 """
 
 from .contribution_401k import compute_401k_contribution, compute_401k_eligibility
+from .employer_contribution_401k import compute_employer_contribution
 from .hsa import compute_hsa_contribution, compute_hsa_eligibility
 from .income_streams import INFLATION_RATE, compute_income_stream_amount
 from .models import (
@@ -20,6 +21,8 @@ from .models import (
     Contribution401kResult,
     EarningsTestRecreditResult,
     EarningsTestWithholdingResult,
+    EmployerContributionMemberResult,
+    EmployerContributionResult,
     GapWindowMemberInputs,
     HsaContributionResult,
     HsaEligibility,
@@ -67,6 +70,8 @@ __all__ = [
     "Contribution401kResult",
     "EarningsTestRecreditResult",
     "EarningsTestWithholdingResult",
+    "EmployerContributionMemberResult",
+    "EmployerContributionResult",
     "GapWindowMemberInputs",
     "HsaContributionResult",
     "HsaEligibility",
@@ -97,6 +102,7 @@ __all__ = [
     "compute_income_stream_amount",
     "compute_earnings_test_recredit",
     "compute_earnings_test_withholding",
+    "compute_employer_contribution",
     "compute_inherited_rmd",
     "compute_plan_year_mechanics",
     "compute_rmd",

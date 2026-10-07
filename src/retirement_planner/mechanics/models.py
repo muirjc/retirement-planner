@@ -279,6 +279,39 @@ class Contribution401kResult:
 
 
 @dataclass
+class EmployerContributionMemberResult:
+    """rp-04u: one household member's own employer 401(k) contribution
+    result this plan year."""
+
+    person_name: str
+    eligible: bool
+    matched_contribution: float
+    """The employee's own pretax+Roth contribution actually eligible for
+    matching this year -- min(their own total contribution,
+    match_cap_pct_of_pay * earned_income_this_year). 0.0 if ineligible or
+    no match formula configured."""
+    match_amount: float
+    lump_sum_amount: float
+    """0.0 if ineligible or no lump_sum_annual_amount configured --
+    otherwise the configured amount, post-§415(c)-capping."""
+    rejected_reason: str | None
+    """Set when the §415(c) combined-total limit capped match_amount
+    and/or lump_sum_amount below what was configured, or when the member
+    is ineligible this year."""
+
+
+@dataclass
+class EmployerContributionResult:
+    """rp-04u: the household-level aggregate for one plan year, mirrors
+    Contribution401kResult's own shape."""
+
+    member_results: list[EmployerContributionMemberResult]
+    total_match: float
+    total_lump_sum: float
+    figures_used: list[FigureUsage] = field(default_factory=list)
+
+
+@dataclass
 class PlanYearMechanicsResult:
     """data-model.md § PlanYearMechanicsResult."""
 

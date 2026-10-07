@@ -273,6 +273,34 @@ class HsaContributionPlan:
 
 
 @dataclass
+class EmployerContributionPlan:
+    """rp-04u: one household member's own employer 401(k) contribution --
+    a percentage-based match (match_rate applied to that member's own
+    pretax+Roth contribution this year, rp-wei's already-capped
+    Contribution401kMemberResult amounts, capped at match_cap_pct_of_pay
+    of that member's own earned_income) and/or a discretionary lump_sum
+    amount, independent of the employee's own deferral entirely (e.g. an
+    end-of-year profit-sharing contribution). All three fields default to
+    0.0 and are independently optional -- match only, lump sum only,
+    both, or neither. Nested on Contribution401kPlan, not a sibling
+    HouseholdMember field -- meaningless without the employee's own 401(k)
+    plan it's attached to.
+
+    100% immediate vesting is assumed for both pieces (v1 simplification,
+    documented in docs/BRD.md §6.2f/§7) -- this codebase has no existing
+    "partial ownership building up over years" concept to build a real
+    vesting schedule on. Both always credit the Traditional balance, never
+    Roth (the correct historical default; SECURE 2.0's plan-sponsor-
+    optional Roth employer contribution is a v1 non-goal). Both are gated
+    on the same member-eligibility rp-wei.1 already computes (earned_income
+    > 0 that year)."""
+
+    match_rate: float = 0.0
+    match_cap_pct_of_pay: float = 0.0
+    lump_sum_annual_amount: float = 0.0
+
+
+@dataclass
 class Contribution401kPlan:
     """rp-wei: one household member's own intended annual 401(k)/Roth
     401(k) elective-deferral contribution, in years they have
@@ -289,6 +317,11 @@ class Contribution401kPlan:
 
     pretax_annual_amount: float = 0.0
     roth_annual_amount: float = 0.0
+    employer_contribution: EmployerContributionPlan | None = None
+    """rp-04u: this member's own employer match/lump-sum configuration, if
+    any -- None (the default) means no employer contribution is
+    configured, a true no-op reproducing every pre-rp-04u scenario's exact
+    output unchanged."""
 
 
 @dataclass

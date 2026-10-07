@@ -13,7 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from retirement_planner.mechanics import AccountBalances, Contribution401kResult, HsaContributionResult, PlanYearMechanicsResult, WithdrawalPlan
+from retirement_planner.mechanics import (
+    AccountBalances,
+    Contribution401kResult,
+    EmployerContributionResult,
+    HsaContributionResult,
+    PlanYearMechanicsResult,
+    WithdrawalPlan,
+)
 from retirement_planner.scenario import HsaContributionPlan
 from retirement_planner.tax import (
     EarlyWithdrawalPenaltyResult,
@@ -114,6 +121,13 @@ class PlanYearProjection:
     precedent: always computed by run_plan_projection(), never opt-in
     (a member with no contribution_401k configured, or ineligible this
     year, simply contributes 0.0 -- reflected here, never omitted)."""
+    employer_contribution_401k: EmployerContributionResult
+    """rp-04u: this plan year's own employer 401(k) contribution result
+    (match + lump sum), across every household member -- required, no
+    default, mirroring contribution_401k's own precedent: always computed
+    by run_plan_projection(), never opt-in (a member with no
+    employer_contribution configured, or ineligible this year, simply
+    gets 0.0 for both pieces -- reflected here, never omitted)."""
     figures_used: list[FigureUsage] = field(default_factory=list)
     # 015-per-account-projection-detail (data-model.md § PlanYearProjection
     # extension): four additive fields, each retaining a figure the engine
@@ -154,6 +168,15 @@ class PlanYearProjection:
     """rp-wei: person_name -> that member's own Roth 401(k) contribution
     actually made this year -- same presence/zero convention as
     member_401k_pretax_contributions immediately above."""
+    member_401k_employer_match: dict[str, float] = field(default_factory=dict)
+    """rp-04u: person_name -> that member's own employer match dollars
+    actually credited this year (post-eligibility, post-§415(c)-capping)
+    -- 0.0 for a member with no employer_contribution configured, no
+    match formula within it, or ineligible this year, never omitted."""
+    member_401k_employer_lump_sum: dict[str, float] = field(default_factory=dict)
+    """rp-04u: person_name -> that member's own employer lump-sum dollars
+    actually credited this year -- same presence/zero convention as
+    member_401k_employer_match immediately above."""
     inherited_account_balances: dict[str, float] = field(default_factory=dict)
     """account_id -> that inherited account's own ending balance this
     year, snapshotted from InheritedAccountBalance.balance (012/013's own

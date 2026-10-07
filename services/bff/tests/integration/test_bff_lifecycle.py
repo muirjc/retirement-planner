@@ -207,6 +207,12 @@ def test_contribution_401k_round_trips_and_defaults_to_none_when_omitted(client)
     assert read_response["household"]["members"][0]["contribution_401k"] == {
         "pretax_annual_amount": 20_000,
         "roth_annual_amount": 5_000,
+        # rp-04u: response bodies are generic to_jsonable() dumps of the
+        # core dataclass (this module's own docstring) -- employer_contribution
+        # was added to Contribution401kPlan in rp-04u.1 and appears here
+        # automatically, no BFF code change needed. None since this
+        # request never configured it.
+        "employer_contribution": None,
     }
     # The second member never set it -- stays None.
     assert read_response["household"]["members"][1]["contribution_401k"] is None

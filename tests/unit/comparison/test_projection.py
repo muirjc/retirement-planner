@@ -17,7 +17,7 @@ from retirement_planner.comparison import (
 )
 from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Contribution401kPlan, Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import Contribution401kPlan, EmployerContributionPlan, Household, HouseholdMember, IncomeStream
 from retirement_planner.tax import FederalTaxResult, IncomeComponents, compute_taxable_social_security
 
 
@@ -3373,4 +3373,221 @@ def test_contribution_401k_defaults_to_none_reproducing_prior_output():
     assert year.contribution_401k.figures_used == []
     assert year.member_401k_pretax_contributions["you"] == 0.0
     assert year.member_401k_roth_contributions["you"] == 0.0
-    assert year.mechanics.ordinary_income == pytest.approx(150_000.0)
+
+
+# --- rp-04u: employer 401(k) contribution wiring (Phase 2, rp-04u.2) ---
+
+
+def test_employer_contribution_401k_only_appears_in_years_with_earned_income():
+    """Mirrors test_contribution_401k_only_appears_in_years_with_earned_income
+    -- a member's employer_contribution config is standing, but only
+    actually produces match/lump-sum dollars in years that member has
+    earned_income."""
+    household = _earned_income_household(150_000, current_age=63, start_age=63, end_age=63)
+    household.members[0].contribution_401k = Contribution401kPlan(
+        pretax_annual_amount=10_000.0,
+        employer_contribution=EmployerContributionPlan(match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0),
+    )
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=65,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert result.years[0].member_401k_employer_match["you"] > 0.0
+    assert result.years[0].member_401k_employer_lump_sum["you"] == 1_000.0
+    # The income stream (and therefore eligibility) has ended -- the
+    # standing employer_contribution config produces $0 in every later year.
+    assert result.years[1].member_401k_employer_match["you"] == 0.0
+    assert result.years[1].member_401k_employer_lump_sum["you"] == 0.0
+    assert result.years[2].member_401k_employer_match["you"] == 0.0
+    assert result.years[2].member_401k_employer_lump_sum["you"] == 0.0
+
+
+def test_employer_contribution_401k_no_cross_member_contamination():
+    """Only the configured member's own employer contribution appears --
+    the other, unconfigured (but also earning, and also contributing)
+    member's own entry stays 0.0."""
+    household = _mfj_household(you_age=45, spouse_age=43)
+    household.members[0].income_streams = [
+        IncomeStream(label="you-wages", stream_type="earned_income", start_age=45, end_age=None, annual_amount=150_000.0, inflation_adjustment="cola_adjusted")
+    ]
+    household.members[1].income_streams = [
+        IncomeStream(label="spouse-wages", stream_type="earned_income", start_age=43, end_age=None, annual_amount=120_000.0, inflation_adjustment="cola_adjusted")
+    ]
+    household.members[0].contribution_401k = Contribution401kPlan(
+        pretax_annual_amount=20_000.0,
+        employer_contribution=EmployerContributionPlan(match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0),
+    )
+    household.members[1].contribution_401k = Contribution401kPlan(pretax_annual_amount=15_000.0)
+    # spouse has an employee contribution but no employer_contribution configured.
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 0.5, "spouse": 0.5},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert year.member_401k_employer_match["you"] > 0.0
+    assert year.member_401k_employer_lump_sum["you"] == 1_000.0
+    assert year.member_401k_employer_match["spouse"] == 0.0
+    assert year.member_401k_employer_lump_sum["spouse"] == 0.0
+
+
+def test_employer_contribution_401k_credited_before_growth_is_applied():
+    """Mirrors test_contribution_401k_credited_before_growth_is_applied --
+    employee contribution + match + lump sum must all be present in the
+    ending balance already grown by this year's own return."""
+    household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+    household.members[0].contribution_401k = Contribution401kPlan(
+        pretax_annual_amount=20_000.0,
+        employer_contribution=EmployerContributionPlan(match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0),
+    )
+    common_kwargs = dict(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+    )
+
+    # employee 20,000 + match (50% of min(20,000, 6%*150,000=9,000)=9,000 -> 4,500) + lump 1,000 = 25,500
+    expected_total = 25_500.0
+
+    zero_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0))
+    assert zero_growth.years[0].ending_balances.traditional == pytest.approx(expected_total)
+
+    five_pct_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.05))
+    assert five_pct_growth.years[0].ending_balances.traditional == pytest.approx(expected_total * 1.05)
+
+
+def test_employer_contribution_401k_does_not_affect_ordinary_income():
+    """Neither match nor lump sum was ever part of the employee's own
+    wages -- ordinary_income must be identical whether or not an employer
+    contribution is configured, holding the employee's own pretax
+    contribution fixed."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    def _run(employer_contribution):
+        household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+        household.members[0].contribution_401k = Contribution401kPlan(
+            pretax_annual_amount=20_000.0, employer_contribution=employer_contribution
+        )
+        return run_plan_projection(household=household, **common_kwargs)
+
+    without = _run(None)
+    with_employer = _run(EmployerContributionPlan(match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=5_000.0))
+
+    assert with_employer.years[0].mechanics.ordinary_income == pytest.approx(without.years[0].mechanics.ordinary_income)
+
+
+def test_employer_contribution_401k_does_not_affect_net_earned_income_against_spending():
+    """Employer money was never part of household_earned_income_total --
+    confirms rp-04u needed (and made) zero changes to the
+    net_earned_income_against_spending/rp-89t netting logic. Mirrors
+    rp-89t's own RMD-driven partial-offset test shape to get a nonzero
+    tax-funding draw to compare."""
+    common_kwargs = dict(
+        accounts=AccountBalances(traditional=3_000_000, roth=0, taxable=0),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=75,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    def _run(employer_contribution):
+        household = _earned_income_household(20_000, current_age=75, start_age=75, end_age=None)
+        household.members[0].contribution_401k = Contribution401kPlan(employer_contribution=employer_contribution)
+        return run_plan_projection(household=household, **common_kwargs, net_earned_income_against_spending=True)
+
+    without_employer = _run(None)
+    with_employer = _run(EmployerContributionPlan(match_rate=0.5, match_cap_pct_of_pay=0.5, lump_sum_annual_amount=3_000.0))
+
+    year_without = without_employer.years[0]
+    year_with = with_employer.years[0]
+
+    # No employee pretax/roth configured in either run -- ordinary_income
+    # and the RMD-driven tax bill are identical regardless of the
+    # employer contribution.
+    assert year_with.mechanics.ordinary_income == pytest.approx(year_without.mechanics.ordinary_income)
+
+    draw_without = sum(item.amount for item in year_without.tax_funding_withdrawal.sequence_withdrawals)
+    draw_with = sum(item.amount for item in year_with.tax_funding_withdrawal.sequence_withdrawals)
+    assert draw_with == pytest.approx(draw_without)
+
+
+def test_employer_contribution_401k_defaults_to_none_reproducing_prior_output():
+    """Regression: a household with no employer_contribution configured
+    on any member produces an employer_contribution_401k result of all
+    zeros, an empty figures_used (the unverified §415(c) placeholder is
+    never even consulted), and leaves every other figure exactly as
+    rp-wei left them -- byte-for-byte unaffected by this feature's
+    wiring."""
+    household = _earned_income_household(150_000, current_age=45, start_age=45, end_age=None)
+    household.members[0].contribution_401k = Contribution401kPlan(pretax_annual_amount=20_000.0)
+    assert household.members[0].contribution_401k.employer_contribution is None  # the default
+
+    result = run_plan_projection(
+        household=household,
+        accounts=AccountBalances(traditional=0, roth=0, taxable=500_000),
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=45,
+        strategy=_strategy(claiming_ages={"you": 99}),
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    year = result.years[0]
+    assert year.employer_contribution_401k.total_match == 0.0
+    assert year.employer_contribution_401k.total_lump_sum == 0.0
+    assert year.employer_contribution_401k.figures_used == []
+    assert year.member_401k_employer_match["you"] == 0.0
+    assert year.member_401k_employer_lump_sum["you"] == 0.0
+    # Ending balance reflects only the employee's own pretax contribution.
+    assert year.ending_balances.traditional == pytest.approx(20_000.0)
+    # ordinary_income is reduced by the employee's own $20,000 pretax
+    # contribution (rp-wei's own behavior) -- unaffected by this feature.
+    assert year.mechanics.ordinary_income == pytest.approx(130_000.0)

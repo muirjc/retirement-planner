@@ -18,6 +18,7 @@ from rp_ui.errors import (
     BlockingValidationError,
     CostBudgetExceededError,
     InvalidScenarioError,
+    OllamaUnavailableError,
     ScenarioNotFoundError,
     SurvivalCurveAgeOutOfRangeError,
     UnexpectedBackendError,
@@ -200,6 +201,30 @@ def test_delete_scenario_returns_none_on_204():
 
     _install(handler)
     assert api_client.delete_scenario("base_case") is None
+
+
+def test_ask_walkthrough_question_returns_parsed_answer():
+    def handler(request):
+        import json
+
+        assert request.url.path == "/api/v1/walkthrough/ask"
+        body = json.loads(request.content)
+        assert body == {"question": "why?", "plan_years": [{"plan_year": 1}]}
+        return httpx.Response(200, json={"answer": "Because of X."})
+
+    _install(handler)
+    result = api_client.ask_walkthrough_question("why?", [{"plan_year": 1}])
+    assert result == {"answer": "Because of X."}
+
+
+def test_ask_walkthrough_question_raises_ollama_unavailable_error():
+    def handler(request):
+        return httpx.Response(503, json={"error": "ollama_unavailable", "message": "Local AI model unavailable"})
+
+    _install(handler)
+    with pytest.raises(OllamaUnavailableError) as exc_info:
+        api_client.ask_walkthrough_question("why?", [])
+    assert exc_info.value.message == "Local AI model unavailable"
 
 
 def test_base_url_defaults_and_respects_env_var(monkeypatch):

@@ -22,6 +22,7 @@ from .errors import (
     CostBudgetExceededError,
     InvalidScenarioError,
     InvalidSimulationOptionsError,
+    OllamaUnavailableError,
     PathIndexOutOfRangeError,
     ScenarioNotFoundError,
     SurvivalCurveAgeOutOfRangeError,
@@ -42,13 +43,13 @@ def _base_url() -> str:
     return os.environ.get("RP_BFF_BASE_URL", DEFAULT_BASE_URL)
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(base_url=_base_url(), transport=_transport, timeout=60.0)
+def _client(*, timeout: float = 60.0) -> httpx.Client:
+    return httpx.Client(base_url=_base_url(), transport=_transport, timeout=timeout)
 
 
-def _request(method: str, path: str, *, json: object = None, params: dict | None = None) -> httpx.Response:
+def _request(method: str, path: str, *, json: object = None, params: dict | None = None, timeout: float = 60.0) -> httpx.Response:
     try:
-        with _client() as client:
+        with _client(timeout=timeout) as client:
             return client.request(method, path, json=json, params=params)
     except httpx.TransportError as exc:
         raise BackendUnreachableError(underlying=exc) from exc
@@ -98,6 +99,8 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
         )
     if error == "invalid_simulation_options":
         raise InvalidSimulationOptionsError(detail=body.get("detail", ""))
+    if error == "ollama_unavailable":
+        raise OllamaUnavailableError(message=body.get("message", ""))
     raise UnexpectedBackendError(status_code=resp.status_code, body=resp.text)
 
 
@@ -108,8 +111,8 @@ def _raise_for_error_response(resp: httpx.Response) -> None:
 # module does no client-side schema validation, per its own docstring
 # above), so a cast is the accurate way to say "trust the contract here"
 # rather than a type: ignore that would silence a real mismatch too.
-def _json(method: str, path: str, *, json: object = None, params: dict | None = None) -> object:
-    resp = _request(method, path, json=json, params=params)
+def _json(method: str, path: str, *, json: object = None, params: dict | None = None, timeout: float = 60.0) -> object:
+    resp = _request(method, path, json=json, params=params, timeout=timeout)
     if resp.status_code >= 300:
         _raise_for_error_response(resp)
     if resp.status_code == 204 or not resp.content:
@@ -233,3 +236,26 @@ def export_comparison_csv(body: dict, engine: str) -> str:
     """POST /reports/comparisons.csv?engine=... -- same request body as
     compare_deterministic()/compare_simulated(), rendered as CSV text."""
     return _text("POST", "/reports/comparisons.csv", json=body, params={"engine": engine})
+
+
+# -- Walkthrough AI Q&A (rp-4p3) ----------------------------------------------
+
+
+def ask_walkthrough_question(question: str, plan_years: list[dict]) -> dict:
+    """POST /walkthrough/ask -- {"answer": str} on success. plan_years is
+    the Walkthrough page's own already-held YearStory dict(s) for the
+    batch currently on screen, forwarded verbatim (rp-4p3 decision #5:
+    the BFF stays stateless, no new run lookup). Raises
+    OllamaUnavailableError if the BFF's local Ollama daemon isn't
+    reachable.
+
+    Uses a longer timeout than every other call here (125s, vs. the
+    60s default) -- the BFF's own ollama_client.py budgets up to 120s
+    for a cold model load, so this module's own timeout must outlast
+    that or a slow-but-working Ollama call would surface as a
+    misleading BackendUnreachableError instead of the BFF's real,
+    clean ollama_unavailable mapping."""
+    return cast(
+        dict,
+        _json("POST", "/walkthrough/ask", json={"question": question, "plan_years": plan_years}, timeout=125.0),
+    )

@@ -123,6 +123,18 @@ class BackendUnreachableError(RpUiError):
         super().__init__(f"Could not reach the backend: {underlying}")
 
 
+class OllamaUnavailableError(RpUiError):
+    """007 returned 503 {"error": "ollama_unavailable", "message": ...} --
+    rp-4p3: the BFF's local Ollama daemon isn't reachable, or no model is
+    pulled. Distinct from BackendUnreachableError (that's "can't reach the
+    BFF at all"); this is "reached the BFF fine, but its own downstream
+    Ollama call failed"."""
+
+    def __init__(self, *, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 class UnexpectedBackendError(RpUiError):
     """Any non-2xx response api_client.py doesn't recognize as one of
     007's documented error shapes."""

@@ -58,17 +58,22 @@ C4Container
     Person(user, "Household / Advisor")
 
     System_Boundary(rp, "Retirement Planner") {
-        Container(ui, "apps/streamlit_ui", "Python, Streamlit", "Scenario entry, run/compare, fan charts, CSV download. Talks to the BFF over HTTP only — never imports the core library.")
+        Container(ui, "apps/streamlit_ui", "Python, Streamlit", "Scenario entry, run/compare, fan charts, CSV download, Walkthrough AI Q&A widget (rp-4p3). Talks to the BFF over HTTP only — never imports the core library.")
         Container(bff, "services/bff", "Python, FastAPI", "The one HTTP/JSON contract any UI (this one, or a future JS SPA / desktop wrapper) builds against. Resolves scenarios into engine calls; translates domain errors to HTTP responses.")
         Container(core, "src/retirement_planner", "Python (stdlib + pyyaml only)", "Pure computation: scenario parsing, tax, account mechanics, comparison, Monte Carlo simulation, reporting. No HTTP, no UI framework — usable standalone from a script or notebook.")
         ContainerDb(scenarios, "config/scenarios/*.yaml", "YAML files", "Named, versioned scenario configs — the only persisted application state.")
     }
 
+    System_Ext(ollama, "Ollama (optional)", "A local LLM server the household may already have installed on this same machine — not part of this deployment, not required for any feature except the Walkthrough AI Q&A widget. Loopback only; never the public internet.")
+
     Rel(user, ui, "Uses", "browser, localhost:8501")
     Rel(ui, bff, "Calls", "HTTP/JSON, localhost:8000/api/v1")
     Rel(bff, core, "Imports and calls directly", "in-process Python")
     Rel(bff, scenarios, "Reads/writes")
+    Rel(bff, ollama, "Calls (optional, Walkthrough Q&A only)", "HTTP/JSON, loopback (127.0.0.1:11435 by default)")
 ```
+
+**Ollama is deliberately a `System_Ext`, not a `Container` inside the `Retirement Planner` boundary**: it's a pre-existing local service this tool optionally talks to, not something this codebase ships, builds, or owns a `pyproject.toml` for — the distinction that matters for the Offline-First reconciliation in §8.
 
 | Container | Language/framework | Owns | Never depends on |
 |---|---|---|---|
@@ -127,13 +132,15 @@ C4Component
         Component(main, "main.py", "FastAPI app construction, router registration, HTTPException flattening.")
         Component(resolution, "resolution.py", "Loads a named scenario, validates it, resolves optional request fields against the scenario's own defaults, builds the StrategyConfiguration/AccountBalances/inherited_accounts the core library needs. The one seam every route shares.")
         Component(schemas, "schemas.py", "Pydantic request/response models.")
-        Component(routes, "routes/", "scenarios.py, reference.py, simulations.py, comparisons.py, reports.py — one router per resource.")
+        Component(routes, "routes/", "scenarios.py, reference.py, simulations.py, comparisons.py, reports.py, walkthrough.py (rp-4p3) — one router per resource.")
         Component(accountdetail, "account_detail.py", "Assembles the account_detail response field (015) from reporting.account_attribution — one shared AccountShare computation per request, reused across every candidate in a comparison.")
+        Component(ollamaclient, "ollama_client.py", "rp-4p3: the BFF's only outbound HTTP call. One blocking, non-streaming POST /api/chat per question, settings-driven base URL/model (settings.py), raising OllamaUnavailableError on failure.")
     }
 
     Rel(routes, resolution, "calls resolve_run_context()")
     Rel(routes, schemas, "validates against")
     Rel(routes, accountdetail, "calls build_account_detail_for_*()")
+    Rel(routes, ollamaclient, "walkthrough.py calls ask()")
     Rel(main, routes, "registers")
     Rel(resolution, "src/retirement_planner", "calls run_plan_projection(), run_simulation(), ...", "in-process import")
     Rel(accountdetail, "src/retirement_planner", "calls reporting.compute_account_shares(), attribute_plan_projection()", "in-process import")
@@ -149,6 +156,7 @@ C4Component
 | POST | `/simulations` | Run a Monte Carlo simulation (single candidate or a comparison, depending on request shape). Response includes `account_detail` (015) — per-account year-by-year balances/RMD/withdrawals for one selected path (`detail_path_index`, default `0`) — and `narrative` (028) — a plain-language story per plan year for the one path closest to the median outcome, independently selected from `detail_path_index`, each year's story also carrying a `detail` field (rp-bm8.3) with the full balance waterfall and federal/state tax breakdown behind that year's numbers |
 | POST | `/comparisons/deterministic`, `/comparisons/simulated` | Deterministic (single-path) or simulated (Monte Carlo) comparison across one axis. Response includes `account_detail` (015) — one per candidate, same shape as `/simulations`' |
 | POST | `/reports/simulations.csv`, `/reports/comparisons.csv` | CSV export of the above |
+| POST | `/walkthrough/ask` (rp-4p3) | Answers a free-text question grounded strictly in the caller-supplied `plan_years` JSON (the UI's own already-held Walkthrough data for the batch on screen), via a local Ollama model. Stateless — no run lookup, no new persistence. Returns `503 {"error": "ollama_unavailable"}` if the local Ollama daemon isn't reachable |
 
 ## 5. Components — the Streamlit UI
 
@@ -158,7 +166,7 @@ C4Component
 
     Container_Boundary(ui, "apps/streamlit_ui") {
         Component(app, "app.py", "Streamlit entry point / landing page.")
-        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields and per-member income-stream add/edit/remove rows), 2_Run_Simulation, 3_Compare, 4_Walkthrough (028 — steps through 2_Run_Simulation's own stored result's narrative field three plan years at a time; no HTTP call of its own).")
+        Component(pages, "pages/", "0_Instructions, 1_Scenarios (create/edit, incl. inherited-IRA fields and per-member income-stream add/edit/remove rows), 2_Run_Simulation, 3_Compare, 4_Walkthrough (028 — steps through 2_Run_Simulation's own stored result's narrative field three plan years at a time; its own per-year display makes no HTTP call, but its AI Q&A widget, rp-4p3, does — POST /walkthrough/ask per question, scoped to the batch on screen).")
         Component(client, "src/rp_ui", "HTTP client wrapping the BFF's OpenAPI-described contract, chart helpers (fan chart, comparison overlay), the verification.py 'needs verification' indicator renderer, the account_table.py per-account year-by-year detail table (015).")
     }
 
@@ -247,6 +255,22 @@ into `comparison`/`simulation`.
   Primary-source lookups (IRS Rev. Proc. PDFs, CMS.gov tables, statute
   text) happen once, during implementation, and are baked into source as
   literals + citations (`docs/BRD.md` §5).
+
+  **Reconciliation with the Walkthrough AI Q&A widget (rp-4p3)**: the
+  BFF's `ollama_client.py` makes a real outbound HTTP call at run time —
+  on its face, exactly what this principle forbids. It's compliant for
+  the same reason the constitution's own text already carves out for a
+  rate lookup or data refresh: the call is a **separate, explicit,
+  user-invoked action** (one question, one click), never something a
+  simulation run depends on to complete, and it never leaves the
+  machine — `http://127.0.0.1:11435` by default, loopback only, no
+  internet, no third party, no API key. The distinction this principle
+  actually protects — a simulation's own correctness never depending on
+  an external system being up — holds exactly as before; Ollama being
+  down degrades one optional, clearly-labeled explanation feature
+  (`503 ollama_unavailable`), never a plan's own numbers. See §2's
+  `System_Ext(ollama, ...)` for why it's modeled outside this system's
+  own container boundary.
 - **Extensibility**: a new state tax module, withdrawal strategy, or
   conversion strategy is a new implementation registered against an
   existing interface (`compute_state_tax()`'s `STATE_MODULES` registry,
@@ -381,7 +405,8 @@ Each package's suite is independent and self-contained (`pytest tests/`,
 
 ## 10. Deployment view
 
-Everything runs on one machine, as three local processes:
+Everything runs on one machine, as three local processes (plus one
+optional fourth, rp-4p3):
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -400,6 +425,11 @@ Everything runs on one machine, as three local processes:
 │                                   ┌──────────▼──────────┐    │
 │                                   │ config/scenarios/*.yaml│  │
 │                                   └───────────────────────┘  │
+│                                                            │
+│                                   ┌───────────────────────┐  │
+│          HTTP (loopback only) ───▶│ ollama serve (optional)│  │
+│          rp_bff/ollama_client.py  │ :11435 (127.0.0.1)     │  │
+│          Walkthrough Q&A only     └───────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -411,6 +441,14 @@ that same local deployment (start/stop, health checks, backups,
 troubleshooting) — there is still no separate ops *environment*, so the
 runbook is scoped to running this one developer/household machine, not a
 hosted service.
+
+The optional `ollama serve` process (rp-4p3) is not started, managed, or
+bundled by this project — it's a pre-existing local service the household
+may already run for other purposes. The BFF never launches it, never
+pulls a model, and degrades the one feature that uses it
+(`503 ollama_unavailable`) if it isn't running; see §8's Offline-First
+reconciliation note for why this doesn't compromise the principle it
+sits next to.
 
 ## 11. Source documents & traceability
 

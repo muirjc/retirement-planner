@@ -25,11 +25,26 @@ class IncomeStreamRequest(BaseModel):
     end_age: int | None = None
 
 
+class EmployerContributionPlanRequest(BaseModel):
+    """Mirrors 001's EmployerContributionPlan fields exactly (rp-04u)."""
+
+    match_rate: float = 0.0
+    match_cap_pct_of_pay: float = 0.0
+    lump_sum_annual_amount: float = 0.0
+
+
 class Contribution401kPlanRequest(BaseModel):
     """Mirrors 001's Contribution401kPlan fields exactly (rp-wei)."""
 
     pretax_annual_amount: float = 0.0
     roth_annual_amount: float = 0.0
+    employer_contribution: EmployerContributionPlanRequest | None = None
+    """rp-04u: defaults to None (no employer match/lump-sum contribution
+    configured), reproducing every existing request's exact current
+    behavior. No resolution.py change needed, same reasoning as
+    contribution_401k's own field immediately below -- mechanics reads it
+    directly off HouseholdMember, so a field-name-matching addition
+    round-trips automatically."""
 
 
 class HouseholdMemberRequest(BaseModel):

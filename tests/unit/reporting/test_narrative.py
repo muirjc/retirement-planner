@@ -12,7 +12,7 @@ from datetime import date
 from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting import build_narrative_for_run, build_year_stories, select_representative_path
-from retirement_planner.reporting.aggregation import unverified_figure_names
+from retirement_planner.reporting.aggregation import figure_citations, unverified_figure_names
 from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
 from retirement_planner.simulation import PercentileBand, SimulationRun
 from retirement_planner.tax import FigureUsage
@@ -328,6 +328,48 @@ def test_unverified_figure_names_matches_the_shared_aggregation_helper():
 
     assert stories[0].unverified_figure_names == unverified_figure_names(projection.years[0].figures_used)
     assert stories[0].unverified_figure_names == ["dupe"]
+
+
+# --- Per-year figure citations (rp-4p3) ---
+
+
+def test_figure_citations_reflects_that_years_own_figures_used():
+    """Unlike unverified_figure_names (which stays empty for a real plan
+    year with nothing unverified), figure_citations is a superset
+    including every already-verified figure a real year touches (federal
+    brackets, FICA rates, etc.) -- so this asserts the newly-appended test
+    figure is PRESENT among (possibly many) real citations, not that it's
+    the only entry."""
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=77)
+    projection.years[1].figures_used.append(_figure("test_figure", True))
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    by_name_year1 = {c.name: c for c in stories[1].figure_citations}
+    assert by_name_year1["test_figure"].verified is True
+    assert "test_figure" not in {c.name for c in stories[0].figure_citations}
+
+
+def test_figure_citations_matches_the_shared_aggregation_helper_and_includes_verified_figures():
+    """Unlike unverified_figure_names, a verified figure must still show
+    up here -- figure_citations is not scoped to unverified figures. The
+    manually-appended duplicate collapses to one entry, same dedup-by-
+    name discipline unverified_figure_names already has."""
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=77)
+    projection.years[0].figures_used.append(_figure("verified_dupe", True))
+    projection.years[0].figures_used.append(_figure("verified_dupe", True))
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    assert stories[0].figure_citations == figure_citations(projection.years[0].figures_used)
+    names = [c.name for c in stories[0].figure_citations]
+    assert names.count("verified_dupe") == 1
+    by_name = {c.name: c for c in stories[0].figure_citations}
+    assert by_name["verified_dupe"].verified is True
 
 
 # -- rp-bm8.4: inherited-account distribution reasoning + earned income drivers --

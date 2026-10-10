@@ -342,3 +342,60 @@ def test_unverified_figure_names_deduplicates_by_name_across_different_last_veri
     summary = summarize_run(run, household=_HOUSEHOLD, reference_tax_year=2026)
 
     assert summary.unverified_figure_names == ["dupe"]
+
+
+# --- figure_citations (rp-4p3) ---
+
+
+def test_figure_citations_includes_both_verified_and_unverified():
+    """Unlike unverified_figure_names, figure_citations carries every
+    figure, not just the unverified ones -- and keeps the real citation
+    string and verified status rather than discarding them."""
+    from retirement_planner.reporting.aggregation import figure_citations
+
+    figures = [
+        FigureUsage(name="verified_one", citation="IRS Pub 590-B Table III", last_verified=date(2026, 1, 1), verified=True),
+        FigureUsage(name="unverified_one", citation="placeholder pending verification", last_verified=date(2026, 6, 1), verified=False),
+    ]
+
+    result = figure_citations(figures)
+
+    by_name = {c.name: c for c in result}
+    assert by_name["verified_one"].citation == "IRS Pub 590-B Table III"
+    assert by_name["verified_one"].verified is True
+    assert by_name["verified_one"].last_verified == date(2026, 1, 1)
+    assert by_name["unverified_one"].citation == "placeholder pending verification"
+    assert by_name["unverified_one"].verified is False
+
+
+def test_figure_citations_deduplicates_by_name():
+    """Mirrors unverified_figure_names' own dedup-by-name test above --
+    the first occurrence's citation/verified/last_verified wins."""
+    from retirement_planner.reporting.aggregation import figure_citations
+
+    figures = [
+        FigureUsage(name="dupe", citation="c1", last_verified=date(2026, 1, 1), verified=False),
+        FigureUsage(name="dupe", citation="c2", last_verified=date(2026, 6, 1), verified=False),
+    ]
+
+    result = figure_citations(figures)
+
+    assert len(result) == 1
+    assert result[0].name == "dupe"
+    assert result[0].citation == "c1"
+
+
+def test_figure_citations_empty_when_nothing_used():
+    from retirement_planner.reporting.aggregation import figure_citations
+
+    assert figure_citations([]) == []
+
+
+def test_figure_citations_sorted_by_name():
+    from retirement_planner.reporting.aggregation import figure_citations
+
+    figures = [_figure("zebra", True), _figure("alpha", True)]
+
+    result = figure_citations(figures)
+
+    assert [c.name for c in result] == ["alpha", "zebra"]

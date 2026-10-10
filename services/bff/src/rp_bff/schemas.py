@@ -202,3 +202,7 @@ class ScenarioRequest(BaseModel):
     roth_conversion: RothConversionPlanRequest | None = None
     hsa_contribution: HsaContributionPlanRequest | None = None
     """010-advanced-tax-benefits."""
+    relocation_state: str | None = None
+    relocation_plan_year: int | None = None
+    """rp-vim: both default to None (no relocation configured),
+    reproducing every existing request's exact current behavior."""

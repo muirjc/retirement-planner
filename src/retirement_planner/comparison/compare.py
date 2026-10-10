@@ -57,6 +57,8 @@ def compare_roth_conversion_strategies(
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared withdrawal_strategy/claiming_ages/hsa_contribution onto every
@@ -101,6 +103,8 @@ def compare_roth_conversion_strategies(
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for candidate in candidates
     ]
@@ -133,6 +137,8 @@ def compare_withdrawal_sequencing_strategies(
     conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
     conversion_named_bracket_rate: float | None = None,
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per candidate, forcing this call's
     shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -182,6 +188,8 @@ def compare_withdrawal_sequencing_strategies(
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for candidate in candidates
     ]
@@ -214,6 +222,8 @@ def compare_claiming_age_grid(
     conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
     conversion_named_bracket_rate: float | None = None,
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> ComparisonResult:
     """Runs run_plan_projection() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -285,6 +295,8 @@ def compare_claiming_age_grid(
             return_assumption=return_assumption,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

@@ -113,6 +113,9 @@ DEFAULTS = {
     "conversion_named_bracket_rate": None,  # rp-0ff
     "include_hsa_contribution": False,  # 010-advanced-tax-benefits
     "hsa_annual_amount": 0.0,
+    "include_relocation": False,  # rp-vim
+    "relocation_state": None,
+    "relocation_plan_year": 1,
     "include_inherited_ira": False,
     "inherited_account_type": "traditional",
     "inherited_owner": None,
@@ -259,6 +262,16 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     st.session_state["annual_need_real"] = scenario["spending"]["annual_need_real"]
     st.session_state["net_earned_income_against_spending"] = scenario["spending"].get("net_earned_income_against_spending", False)
     st.session_state["state"] = scenario["state"]
+    # rp-vim: reset unconditionally (not nested inside the `if` below) --
+    # mirrors include_inherited_ira's own precedent above, and rp-04u's
+    # own employer-contribution-checkbox fix note, so a stale True from a
+    # previously loaded scenario can never leak through when the newly
+    # loaded scenario has no relocation configured at all.
+    relocation_state = scenario.get("relocation_state")
+    st.session_state["include_relocation"] = relocation_state is not None
+    if relocation_state is not None:
+        st.session_state["relocation_state"] = relocation_state
+        st.session_state["relocation_plan_year"] = scenario["relocation_plan_year"]
     ma = scenario["market_assumptions"]
     for field in (
         "equity_allocation", "equity_return_mean_real", "equity_return_std_real",
@@ -930,6 +943,39 @@ st.selectbox(
     ),
 )
 
+st.checkbox(
+    "Household will move to a different state during this plan",
+    key="include_relocation",
+    help=(
+        "Models exactly two sequential residency periods: the State above applies through the "
+        "plan year just before the move, and the new state below applies from the move's plan "
+        "year onward. The move always takes effect at a plan-year boundary, never mid-tax-year."
+    ),
+)
+if st.session_state["include_relocation"]:
+    # Explicit blank placeholder, matching State's own established
+    # convention immediately above (forces an active choice).
+    relocation_state_options = [""] + states
+    current_relocation_state = st.session_state.get("relocation_state") or ""
+    relocation_state_index = (
+        relocation_state_options.index(current_relocation_state) if current_relocation_state in relocation_state_options else 0
+    )
+    r0, r1 = st.columns(2)
+    r0.selectbox(
+        "New state",
+        options=relocation_state_options,
+        index=relocation_state_index,
+        key="relocation_state",
+        help="The state the household moves to.",
+    )
+    r1.number_input(
+        "Plan year of the move",
+        min_value=1,
+        step=1,
+        key="relocation_plan_year",
+        help="The first plan year the new state above applies -- the State above applies through the plan year just before this one.",
+    )
+
 st.subheader("Market assumptions")
 # These are your own forward-looking planning inputs, not something the
 # tool looks up (see the Instructions page's Market Assumptions section)
@@ -1163,6 +1209,10 @@ def _build_body() -> dict:
             "net_earned_income_against_spending": st.session_state["net_earned_income_against_spending"],
         },
         "state": st.session_state["state"],
+        # rp-vim: None when the checkbox is off, mirroring store.py's own
+        # "flat optional scalar, always present" convention server-side.
+        "relocation_state": st.session_state["relocation_state"] if st.session_state["include_relocation"] else None,
+        "relocation_plan_year": st.session_state["relocation_plan_year"] if st.session_state["include_relocation"] else None,
         "market_assumptions": {
             "equity_allocation": st.session_state["equity_allocation"],
             "equity_return_mean_real": st.session_state["equity_return_mean_real"],

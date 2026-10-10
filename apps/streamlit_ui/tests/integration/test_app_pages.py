@@ -2694,3 +2694,90 @@ def test_polish_009_full_quickstart_walkthrough():
     assert not at.exception
     at.switch_page("pages/1_Scenarios.py").run()
     assert not at.exception
+
+
+# -- rp-vim: multi-state residency (optional two-period relocation) ---------
+
+
+def test_relocation_section_hidden_until_checkbox_checked():
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="include_relocation").value is False
+    with pytest.raises(KeyError):
+        at.selectbox(key="relocation_state")
+
+    at.checkbox(key="include_relocation").set_value(True)
+    at.run()
+    assert at.selectbox(key="relocation_state") is not None
+    assert at.number_input(key="relocation_plan_year").value == 1
+
+
+def test_relocation_save_round_trip():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="relocating_case", state="FL")
+    at.checkbox(key="include_relocation").set_value(True)
+    at.run()
+    at.selectbox(key="relocation_state").set_value("SC")
+    at.number_input(key="relocation_plan_year").set_value(5)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved = store["relocating_case"]
+    assert saved["state"] == "FL"
+    assert saved["relocation_state"] == "SC"
+    assert saved["relocation_plan_year"] == 5
+
+
+def test_relocation_unchecked_saves_none_for_both_fields():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="no_relocation_case")
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved = store["no_relocation_case"]
+    assert saved["relocation_state"] is None
+    assert saved["relocation_plan_year"] is None
+
+
+def test_relocation_checkbox_resets_when_loading_a_scenario_without_relocation():
+    """rp-vim: mirrors rp-04u.5's own fixed stale-checkbox bug class --
+    loading a scenario with no relocation configured must reset the
+    checkbox to False, never leaving a previously-loaded scenario's own
+    True value stuck on."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="relocating_case")
+    at.checkbox(key="include_relocation").set_value(True)
+    at.run()
+    at.selectbox(key="relocation_state").set_value("SC")
+    at.number_input(key="relocation_plan_year").set_value(5)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="plain_case")
+    at.button(key="save_button").click().run()
+
+    assert "relocating_case" in store and "plain_case" in store
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("relocating_case")
+    at.button(key="load_button").click().run()
+    assert at.checkbox(key="include_relocation").value is True
+    assert at.selectbox(key="relocation_state").value == "SC"
+    assert at.number_input(key="relocation_plan_year").value == 5
+
+    at.selectbox(key="scenario_load_select").set_value("plain_case")
+    at.button(key="load_button").click().run()
+    assert at.checkbox(key="include_relocation").value is False

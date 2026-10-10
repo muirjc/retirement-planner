@@ -453,6 +453,8 @@ def run_plan_projection(
     return_assumption: ReturnSchedule,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see docstring: never mutated as a list
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> PlanProjection:
     """Runs one full-horizon projection, one plan year at a time, from
     start_plan_year through the plan year in which the deemed RMD owner
@@ -554,6 +556,14 @@ def run_plan_projection(
     accounts only make up the residual, with no dollar counted against
     both draws. Defaults to False, reproducing every existing caller's
     exact prior output unchanged.
+
+    relocation_state/relocation_plan_year (rp-vim): when relocation_state
+    is given, `state` applies through plan year relocation_plan_year - 1
+    and relocation_state applies from relocation_plan_year onward --
+    exactly two sequential residency periods, resolved fresh every plan
+    year the same way effective_filing_status already is. Both default to
+    None, reproducing this function's exact prior behavior (state fixed
+    for the whole horizon) when omitted.
 
     strategy.conversion_window_mode/conversion_ceiling_mode (rp-595,
     comparison-api.md): when "auto_gap_year"/"named_bracket" respectively,
@@ -751,6 +761,16 @@ def run_plan_projection(
 
         effective_filing_status = "single" if is_post_death else household.filing_status
         effective_spending_need = annual_spending_need * (1.0 - household.survivor_spending_reduction_pct) if is_post_death else annual_spending_need
+        # rp-vim: resolved fresh every plan year, same shape as
+        # effective_filing_status immediately above -- relocation_state
+        # applies from relocation_plan_year onward; omitting both
+        # parameters reproduces this function's exact prior behavior
+        # (state fixed for the whole horizon).
+        effective_state = (
+            relocation_state
+            if relocation_state is not None and relocation_plan_year is not None and plan_year >= relocation_plan_year
+            else state
+        )
 
         # rp-595: applied on top of (not instead of) the survivor-reduction
         # logic above -- member_earned_income was already computed earlier
@@ -996,7 +1016,7 @@ def run_plan_projection(
         )
         filer_ages = [ages_this_year[member.person_name] for member in household.members]
         federal_tax = compute_federal_tax(income, filer_ages, effective_filing_status, tax_year)
-        state_tax = compute_state_tax(state, income, filer_ages, effective_filing_status, tax_year)
+        state_tax = compute_state_tax(effective_state, income, filer_ages, effective_filing_status, tax_year)
 
         # IRMAA (010-advanced-tax-benefits FR-001-FR-004, research.md §§2-3):
         # a true two-year look-back when this projection has already computed

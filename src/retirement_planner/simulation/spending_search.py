@@ -98,6 +98,8 @@ def _success_rate_at(
     survival_curves: dict[str, SurvivalCurve] | None,
     inherited_accounts: list[InheritedAccountBalance],
     net_earned_income_against_spending: bool,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> float:
     """One run_simulation() call at a candidate spending level, returning
     only the figure the search needs. inherited_accounts is passed through
@@ -107,7 +109,9 @@ def _success_rate_at(
     module docstring); safe to call repeatedly with the same base list
     across every candidate in a search the same way comparison/compare.py's
     own compare_*() functions already reuse a caller-supplied base list
-    across candidates."""
+    across candidates. relocation_state/relocation_plan_year (rp-vim)
+    forwarded unchanged; both default to None, reproducing every existing
+    caller's exact prior behavior."""
     run = run_simulation(
         household=household,
         accounts=accounts,
@@ -124,6 +128,8 @@ def _success_rate_at(
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
         net_earned_income_against_spending=net_earned_income_against_spending,
+        relocation_state=relocation_state,
+        relocation_plan_year=relocation_plan_year,
     )
     return run.success_rate
 
@@ -145,6 +151,8 @@ def search_spending_for_target_success_rate(
     survival_curves: dict[str, SurvivalCurve] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _success_rate_at()'s own docstring: never mutated as a list
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
     tolerance: float = _DEFAULT_TOLERANCE,
     max_bracket_expansions: int = _DEFAULT_MAX_BRACKET_EXPANSIONS,
     max_bisection_iterations: int = _DEFAULT_MAX_BISECTION_ITERATIONS,
@@ -204,6 +212,8 @@ def search_spending_for_target_success_rate(
             survival_curves=survival_curves,
             inherited_accounts=inherited_accounts,
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
 
     iterations = 0
@@ -274,6 +284,8 @@ def find_sustainable_spending_range(
     survival_curves: dict[str, SurvivalCurve] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _success_rate_at()'s own docstring
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
     tolerance: float = _DEFAULT_TOLERANCE,
     max_bracket_expansions: int = _DEFAULT_MAX_BRACKET_EXPANSIONS,
     max_bisection_iterations: int = _DEFAULT_MAX_BISECTION_ITERATIONS,
@@ -309,6 +321,8 @@ def find_sustainable_spending_range(
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
         net_earned_income_against_spending=net_earned_income_against_spending,
+        relocation_state=relocation_state,
+        relocation_plan_year=relocation_plan_year,
         tolerance=tolerance,
         max_bracket_expansions=max_bracket_expansions,
         max_bisection_iterations=max_bisection_iterations,
@@ -329,6 +343,8 @@ def find_sustainable_spending_range(
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
         net_earned_income_against_spending=net_earned_income_against_spending,
+        relocation_state=relocation_state,
+        relocation_plan_year=relocation_plan_year,
         tolerance=tolerance,
         max_bracket_expansions=max_bracket_expansions,
         max_bisection_iterations=max_bisection_iterations,

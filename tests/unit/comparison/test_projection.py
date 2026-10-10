@@ -3591,3 +3591,76 @@ def test_employer_contribution_401k_defaults_to_none_reproducing_prior_output():
     # ordinary_income is reduced by the employee's own $20,000 pretax
     # contribution (rp-wei's own behavior) -- unaffected by this feature.
     assert year.mechanics.ordinary_income == pytest.approx(130_000.0)
+
+
+# --- rp-vim: multi-state residency (relocation_state/relocation_plan_year) ---
+
+
+def test_relocation_switches_state_tax_at_the_configured_plan_year():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=58,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        relocation_state="SC",
+        relocation_plan_year=3,
+    )
+
+    assert [year.state_tax.state for year in result.years] == ["FL", "FL", "SC", "SC"]
+
+
+def test_relocation_omitted_reproduces_a_single_fixed_state_for_the_whole_horizon():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=58,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert [year.state_tax.state for year in result.years] == ["FL", "FL", "FL", "FL"]
+
+
+def test_relocation_taking_effect_in_plan_year_one_applies_from_the_start():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=56,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        relocation_state="SC",
+        relocation_plan_year=1,
+    )
+
+    assert [year.state_tax.state for year in result.years] == ["SC", "SC"]

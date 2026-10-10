@@ -386,6 +386,21 @@ class Scenario:
     """010-advanced-tax-benefits contracts/scenario-api.md. Defaults to
     None ("not modeled"), reproducing every existing scenario's exact
     current behavior."""
+    relocation_state: str | None = None
+    """rp-vim: the household's own state of residence (above) applies
+    from plan year 1 through relocation_plan_year - 1; relocation_state
+    applies from relocation_plan_year onward -- exactly two sequential
+    residency periods, never more. Defaults to None ("no relocation
+    configured"), reproducing every existing scenario's exact current
+    behavior (a single state for the whole horizon). Conceptually
+    belongs next to `state` above; placed here because dataclass field
+    ordering requires every defaulted field to follow every required
+    one."""
+    relocation_plan_year: int | None = None
+    """rp-vim: the first plan year relocation_state applies, in the same
+    plan_year numbering PlanYearProjection.plan_year uses. Must be set
+    together with relocation_state (both None, or both set) -- enforced
+    by validate(), not by this dataclass itself."""
     validation_flags: list[ValidationFlag] = field(default_factory=list)
 
     @property

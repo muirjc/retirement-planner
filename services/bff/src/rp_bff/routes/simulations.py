@@ -206,6 +206,8 @@ def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | No
             inherited_accounts=context.inherited_accounts,
             survival_curves=survival_curves,
             net_earned_income_against_spending=context.net_earned_income_against_spending,
+            relocation_state=context.relocation_state,
+            relocation_plan_year=context.relocation_plan_year,
         )
     except UnsupportedTaxYearError as exc:
         raise unsupported_tax_year_error(exc)
@@ -383,6 +385,8 @@ def resolve_and_search_sustainable_spending(
             flexible_target_success_rate=body.flexible_target_success_rate,
             inherited_accounts=context.inherited_accounts,
             net_earned_income_against_spending=context.net_earned_income_against_spending,
+            relocation_state=context.relocation_state,
+            relocation_plan_year=context.relocation_plan_year,
             max_bracket_expansions=_MAX_BRACKET_EXPANSIONS,
             max_bisection_iterations=_MAX_BISECTION_ITERATIONS,
         )

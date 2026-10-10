@@ -116,6 +116,8 @@ def compare_roth_conversion_strategies(
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see compare_states()'s own docstring
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared withdrawal_strategy/claiming_ages/hsa_contribution onto
@@ -130,7 +132,8 @@ def compare_roth_conversion_strategies(
     inherited_accounts (012-inherited-ira-rmd rp-mt7): see
     compare_states()'s own docstring. death_year_draws
     (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
-    docstring. net_earned_income_against_spending (rp-595): forced onto
+    docstring. net_earned_income_against_spending (rp-595) and
+    relocation_state/relocation_plan_year (rp-vim): forced onto
     every candidate's run_simulation() call, the same way hsa_contribution
     already is."""
     _validate_consistent_generation_mode(return_paths)
@@ -157,6 +160,8 @@ def compare_roth_conversion_strategies(
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for candidate in candidates
     ]
@@ -187,6 +192,8 @@ def compare_withdrawal_sequencing_strategies(
     conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
     conversion_named_bracket_rate: float | None = None,
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per entry in candidates, forcing this
     call's shared conversion_strategy/conversion_bracket_ceiling_or_amount/
@@ -200,7 +207,8 @@ def compare_withdrawal_sequencing_strategies(
     death_year_draws (023-probabilistic-death-draws rp-vgv): see
     compare_states()'s own docstring. conversion_window_mode/
     conversion_ceiling_mode/conversion_named_bracket_rate/
-    net_earned_income_against_spending (rp-595): see 004's own
+    net_earned_income_against_spending/relocation_state/
+    relocation_plan_year (rp-595, rp-vim): see 004's own
     compare_withdrawal_sequencing_strategies() docstring -- identical
     held-fixed-across-every-candidate treatment."""
     _validate_consistent_generation_mode(return_paths)
@@ -232,6 +240,8 @@ def compare_withdrawal_sequencing_strategies(
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for candidate in candidates
     ]
@@ -262,6 +272,8 @@ def compare_claiming_age_grid(
     conversion_ceiling_mode: Literal["dollar_amount", "named_bracket"] = "dollar_amount",
     conversion_named_bracket_rate: float | None = None,
     net_earned_income_against_spending: bool = False,
+    relocation_state: str | None = None,
+    relocation_plan_year: int | None = None,
 ) -> SimulationComparisonResult:
     """Runs run_simulation() once per grid entry, forcing this call's
     shared withdrawal_strategy/conversion_strategy/
@@ -279,9 +291,10 @@ def compare_claiming_age_grid(
     rp-mt7): see compare_states()'s own docstring. death_year_draws
     (023-probabilistic-death-draws rp-vgv): see compare_states()'s own
     docstring. conversion_window_mode/conversion_ceiling_mode/
-    conversion_named_bracket_rate/net_earned_income_against_spending
-    (rp-595): see 004's own compare_claiming_age_grid() docstring --
-    identical held-fixed-across-every-entry treatment."""
+    conversion_named_bracket_rate/net_earned_income_against_spending/
+    relocation_state/relocation_plan_year (rp-595, rp-vim): see 004's own
+    compare_claiming_age_grid() docstring -- identical
+    held-fixed-across-every-entry treatment."""
     member_names = {member.person_name for member in household.members}
     for entry in claiming_age_grid:
         if set(entry) != member_names:
@@ -326,6 +339,8 @@ def compare_claiming_age_grid(
             death_year_draws=death_year_draws,
             inherited_accounts=inherited_accounts,
             net_earned_income_against_spending=net_earned_income_against_spending,
+            relocation_state=relocation_state,
+            relocation_plan_year=relocation_plan_year,
         )
         for index, claiming_ages_entry in enumerate(claiming_age_grid)
     ]

@@ -387,4 +387,6 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
         simulation_settings=_build_simulation_settings(data["simulation_settings"], source),
         roth_conversion=_build_roth_conversion(data.get("roth_conversion"), source),
         hsa_contribution=_build_hsa_contribution(data.get("hsa_contribution"), source),
+        relocation_state=data.get("relocation_state"),
+        relocation_plan_year=data.get("relocation_plan_year"),
     )

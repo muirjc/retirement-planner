@@ -179,6 +179,14 @@ class ResolvedRunContext:
     """rp-595: sourced from scenario.spending.net_earned_income_against_spending.
     Defaults to False, reproducing every existing caller's exact prior
     behavior."""
+    relocation_state: str | None = None
+    relocation_plan_year: int | None = None
+    """rp-vim: sourced from scenario.relocation_state/relocation_plan_year
+    -- cleared to None/None when the request itself supplied an explicit
+    `state` override (resolve_run_context()'s own `state` parameter),
+    since that override's whole point is pinning the entire horizon to
+    one state. Both default to None, reproducing every existing caller's
+    exact prior behavior."""
 
 
 def _sum_accounts(scenario: Scenario) -> AccountBalances:
@@ -337,7 +345,14 @@ def resolve_run_context(
     majority-triggered depletion deadline (research.md §5) -- every
     existing caller already has this value in scope (each request body's
     own reference_tax_year), so this is a new required keyword-only
-    parameter, not optional."""
+    parameter, not optional.
+
+    relocation_state/relocation_plan_year (rp-vim): sourced from the
+    scenario's own fields, but cleared to None/None whenever this call's
+    own `state` parameter is not None -- an explicit state override
+    always pins the entire horizon to one state, never combined with a
+    configured relocation. relocation_state is validated against
+    STATE_MODULES the same way resolved_state already is."""
     scenario = load_scenario(scenario_name, scenarios_dir=scenarios_dir)
 
     if not scenario.is_usable:
@@ -351,6 +366,14 @@ def resolve_run_context(
     resolved_state = state or scenario.state
     if resolved_state not in STATE_MODULES:
         raise UnknownReferenceValueError("state", resolved_state)
+
+    # rp-vim: an explicit `state` override always wins and disables any
+    # configured relocation for this one resolved run -- the override's
+    # whole point is pinning the entire horizon to one state.
+    resolved_relocation_state = scenario.relocation_state if state is None else None
+    resolved_relocation_plan_year = scenario.relocation_plan_year if state is None else None
+    if resolved_relocation_state is not None and resolved_relocation_state not in STATE_MODULES:
+        raise UnknownReferenceValueError("relocation_state", resolved_relocation_state)
 
     if scenario.roth_conversion is not None:
         if scenario.roth_conversion.strategy not in CONVERSION_STRATEGIES:
@@ -416,6 +439,8 @@ def resolve_run_context(
         n_paths=n_paths if n_paths is not None else scenario.simulation_settings.n_paths,
         seed=seed if seed is not None else scenario.simulation_settings.seed,
         net_earned_income_against_spending=scenario.spending.net_earned_income_against_spending,
+        relocation_state=resolved_relocation_state,
+        relocation_plan_year=resolved_relocation_plan_year,
     )
 
 

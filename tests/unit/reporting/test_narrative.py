@@ -39,7 +39,10 @@ def _strategy(**overrides):
     return StrategyConfiguration(**base)
 
 
-def _project(household, accounts, strategy, spending_need=20_000, plan_to_age=76, ownership=None, state="FL", inherited_accounts=None):
+def _project(
+    household, accounts, strategy, spending_need=20_000, plan_to_age=76, ownership=None, state="FL",
+    inherited_accounts=None, relocation_state=None, relocation_plan_year=None,
+):
     owner_shares = ownership or {member.person_name: 1.0 / len(household.members) for member in household.members}
     return run_plan_projection(
         household=household,
@@ -54,6 +57,8 @@ def _project(household, accounts, strategy, spending_need=20_000, plan_to_age=76
         strategy=strategy,
         return_assumption=_RETURN_0PCT,
         inherited_accounts=inherited_accounts or [],
+        relocation_state=relocation_state,
+        relocation_plan_year=relocation_plan_year,
     )
 
 
@@ -534,3 +539,35 @@ def test_account_breakdown_matches_attribute_plan_projection_against_the_same_se
         assert story.account_breakdown == expected_year.accounts
     owners = {row.owner for story in narrative.years for row in story.account_breakdown}
     assert owners == {"Alex", "Blair"}
+
+
+# --- rp-vim: state-change narrative driver ---
+
+
+def test_state_change_fires_exactly_once_at_the_relocation_plan_year():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(
+        household,
+        AccountBalances(traditional=500_000, roth=0, taxable=0),
+        strategy,
+        plan_to_age=78,
+        relocation_state="SC",
+        relocation_plan_year=3,
+    )
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    relocation_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "state_change"]
+    assert relocation_years == [3]
+
+
+def test_state_change_never_fires_when_no_relocation_is_configured():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=78)
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    driver_keys = {e.driver_key for s in stories for e in s.entries}
+    assert "state_change" not in driver_keys

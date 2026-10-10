@@ -15,6 +15,7 @@ from .routes.reference import router as reference_router
 from .routes.reports import router as reports_router
 from .routes.scenarios import router as scenarios_router
 from .routes.simulations import router as simulations_router
+from .routes.walkthrough import router as walkthrough_router
 
 app = FastAPI(
     title="Retirement Planner BFF",
@@ -30,6 +31,7 @@ app.include_router(reference_router, prefix=API_PREFIX)
 app.include_router(simulations_router, prefix=API_PREFIX)
 app.include_router(comparisons_router, prefix=API_PREFIX)
 app.include_router(reports_router, prefix=API_PREFIX)
+app.include_router(walkthrough_router, prefix=API_PREFIX)
 
 
 @app.exception_handler(HTTPException)

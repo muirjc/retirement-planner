@@ -55,6 +55,10 @@ DEFAULTS = {
     "member1_include_401k_contribution": False,  # rp-wei
     "member1_401k_pretax_amount": 0.0,
     "member1_401k_roth_amount": 0.0,
+    "member1_include_employer_contribution": False,  # rp-04u
+    "member1_employer_match_rate": 0.0,
+    "member1_employer_match_cap_pct": 0.0,
+    "member1_employer_lump_sum_amount": 0.0,
     # rp-5cq: income streams are NOT stored under a single key -- each
     # member's rows live under "member{1,2}_stream_ids" (a list of row
     # ids) plus per-row keys "member{1,2}_stream_{id}_{field}", seeded by
@@ -73,6 +77,10 @@ DEFAULTS = {
     "member2_include_401k_contribution": False,  # rp-wei
     "member2_401k_pretax_amount": 0.0,
     "member2_401k_roth_amount": 0.0,
+    "member2_include_employer_contribution": False,  # rp-04u
+    "member2_employer_match_rate": 0.0,
+    "member2_employer_match_cap_pct": 0.0,
+    "member2_employer_lump_sum_amount": 0.0,
     "member2_stream_ids": [],
     "member2_stream_next_id": 0,
     "survivor_spending_reduction_pct": 0.0,  # 018-survivor-scenario-projection
@@ -164,6 +172,17 @@ def _apply_scenario_to_form(scenario: dict) -> None:
     if member1_401k is not None:
         st.session_state["member1_401k_pretax_amount"] = member1_401k["pretax_annual_amount"]
         st.session_state["member1_401k_roth_amount"] = member1_401k["roth_annual_amount"]
+    # rp-04u: nested one level deeper, mirroring the top-level block's own
+    # is-not-None-gated pattern immediately above -- reset unconditionally
+    # (not nested inside the `if member1_401k is not None:` above) so a
+    # stale True from a previously loaded scenario can never leak through
+    # when the newly loaded scenario's contribution_401k is None entirely.
+    member1_employer = (member1_401k or {}).get("employer_contribution")
+    st.session_state["member1_include_employer_contribution"] = member1_employer is not None
+    if member1_employer is not None:
+        st.session_state["member1_employer_match_rate"] = member1_employer["match_rate"]
+        st.session_state["member1_employer_match_cap_pct"] = member1_employer["match_cap_pct_of_pay"]
+        st.session_state["member1_employer_lump_sum_amount"] = member1_employer["lump_sum_annual_amount"]
     _load_income_streams("member1", m1.get("income_streams") or [])
     if len(members) > 1:
         m2 = members[1]
@@ -179,6 +198,15 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         if member2_401k is not None:
             st.session_state["member2_401k_pretax_amount"] = member2_401k["pretax_annual_amount"]
             st.session_state["member2_401k_roth_amount"] = member2_401k["roth_annual_amount"]
+        # rp-04u: see member1's own equivalent block above for why this
+        # reset stays unconditional, outside the `if member2_401k is not
+        # None:` above.
+        member2_employer = (member2_401k or {}).get("employer_contribution")
+        st.session_state["member2_include_employer_contribution"] = member2_employer is not None
+        if member2_employer is not None:
+            st.session_state["member2_employer_match_rate"] = member2_employer["match_rate"]
+            st.session_state["member2_employer_match_cap_pct"] = member2_employer["match_cap_pct_of_pay"]
+            st.session_state["member2_employer_lump_sum_amount"] = member2_employer["lump_sum_annual_amount"]
         _load_income_streams("member2", m2.get("income_streams") or [])
     # NOTE: when the loaded scenario has no member 2 (single filer), its
     # stream rows are left untouched here -- mirrors every other member2_*
@@ -422,6 +450,14 @@ _401K_CONTRIBUTION_HELP = (
     "additional income -- and only take effect in years this member has earned_income (rp-wei)."
 )
 
+_EMPLOYER_CONTRIBUTION_HELP = (
+    "Leave unchecked if this employer doesn't match or make a separate lump-sum 401(k) "
+    "contribution. Match rate and pay cap are independent of each other and of lump sum -- "
+    "configure a match formula, a lump sum, or both. Both always credit the Traditional "
+    "balance (never Roth), 100% immediately vested, and only take effect in years this member "
+    "has earned_income (rp-04u)."
+)
+
 
 def _render_401k_contribution(member_key: str) -> None:
     """Checkbox-gated per-member optional block -- mirrors the top-level
@@ -451,6 +487,40 @@ def _render_401k_contribution(member_key: str) -> None:
             key=f"{member_key}_401k_roth_amount",
             help="No tax effect -- already-taxed wages.",
         )
+
+        # rp-04u: nested one level deeper -- only meaningful once the
+        # outer 401(k) checkbox above is on, mirroring
+        # EmployerContributionPlan's own nested-inside-Contribution401kPlan
+        # data-model placement.
+        st.checkbox(
+            "Include an employer match/lump-sum contribution",
+            key=f"{member_key}_include_employer_contribution",
+            help=_EMPLOYER_CONTRIBUTION_HELP,
+        )
+        if st.session_state[f"{member_key}_include_employer_contribution"]:
+            e1, e2, e3 = st.columns(3)
+            e1.number_input(
+                "Employer match rate",
+                min_value=0.0,
+                step=0.05,
+                key=f"{member_key}_employer_match_rate",
+                help="E.g. 0.5 = employer matches 50 cents per dollar deferred, up to the pay cap below.",
+            )
+            e2.number_input(
+                "Match cap (fraction of pay)",
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                key=f"{member_key}_employer_match_cap_pct",
+                help="E.g. 0.06 = only the first 6% of pay deferred is eligible for matching.",
+            )
+            e3.number_input(
+                "Employer lump sum ($)",
+                min_value=0.0,
+                step=500.0,
+                key=f"{member_key}_employer_lump_sum_amount",
+                help="A discretionary employer contribution (e.g. profit-sharing), independent of match.",
+            )
 
 
 def _collect_income_streams(member_key: str) -> list[dict]:
@@ -1168,11 +1238,26 @@ def _build_body() -> dict:
             "pretax_annual_amount": st.session_state["member1_401k_pretax_amount"],
             "roth_annual_amount": st.session_state["member1_401k_roth_amount"],
         }
+        # rp-04u: nested one level deeper, only when the outer 401(k)
+        # checkbox above is also on (matches the data model -- employer_
+        # contribution lives inside contribution_401k, never on its own).
+        if st.session_state["member1_include_employer_contribution"]:
+            body["household"]["members"][0]["contribution_401k"]["employer_contribution"] = {
+                "match_rate": st.session_state["member1_employer_match_rate"],
+                "match_cap_pct_of_pay": st.session_state["member1_employer_match_cap_pct"],
+                "lump_sum_annual_amount": st.session_state["member1_employer_lump_sum_amount"],
+            }
     if st.session_state["filing_status"] == "married_filing_jointly" and st.session_state["member2_include_401k_contribution"]:
         body["household"]["members"][1]["contribution_401k"] = {
             "pretax_annual_amount": st.session_state["member2_401k_pretax_amount"],
             "roth_annual_amount": st.session_state["member2_401k_roth_amount"],
         }
+        if st.session_state["member2_include_employer_contribution"]:
+            body["household"]["members"][1]["contribution_401k"]["employer_contribution"] = {
+                "match_rate": st.session_state["member2_employer_match_rate"],
+                "match_cap_pct_of_pay": st.session_state["member2_employer_match_cap_pct"],
+                "lump_sum_annual_amount": st.session_state["member2_employer_lump_sum_amount"],
+            }
     if st.session_state["include_inherited_ira"]:
         inherited_account = {
             "account_type": st.session_state["inherited_account_type"],

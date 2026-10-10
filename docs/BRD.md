@@ -815,7 +815,12 @@ does not introduce and does not fix.
 `surtax_owed = min(investment_income, magi − threshold) × 0.038`, applied
 only once MAGI strictly exceeds the filing-status threshold — the same
 "lesser of" bound 26 U.S.C. §1411 itself uses, never the household's full
-investment income once any threshold is crossed.
+investment income once any threshold is crossed. `investment_income`
+itself is an approximation, not a real interest/dividend/capital-gain
+figure: this engine has no cost-basis or lot data (§7), so it's computed
+as the taxable account's own total withdrawal amount for the plan year —
+see §7's account-growth/income-character limitation for what this does
+and doesn't capture.
 
 ### 6.4 IRMAA surcharge
 
@@ -1240,6 +1245,38 @@ simulation at that figure directly.
   GPU with an 8B-class quantized model at roughly 5-10 seconds per
   question once warm, but a lower-end machine may need a smaller model
   or will simply run this one feature slower.
+- **Account growth is one blended total-return number, with no concept
+  of income character (yield/interest/dividends) distinct from price
+  appreciation, and no annual taxation of a taxable account's own
+  investment income (§6.3)**: every plan year, each account's
+  entire balance — traditional, Roth, and taxable alike — is multiplied
+  by the same single real-return rate derived from
+  `market_assumptions` (equity/bond allocation-weighted mean), applied
+  uniformly regardless of whether that return would, in reality, arrive
+  as a bond fund's coupon/interest, a stock fund's dividend, or
+  unrealized price appreciation (`comparison/returns.py`,
+  `comparison/projection.py`). For Traditional and Roth this is
+  correct — neither is taxed annually on investment income regardless
+  of its character. For the **taxable** account it understates real
+  tax drag: a real taxable brokerage account's interest and
+  non-qualified dividends are ordinary income in the year earned,
+  whether or not anything is withdrawn, and this engine has no cost-
+  basis or per-lot data at all (§6.6's own ownership-attribution
+  limitation, same root cause) to support that distinction. In this
+  model, taxable-account growth compounds untaxed until withdrawn, and
+  even a withdrawal is never fed into ordinary federal/state bracket
+  income (`mechanics/plan_year.py`'s `ordinary_income` is built only
+  from RMDs, traditional withdrawals, inherited distributions, income
+  streams, and Roth conversions) — the withdrawal amount is used only
+  as NIIT's own rough `investment_income` stand-in (§6.3), never
+  itemized into actual interest/dividends/realized gains. Net effect: a
+  household relying heavily on taxable-account bond/dividend income
+  will see this tool overstate that account's real after-tax growth.
+  Modeling this properly would require the same cost-basis/lot-tracking
+  capability §6.6's Roth-ownership limitation and `traditional_
+  ownership_shares` above both already identify as absent from this
+  schema — a coordinated, not yet scheduled, follow-on feature, not a
+  quick fix to this one area alone.
 
 ## 8. Non-Functional Requirements
 

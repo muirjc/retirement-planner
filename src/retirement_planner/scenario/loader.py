@@ -22,6 +22,7 @@ import yaml
 from .models import (
     Account,
     Contribution401kPlan,
+    EmployerContributionPlan,
     Household,
     HouseholdMember,
     HsaContributionPlan,
@@ -101,18 +102,41 @@ def _build_income_stream(data: object, source: str, context: str) -> IncomeStrea
     )
 
 
+def _build_employer_contribution(data: object, source: str, context: str) -> EmployerContributionPlan | None:
+    """rp-04u: mirrors _build_inherited_ira_details()'s own nested-
+    optional-block pattern (absent key -> None) one level deeper than
+    _build_contribution_401k() itself -- all three fields are
+    individually optional, defaulting to 0.0 via .get() (no field is
+    ever _require()'d), so a member can configure just a match formula,
+    just a lump sum, or both."""
+    if data is None:
+        return None
+    return EmployerContributionPlan(
+        match_rate=data.get("match_rate", 0.0) if isinstance(data, dict) else 0.0,
+        match_cap_pct_of_pay=data.get("match_cap_pct_of_pay", 0.0) if isinstance(data, dict) else 0.0,
+        lump_sum_annual_amount=data.get("lump_sum_annual_amount", 0.0) if isinstance(data, dict) else 0.0,
+    )
+
+
 def _build_contribution_401k(data: object, source: str, context: str) -> Contribution401kPlan | None:
     """rp-wei: mirrors _build_hsa_contribution()'s own optional-block
     pattern (absent key -> None), but -- unlike HSA's single required
     annual_amount -- both pretax_annual_amount and roth_annual_amount are
     individually optional, defaulting to 0.0 via .get() rather than
     _require(), so a member can configure just one of the two without
-    the other raising ScenarioParseError."""
+    the other raising ScenarioParseError.
+
+    rp-04u: employer_contribution is parsed by _build_employer_contribution()
+    immediately above -- a nested optional block, mirroring
+    Account.inherited's own nested-block pattern."""
     if data is None:
         return None
     return Contribution401kPlan(
         pretax_annual_amount=data.get("pretax_annual_amount", 0.0) if isinstance(data, dict) else 0.0,
         roth_annual_amount=data.get("roth_annual_amount", 0.0) if isinstance(data, dict) else 0.0,
+        employer_contribution=_build_employer_contribution(
+            data.get("employer_contribution") if isinstance(data, dict) else None, source, f"{context}.employer_contribution"
+        ),
     )
 
 

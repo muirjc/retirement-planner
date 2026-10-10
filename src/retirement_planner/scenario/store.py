@@ -96,6 +96,15 @@ def _household_member_to_dict(member: HouseholdMember) -> dict:
             "pretax_annual_amount": member.contribution_401k.pretax_annual_amount,
             "roth_annual_amount": member.contribution_401k.roth_annual_amount,
         }
+        # rp-04u: employer_contribution nests one level deeper, mirroring
+        # Account.inherited's own nested-optional-block pattern -- present
+        # only when configured, omitted entirely otherwise.
+        if member.contribution_401k.employer_contribution is not None:
+            data["contribution_401k"]["employer_contribution"] = {
+                "match_rate": member.contribution_401k.employer_contribution.match_rate,
+                "match_cap_pct_of_pay": member.contribution_401k.employer_contribution.match_cap_pct_of_pay,
+                "lump_sum_annual_amount": member.contribution_401k.employer_contribution.lump_sum_annual_amount,
+            }
     return data
 
 

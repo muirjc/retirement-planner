@@ -3,6 +3,7 @@
 from retirement_planner.scenario import (
     Account,
     Contribution401kPlan,
+    EmployerContributionPlan,
     Household,
     HouseholdMember,
     IncomeStream,
@@ -197,6 +198,84 @@ def test_validate_accepts_no_contribution_401k_configured():
     """Every existing scenario (created before this feature) validates
     unchanged."""
     scenario = _clean_scenario(household=Household(filing_status="single", members=[_member()]))
+    flags = validate(scenario)
+    assert flags == []
+
+
+def _contribution_with_employer(**overrides):
+    base = dict(pretax_annual_amount=20_000.0, roth_annual_amount=0.0)
+    employer_overrides = dict(match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0)
+    employer_overrides.update(overrides)
+    return Contribution401kPlan(employer_contribution=EmployerContributionPlan(**employer_overrides), **base)
+
+
+def test_validate_flags_negative_match_rate_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer(match_rate=-0.1))])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.employer_contribution.match_rate"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_match_cap_pct_of_pay_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer(match_cap_pct_of_pay=-0.01))])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.employer_contribution.match_cap_pct_of_pay"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_lump_sum_annual_amount_as_blocking():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer(lump_sum_annual_amount=-500.0))])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.employer_contribution.lump_sum_annual_amount"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_warns_but_does_not_block_match_rate_above_100_percent():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer(match_rate=1.5))])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.employer_contribution.match_rate"
+    assert flags[0].severity == "warning"
+
+
+def test_validate_warns_but_does_not_block_match_cap_above_100_percent():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer(match_cap_pct_of_pay=1.2))])
+    )
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "household.members[0].contribution_401k.employer_contribution.match_cap_pct_of_pay"
+    assert flags[0].severity == "warning"
+
+
+def test_validate_accepts_well_formed_employer_contribution():
+    scenario = _clean_scenario(
+        household=Household(filing_status="single", members=[_member(contribution_401k=_contribution_with_employer())])
+    )
+    flags = validate(scenario)
+    assert flags == []
+
+
+def test_validate_accepts_no_employer_contribution_configured():
+    """A contribution_401k block with no employer_contribution configured
+    validates unchanged -- mirrors the no-contribution-at-all test above."""
+    scenario = _clean_scenario(
+        household=Household(
+            filing_status="single",
+            members=[_member(contribution_401k=Contribution401kPlan(pretax_annual_amount=20_000.0))],
+        )
+    )
     flags = validate(scenario)
     assert flags == []
 

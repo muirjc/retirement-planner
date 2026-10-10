@@ -250,6 +250,70 @@ def _validate_household(scenario: Scenario) -> list[ValidationFlag]:
                         severity="blocking",
                     )
                 )
+            # rp-04u: blocking checks mirror pretax/roth's own negative-
+            # amount precedent immediately above. match_rate/
+            # match_cap_pct_of_pay > 1.0 are plausibility warnings, not
+            # blocking -- mirrors full_retirement_age's own
+            # warning-not-blocking treatment of an implausible-but-not-
+            # incoherent value (an unusually generous real plan isn't
+            # actually incoherent the way a negative number is).
+            # lump_sum_annual_amount has no upper-bound check -- a dollar
+            # figure, no natural plausibility ceiling to flag.
+            employer_contribution = member.contribution_401k.employer_contribution
+            if employer_contribution is not None:
+                employer_prefix = f"{contribution_prefix}.employer_contribution"
+                if employer_contribution.match_rate < 0:
+                    flags.append(
+                        ValidationFlag(
+                            field=f"{employer_prefix}.match_rate",
+                            message=(f"Match rate is negative ({employer_contribution.match_rate}); it cannot be negative."),
+                            severity="blocking",
+                        )
+                    )
+                elif employer_contribution.match_rate > 1.0:
+                    flags.append(
+                        ValidationFlag(
+                            field=f"{employer_prefix}.match_rate",
+                            message=(
+                                f"Match rate {employer_contribution.match_rate} is above 100%; double-check this value "
+                                "(most real plans match 25-100% of what's deferred)."
+                            ),
+                            severity="warning",
+                        )
+                    )
+                if employer_contribution.match_cap_pct_of_pay < 0:
+                    flags.append(
+                        ValidationFlag(
+                            field=f"{employer_prefix}.match_cap_pct_of_pay",
+                            message=(
+                                f"Match cap (% of pay) is negative ({employer_contribution.match_cap_pct_of_pay}); "
+                                "it cannot be negative."
+                            ),
+                            severity="blocking",
+                        )
+                    )
+                elif employer_contribution.match_cap_pct_of_pay > 1.0:
+                    flags.append(
+                        ValidationFlag(
+                            field=f"{employer_prefix}.match_cap_pct_of_pay",
+                            message=(
+                                f"Match cap (% of pay) {employer_contribution.match_cap_pct_of_pay} is above 100%; "
+                                "double-check this value (most real plans cap matching well under 100% of pay)."
+                            ),
+                            severity="warning",
+                        )
+                    )
+                if employer_contribution.lump_sum_annual_amount < 0:
+                    flags.append(
+                        ValidationFlag(
+                            field=f"{employer_prefix}.lump_sum_annual_amount",
+                            message=(
+                                f"Lump sum annual amount is negative "
+                                f"(${employer_contribution.lump_sum_annual_amount:,.2f}); it cannot be negative."
+                            ),
+                            severity="blocking",
+                        )
+                    )
     # 018-survivor-scenario-projection: a plausibility warning, not a
     # blocking rejection -- a household deliberately modeling spending
     # going UP after a death (e.g. new caregiving costs) is a legitimate,

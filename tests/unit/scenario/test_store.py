@@ -7,6 +7,7 @@ import pytest
 from retirement_planner.scenario import (
     Account,
     Contribution401kPlan,
+    EmployerContributionPlan,
     Household,
     HouseholdMember,
     HsaContributionPlan,
@@ -296,6 +297,39 @@ def test_contribution_401k_defaults_to_none_on_round_trip(scenario_store_dir):
     reloaded = load_scenario("no_401k_case", scenarios_dir=scenario_store_dir)
 
     assert reloaded.household.members[0].contribution_401k is None
+
+
+def test_employer_contribution_survives_a_save_load_round_trip(scenario_store_dir):
+    """rp-04u: Contribution401kPlan.employer_contribution round-trips like
+    contribution_401k's own optional nested block -- one level deeper,
+    built field-by-field in _household_member_to_dict()."""
+    scenario = _scenario("employer_contribution_case")
+    scenario.household.members[0].contribution_401k = Contribution401kPlan(
+        pretax_annual_amount=20_000.0,
+        employer_contribution=EmployerContributionPlan(
+            match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0
+        ),
+    )
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("employer_contribution_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].contribution_401k.employer_contribution == EmployerContributionPlan(
+        match_rate=0.5, match_cap_pct_of_pay=0.06, lump_sum_annual_amount=1_000.0
+    )
+
+
+def test_employer_contribution_defaults_to_none_on_round_trip(scenario_store_dir):
+    """A contribution_401k block with no employer_contribution configured
+    round-trips unchanged -- mirrors contribution_401k's own
+    defaults-preserving test above."""
+    scenario = _scenario("no_employer_contribution_case")
+    scenario.household.members[0].contribution_401k = Contribution401kPlan(pretax_annual_amount=20_000.0)
+
+    save_scenario(scenario, scenarios_dir=scenario_store_dir)
+    reloaded = load_scenario("no_employer_contribution_case", scenarios_dir=scenario_store_dir)
+
+    assert reloaded.household.members[0].contribution_401k.employer_contribution is None
 
 
 def test_save_list_load_round_trip_for_ten_scenarios_stays_isolated(scenario_store_dir):

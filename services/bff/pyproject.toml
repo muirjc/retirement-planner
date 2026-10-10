@@ -13,12 +13,17 @@ dependencies = [
     "retirement_planner",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    # rp-4p3: the Walkthrough AI Q&A feature's ollama_client.py makes a
+    # real outbound HTTP call to a local Ollama server at runtime -- httpx
+    # was previously only a dev/test dependency (FastAPI's own TestClient
+    # uses it under the hood), never something this service called out
+    # with itself.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.27",
     # rp-apm: CI quality gates -- see core pyproject.toml's own comment
     # on these same four pins.
     "ruff==0.15.20",

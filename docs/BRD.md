@@ -71,6 +71,16 @@ the analysis from scratch each time.
 - Reporting: fan charts, comparison overlays, summary statistics
   (including median lifetime tax paid), CSV export, and an explicit
   per-figure "needs verification" indicator in every output
+- Walkthrough AI Q&A (`rp-4p3`): on the Walkthrough page, a free-text
+  question about the plan years currently on screen, answered by a
+  local LLM (via Ollama) running on the household's own machine — no
+  data leaves it, no API key, no third party. The model is strictly
+  grounded in that batch's own already-computed narrative/computation-
+  detail/figure-citation data (§8's Offline-first row, and
+  `docs/SOLUTION_ARCHITECTURE.md` §8's reconciliation note) — it quotes
+  and explains this tool's own numbers, including honestly relaying a
+  figure's real verified/unverified citation status, but never
+  recomputes anything or supplies outside tax/financial advice
 
 ### 2.2 Explicit non-goals
 
@@ -102,6 +112,15 @@ first draft:
   ACA bridge premiums and fold them into `annual_need_real`, the same way
   it would fold in any other recurring expense this tool doesn't itemize
   on its own.
+- **Walkthrough AI Q&A non-goals (`rp-4p3`)**: general tax, legal, or
+  financial advice beyond explaining what this tool already computed;
+  a retrieval-augmented (RAG) layer over actual IRS/CMS/statute source
+  text, for "what does the real rule say" questions deeper than "what
+  did this tool compute" (a plausible, legitimately separate future
+  feature, not bundled here); context spanning more than the plan
+  year(s) currently on screen (no cross-year reasoning, no full-run
+  context); streaming responses; and the Compare (multi-candidate) page,
+  which has no narrative/walkthrough data at all to ground an answer in.
 
 ### 2.3 Reference use case
 
@@ -1206,6 +1225,21 @@ simulation at that figure directly.
   attribution can drift from this tool's reported figures over time; a
   pre-existing simplification this feature inherits rather than
   introduces.
+- The Walkthrough AI Q&A widget (§2.1, `rp-4p3`) requires a local Ollama
+  install with a model pulled — it's unavailable, not broken, without
+  one (`503 ollama_unavailable`), and the feature is entirely optional
+  for every other use of this tool. Its explanation text is
+  non-deterministic even at the same seed/scenario (unlike every number
+  the plan itself reports, which stays exactly as reproducible as
+  always) — a local 7-14B-class model can still misquote a figure or
+  phrase something misleadingly despite being strictly grounded, which
+  needs an ongoing manual eval pass against known scenarios, not just
+  automated tests, before the answers themselves are treated as
+  reliable. It also raises this tool's hardware floor for the first
+  time beyond "runs Python" — confirmed working on a 6GB-VRAM laptop
+  GPU with an 8B-class quantized model at roughly 5-10 seconds per
+  question once warm, but a lower-end machine may need a smaller model
+  or will simply run this one feature slower.
 
 ## 8. Non-Functional Requirements
 

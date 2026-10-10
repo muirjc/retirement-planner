@@ -1449,3 +1449,88 @@ def test_taxable_inherited_account_still_blocked(client):
     response = client.put("/api/v1/scenarios/taxable_inherited", json=scenario_body)
     assert response.status_code == 200
     assert response.json()["is_usable"] is False
+
+
+# --- rp-vim: multi-state residency ---
+
+
+def test_relocation_switches_state_tax_at_the_configured_plan_year(client):
+    body = {**_SCENARIO_BODY, "relocation_state": "SC", "relocation_plan_year": 3}
+    client.put("/api/v1/scenarios/base_case", json=body)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    selected_path_index = payload["narrative"]["selected_path_index"]
+    years = payload["run"]["path_results"][selected_path_index]["years"]
+    states = [year["state_tax"]["state"] for year in years[:4]]
+    assert states == ["FL", "FL", "SC", "SC"]
+
+
+def test_relocation_omitted_reproduces_a_single_fixed_state(client):
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    selected_path_index = payload["narrative"]["selected_path_index"]
+    years = payload["run"]["path_results"][selected_path_index]["years"]
+    assert all(year["state_tax"]["state"] == "FL" for year in years[:4])
+
+
+def test_unregistered_relocation_state_is_a_clean_422_not_a_bare_500(client):
+    body = {**_SCENARIO_BODY, "relocation_state": "ZZ", "relocation_plan_year": 3}
+    client.put("/api/v1/scenarios/base_case", json=body)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "unknown_reference_value"
+    assert payload["field"] == "relocation_state"
+
+
+def test_an_explicit_state_override_disables_configured_relocation(client):
+    """rp-vim: SimulationRequest.state (an existing whole-horizon override)
+    always wins and disables any configured relocation for that one
+    resolved run -- the override's whole point is pinning the entire
+    horizon to one state."""
+    body = {**_SCENARIO_BODY, "relocation_state": "SC", "relocation_plan_year": 3}
+    client.put("/api/v1/scenarios/base_case", json=body)
+
+    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "state": "DE"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    selected_path_index = payload["narrative"]["selected_path_index"]
+    years = payload["run"]["path_results"][selected_path_index]["years"]
+    assert all(year["state_tax"]["state"] == "DE" for year in years[:4])
+
+
+def test_relocation_state_round_trips_through_save_and_read(client):
+    body = {**_SCENARIO_BODY, "relocation_state": "SC", "relocation_plan_year": 3}
+    save_response = client.put("/api/v1/scenarios/relocating_case", json=body)
+    assert save_response.json()["is_usable"] is True
+
+    read_response = client.get("/api/v1/scenarios/relocating_case")
+    assert read_response.json()["relocation_state"] == "SC"
+    assert read_response.json()["relocation_plan_year"] == 3
+
+
+def test_relocation_state_without_relocation_plan_year_is_a_blocking_validation_flag(client):
+    """Saving never requires validity (routes/scenarios.py's own PUT
+    docstring) -- the flag is reported at save time, and running against
+    an unusable scenario is the actual 422."""
+    body = {**_SCENARIO_BODY, "relocation_state": "SC"}
+    save_response = client.put("/api/v1/scenarios/bad_relocation", json=body)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is False
+    flags = [f for f in save_response.json()["validation_flags"] if f["field"] == "relocation_plan_year"]
+    assert len(flags) == 1
+    assert flags[0]["severity"] == "blocking"
+
+    run_response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "bad_relocation"})
+    assert run_response.status_code == 422
+    assert run_response.json()["error"] == "blocking_validation_flags"

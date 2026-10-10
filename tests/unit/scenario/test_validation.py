@@ -768,3 +768,48 @@ def test_validate_does_not_flag_never_ending_wages_when_window_mode_is_explicit(
 def test_validate_does_not_flag_auto_gap_year_window_with_no_roth_conversion_configured():
     scenario = _clean_scenario()  # roth_conversion defaults to None
     assert validate(scenario) == []
+
+
+# --- rp-vim: relocation_state/relocation_plan_year ---
+
+
+def test_validate_accepts_no_relocation_configured():
+    scenario = _clean_scenario()  # relocation_state/relocation_plan_year default to None
+    assert validate(scenario) == []
+
+
+def test_validate_flags_relocation_plan_year_without_relocation_state_as_blocking():
+    scenario = _clean_scenario(relocation_plan_year=5)
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "relocation_state"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_relocation_state_without_relocation_plan_year_as_blocking():
+    scenario = _clean_scenario(state="GA", relocation_state="SC")
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "relocation_plan_year"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_non_positive_relocation_plan_year_as_blocking():
+    scenario = _clean_scenario(state="GA", relocation_state="SC", relocation_plan_year=0)
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "relocation_plan_year"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_warns_but_does_not_block_relocation_to_the_same_state():
+    scenario = _clean_scenario(state="GA", relocation_state="GA", relocation_plan_year=5)
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "relocation_state"
+    assert flags[0].severity == "warning"
+
+
+def test_validate_accepts_well_formed_relocation():
+    scenario = _clean_scenario(state="GA", relocation_state="SC", relocation_plan_year=5)
+    assert validate(scenario) == []

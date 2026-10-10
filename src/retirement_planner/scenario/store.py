@@ -144,6 +144,14 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             "net_earned_income_against_spending": scenario.spending.net_earned_income_against_spending,
         },
         "state": scenario.state,
+        # rp-vim: flat optional scalars (unlike roth_conversion/
+        # hsa_contribution's own nested-block omission below) -- always
+        # written, None when no relocation is configured, same class of
+        # save/load round-trip gap this function's own comments above
+        # warn about for every other field added since this dict was
+        # first written field-by-field rather than generically.
+        "relocation_state": scenario.relocation_state,
+        "relocation_plan_year": scenario.relocation_plan_year,
         "market_assumptions": {
             "equity_allocation": scenario.market_assumptions.equity_allocation,
             "equity_return_mean_real": scenario.market_assumptions.equity_return_mean_real,

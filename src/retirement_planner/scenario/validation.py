@@ -24,6 +24,7 @@ def validate(scenario: Scenario) -> list[ValidationFlag]:
     flags.extend(_validate_household(scenario))
     flags.extend(_validate_spending(scenario))
     flags.extend(_validate_roth_conversion(scenario))
+    flags.extend(_validate_relocation(scenario))
     return flags
 
 
@@ -412,4 +413,54 @@ def _validate_roth_conversion(scenario: Scenario) -> list[ValidationFlag]:
                     severity="warning",
                 )
             )
+    return flags
+
+
+def _validate_relocation(scenario: Scenario) -> list[ValidationFlag]:
+    """rp-vim: relocation_state/relocation_plan_year must be set together
+    -- one without the other is meaningless (data-model.md § Scenario).
+    Deliberately does NOT check relocation_state against STATE_MODULES
+    here, for the same reason _validate_roth_conversion() above doesn't
+    reach for mechanics-layer context: scenario/*.py must never import
+    tax/*.py's STATE_MODULES registry (the strict scenario -> tax ->
+    mechanics -> ... acyclic package chain, docs/SOLUTION_ARCHITECTURE.md
+    §3) -- that check happens where `state`'s own already does, in the
+    BFF's resolution.py."""
+    flags: list[ValidationFlag] = []
+    if scenario.relocation_state is None and scenario.relocation_plan_year is None:
+        return flags
+
+    if scenario.relocation_state is None:
+        flags.append(
+            ValidationFlag(
+                field="relocation_state",
+                message="relocation_plan_year is set but relocation_state is not -- both must be set together, or neither.",
+                severity="blocking",
+            )
+        )
+    if scenario.relocation_plan_year is None:
+        flags.append(
+            ValidationFlag(
+                field="relocation_plan_year",
+                message="relocation_state is set but relocation_plan_year is not -- both must be set together, or neither.",
+                severity="blocking",
+            )
+        )
+    elif scenario.relocation_plan_year <= 0:
+        flags.append(
+            ValidationFlag(
+                field="relocation_plan_year",
+                message=f"relocation_plan_year ({scenario.relocation_plan_year}) must be a positive plan year.",
+                severity="blocking",
+            )
+        )
+
+    if scenario.relocation_state is not None and scenario.relocation_state == scenario.state:
+        flags.append(
+            ValidationFlag(
+                field="relocation_state",
+                message=f"relocation_state ({scenario.relocation_state!r}) is the same as state -- this configures no actual move.",
+                severity="warning",
+            )
+        )
     return flags

@@ -266,6 +266,28 @@ def _survivor_death_entries(
     return []
 
 
+def _state_change_entries(year: PlanYearProjection, prior_year: PlanYearProjection | None) -> list[NarrativeEntry]:
+    """rp-vim: year.state_tax.state transitioning between consecutive
+    years -- state_tax is recomputed fresh every plan year regardless of
+    whether a relocation is configured, so this is a plain equality
+    check, no new computation. Only ever detected against a genuine
+    prior year (never plan year 1) -- like _irmaa_entries()'s own basis-
+    switch branch, there is no sensible "prior state" baseline for a
+    plan's very first year to compare against."""
+    if prior_year is None or year.state_tax.state == prior_year.state_tax.state:
+        return []
+    return [
+        NarrativeEntry(
+            driver_key="state_change",
+            label="Household relocated",
+            explanation=(
+                f"The household moved from {prior_year.state_tax.state} to {year.state_tax.state} this year."
+            ),
+            amounts={},
+        )
+    ]
+
+
 def _shortfall_entries(year: PlanYearProjection) -> list[NarrativeEntry]:
     """FR-003/spec.md Edge Cases: shortfall > 0.0, every occurrence -- not
     just the first, even in years after the plan has already gone into
@@ -410,6 +432,7 @@ def build_year_stories(
             *_tax_change_entries(year, prior_year),
             *_irmaa_entries(year, prior_year),
             *_survivor_death_entries(year, prior_year, household),
+            *_state_change_entries(year, prior_year),
             *_shortfall_entries(year),
         ]
         if not entries:

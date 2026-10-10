@@ -188,6 +188,11 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
         # level setting, not a per-candidate varying dimension, and every
         # deterministic compare_*() function now accepts it.
         net_earned_income_against_spending=context.net_earned_income_against_spending,
+        # rp-vim: same reasoning -- every deterministic compare_*()
+        # function now accepts it, applied identically to every
+        # candidate (none of 004's axes vary state).
+        relocation_state=context.relocation_state,
+        relocation_plan_year=context.relocation_plan_year,
     )
 
     try:
@@ -361,6 +366,8 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                 result = compare_roth_conversion_strategies_simulated(
                     **common,
                     state=context.state,
+                    relocation_state=context.relocation_state,
+                    relocation_plan_year=context.relocation_plan_year,
                     withdrawal_strategy=context.strategy.withdrawal_strategy,
                     claiming_ages=context.strategy.claiming_ages,
                     candidates=candidates,
@@ -374,6 +381,8 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                 result = compare_withdrawal_sequencing_strategies_simulated(
                     **common,
                     state=context.state,
+                    relocation_state=context.relocation_state,
+                    relocation_plan_year=context.relocation_plan_year,
                     conversion_strategy=context.strategy.conversion_strategy,
                     conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,
                     conversion_window=context.strategy.conversion_window,
@@ -389,6 +398,8 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
                     result = compare_claiming_age_grid_simulated(
                         **common,
                         state=context.state,
+                        relocation_state=context.relocation_state,
+                        relocation_plan_year=context.relocation_plan_year,
                         withdrawal_strategy=context.strategy.withdrawal_strategy,
                         conversion_strategy=context.strategy.conversion_strategy,
                         conversion_bracket_ceiling_or_amount=context.strategy.conversion_bracket_ceiling_or_amount,

@@ -81,6 +81,12 @@ the analysis from scratch each time.
   and explains this tool's own numbers, including honestly relaying a
   figure's real verified/unverified citation status, but never
   recomputes anything or supplies outside tax/financial advice
+- Multi-state residency (`rp-vim`): a household can configure exactly
+  two sequential state-of-residence periods — the state it starts in,
+  and a second state it moves to at a given plan year — with state
+  income tax resolved correctly for each plan year against whichever
+  state applied that year. Narrated on the Walkthrough page the plan
+  year the move takes effect
 
 ### 2.2 Explicit non-goals
 
@@ -121,6 +127,17 @@ first draft:
   year(s) currently on screen (no cross-year reasoning, no full-run
   context); streaming responses; and the Compare (multi-candidate) page,
   which has no narrative/walkthrough data at all to ground an answer in.
+- **Multi-state residency non-goals (`rp-vim`)**: more than two
+  sequential residency periods (no arbitrary list of states/years); a
+  move taking effect mid-tax-year (it always lands on a plan-year
+  boundary, the same granularity every other per-year transition in
+  this engine already uses — filing status, IRMAA basis, RMD start);
+  and any interaction with the existing "state" comparison axis or the
+  one-shot whole-horizon `state` override on a simulation/comparison
+  request — both continue to mean "pin the entire horizon to one
+  state," unaffected by a scenario's own configured relocation (an
+  explicit override disables that scenario's relocation for the one
+  resolved run, rather than combining the two).
 
 ### 2.3 Reference use case
 

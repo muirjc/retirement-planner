@@ -27,8 +27,11 @@ def test_core_pyproject_toml_has_no_new_dependencies():
 
 
 def test_bff_pyproject_toml_is_unchanged_by_this_feature():
+    """httpx>=0.27 was added by rp-4p3.2 (the Walkthrough AI Q&A feature's
+    own outbound Ollama call) -- unrelated to this UI package's own
+    containment boundary, which is what this test actually guards."""
     data = tomllib.loads((REPO_ROOT / "services" / "bff" / "pyproject.toml").read_text())
-    assert data["project"]["dependencies"] == ["retirement_planner", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
+    assert data["project"]["dependencies"] == ["retirement_planner", "fastapi>=0.110", "uvicorn[standard]>=0.29", "httpx>=0.27"]
 
 
 def test_instructions_page_imports_nothing_from_api_client_or_core_or_bff():

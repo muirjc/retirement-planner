@@ -1,16 +1,36 @@
 """Unit tests for apps/streamlit_ui/pages/4_Walkthrough.py (028-results-
 walkthrough, rp-bm8.1). Driven via AppTest.from_file() with a pre-seeded
-st.session_state["run_last_result"] -- this page makes no HTTP call of its
-own (FR-008), so no httpx mock is needed, unlike 2_Run_Simulation.py/
-3_Compare.py's own integration tests.
+st.session_state["run_last_result"] -- the per-year display tests below
+make no HTTP call of their own (FR-008), so no httpx mock is needed for
+them, unlike 2_Run_Simulation.py/3_Compare.py's own integration tests.
+
+rp-4p3 adds one HTTP call to this page (the AI Q&A widget's POST
+/walkthrough/ask) -- the tests covering it, at the bottom of this file,
+install an httpx.MockTransport on rp_ui.api_client first, mirroring
+apps/streamlit_ui/tests/integration/test_app_pages.py's own pattern.
 """
 
+import json
 from pathlib import Path
 
+import httpx
+import pytest
 from streamlit.testing.v1 import AppTest
+
+from rp_ui import api_client
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 WALKTHROUGH_PAGE = PACKAGE_ROOT / "pages" / "4_Walkthrough.py"
+
+
+@pytest.fixture(autouse=True)
+def _reset_transport():
+    yield
+    api_client._transport = None
+
+
+def _install(handler) -> None:
+    api_client._transport = httpx.MockTransport(handler)
 
 
 def _year_detail(plan_year: int, tax_year: int) -> dict:
@@ -149,11 +169,12 @@ def test_first_batch_shows_up_to_three_years_with_previous_disabled():
     at.run()
 
     assert not at.exception
-    assert len(at.subheader) == 3
+    assert len(at.subheader) == 4  # 3 plan years + the "Ask about these years" Q&A section (rp-4p3)
     assert [s.value for s in at.subheader] == [
         "Plan year 1 -- tax year 2026",
         "Plan year 2 -- tax year 2027",
         "Plan year 3 -- tax year 2028",
+        "Ask about these years",
     ]
     assert at.button(key="walkthrough_prev").disabled is True
     assert at.button(key="walkthrough_next").disabled is False
@@ -169,10 +190,11 @@ def test_next_advances_to_the_remainder_batch_and_disables_next():
     at.button(key="walkthrough_next").click().run()
 
     assert not at.exception
-    assert len(at.subheader) == 2
+    assert len(at.subheader) == 3  # 2 plan years + the "Ask about these years" Q&A section (rp-4p3)
     assert [s.value for s in at.subheader] == [
         "Plan year 4 -- tax year 2029",
         "Plan year 5 -- tax year 2030",
+        "Ask about these years",
     ]
     assert at.button(key="walkthrough_next").disabled is True
     assert at.button(key="walkthrough_prev").disabled is False
@@ -191,6 +213,7 @@ def test_previous_returns_to_the_first_batch():
         "Plan year 1 -- tax year 2026",
         "Plan year 2 -- tax year 2027",
         "Plan year 3 -- tax year 2028",
+        "Ask about these years",
     ]
 
 
@@ -218,7 +241,7 @@ def test_computation_detail_expander_renders_the_balance_waterfall_and_tax_break
     at.run()
 
     assert not at.exception
-    assert len(at.expander) == 1
+    assert len(at.expander) == 2  # the computation-detail expander + the Q&A "About this AI assistant" one (rp-4p3)
     assert at.expander[0].label == "How was this year's math computed?"
     assert len(at.dataframe) == 1  # the balance-waterfall table
     markdown_text = " ".join(m.value for m in at.markdown)
@@ -316,3 +339,73 @@ def test_fica_section_shows_placeholder_when_no_earned_income():
     assert not at.exception
     caption_text = " ".join(c.value for c in at.caption)
     assert "No FICA payroll tax" in caption_text
+
+
+# -- AI Q&A widget (rp-4p3) ---------------------------------------------------
+
+
+def test_asking_a_question_sends_the_current_batchs_own_stories_and_renders_the_answer():
+    captured = {}
+
+    def handler(request):
+        assert request.url.path == "/api/v1/walkthrough/ask"
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"answer": "Yes, that figure is verified."})
+
+    _install(handler)
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(5)
+    at.run()
+
+    at.text_input(key="walkthrough_question_0").set_value("Is the RMD figure verified?")
+    at.button(key="walkthrough_ask_0").click().run()
+
+    assert not at.exception
+    assert captured["body"]["question"] == "Is the RMD figure verified?"
+    # Scoped to the current (first) batch's own 3 stories, not all 5 years.
+    assert [story["plan_year"] for story in captured["body"]["plan_years"]] == [1, 2, 3]
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "Yes, that figure is verified." in markdown_text
+    caption_text = " ".join(c.value for c in at.caption)
+    assert "not authoritative" in caption_text.lower()
+
+
+def test_asking_nothing_does_not_call_the_backend():
+    def handler(request):
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    _install(handler)
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)
+    at.run()
+
+    at.button(key="walkthrough_ask_0").click().run()
+
+    assert not at.exception
+
+
+def test_asking_a_question_when_ollama_is_unavailable_shows_the_error():
+    def handler(request):
+        return httpx.Response(
+            503,
+            json={"error": "ollama_unavailable", "message": "Local AI model unavailable -- is Ollama running with a model pulled?"},
+        )
+
+    _install(handler)
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)
+    at.run()
+
+    at.text_input(key="walkthrough_question_0").set_value("anything")
+    at.button(key="walkthrough_ask_0").click().run()
+
+    assert not at.exception
+    assert any("ollama" in e.value.lower() for e in at.error)
+
+
+def test_about_this_ai_assistant_disclosure_is_present():
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(1)
+    at.run()
+
+    assert any(e.label == "About this AI assistant" for e in at.expander)

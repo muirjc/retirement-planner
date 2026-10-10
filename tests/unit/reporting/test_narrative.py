@@ -11,9 +11,15 @@ from datetime import date
 
 from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.reporting import build_narrative_for_run, build_year_stories, select_representative_path
+from retirement_planner.reporting import (
+    attribute_plan_projection,
+    build_narrative_for_run,
+    build_year_stories,
+    compute_account_shares,
+    select_representative_path,
+)
 from retirement_planner.reporting.aggregation import figure_citations, unverified_figure_names
-from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import Account, Household, HouseholdMember, IncomeStream
 from retirement_planner.simulation import PercentileBand, SimulationRun
 from retirement_planner.tax import FigureUsage
 
@@ -464,3 +470,67 @@ def test_earned_income_start_never_fires_for_a_household_with_no_earned_income()
     driver_keys = {e.driver_key for s in stories for e in s.entries}
     assert "earned_income_start" not in driver_keys
     assert "earned_income_stop" not in driver_keys
+
+
+# --- Per-account/per-owner breakdown (rp-kmu) ---
+
+
+def test_build_year_stories_defaults_account_breakdown_to_empty_when_omitted():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=77)
+
+    stories = build_year_stories(projection, household, reference_tax_year=2026)
+
+    assert all(story.account_breakdown == [] for story in stories)
+
+
+def test_build_narrative_for_run_defaults_account_breakdown_to_empty_when_shares_omitted():
+    household = _household_one()
+    strategy = _strategy(claiming_ages={"you": 99})
+    projection = _project(household, AccountBalances(traditional=500_000, roth=0, taxable=0), strategy, plan_to_age=77)
+    bands = [PercentileBand(plan_year=1, percentiles={0.50: projection.outcome.ending_balance})]
+    run = _run([projection], percentile_bands=bands)
+
+    narrative = build_narrative_for_run(run, household=household, reference_tax_year=2026)
+
+    assert all(story.account_breakdown == [] for story in narrative.years)
+
+
+def test_account_breakdown_matches_attribute_plan_projection_against_the_same_selected_path():
+    """rp-kmu: the whole point of this feature -- account_breakdown must
+    describe the SAME path narrative/detail already does, never a
+    separately-selected detail_path_index's path. Built here by calling
+    attribute_plan_projection() directly against the same projection and
+    comparing row-for-row, the same style rp-4p3.1's own 'matches the
+    shared aggregation helper' test used for figure_citations."""
+    household = Household(
+        filing_status="married_filing_jointly",
+        members=[
+            HouseholdMember(person_name="Alex", current_age=75, ss_claim_age=99, ss_annual_benefit=0),
+            HouseholdMember(person_name="Blair", current_age=72, ss_claim_age=99, ss_annual_benefit=0),
+        ],
+    )
+    strategy = _strategy(claiming_ages={"Alex": 99, "Blair": 99})
+    accounts = [
+        Account(account_type="traditional", balance=400_000.0, owner="Alex", account_id="trad-alex"),
+        Account(account_type="traditional", balance=200_000.0, owner="Blair", account_id="trad-blair"),
+    ]
+    projection = _project(
+        household,
+        AccountBalances(traditional=600_000, roth=0, taxable=0),
+        strategy,
+        plan_to_age=77,
+        ownership={"Alex": 400_000 / 600_000, "Blair": 200_000 / 600_000},
+    )
+    bands = [PercentileBand(plan_year=1, percentiles={0.50: projection.outcome.ending_balance})]
+    run = _run([projection], percentile_bands=bands)
+    shares = compute_account_shares(accounts)
+
+    narrative = build_narrative_for_run(run, household=household, reference_tax_year=2026, shares=shares)
+
+    expected = attribute_plan_projection(projection, shares)
+    for story, expected_year in zip(narrative.years, expected):
+        assert story.account_breakdown == expected_year.accounts
+    owners = {row.owner for story in narrative.years for row in story.account_breakdown}
+    assert owners == {"Alex", "Blair"}

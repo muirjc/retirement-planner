@@ -16,6 +16,8 @@ from typing import Literal
 from retirement_planner.simulation import PercentileBand
 from retirement_planner.tax import BracketContribution
 
+from .account_attribution import AccountYearDetail
+
 
 @dataclass
 class SummaryStatistics:
@@ -125,6 +127,15 @@ class YearStory:
     bare-name list does. Defaults to [] for direct-construction callers
     predating this feature, mirroring unverified_figure_names' own
     always-a-list-never-None convention."""
+    account_breakdown: list[AccountYearDetail] = field(default_factory=list)
+    """rp-kmu: this plan year's own per-account rows (015-per-account-
+    projection-detail's AccountYearDetail -- account_id/account_type/owner/
+    starting_balance/ending_balance/rmd_amount/withdrawal_amount/
+    attribution), computed via account_attribution.attribute_plan_projection()
+    against this SAME selected representative path -- never
+    account_detail's own, separately-selected detail_path_index, which can
+    point at a different simulated path entirely. Defaults to [] for
+    direct-construction callers predating this feature."""
 
 
 @dataclass

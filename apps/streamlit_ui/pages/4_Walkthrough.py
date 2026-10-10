@@ -10,6 +10,7 @@ unverified_figure_names (research.md §4).
 
 import streamlit as st
 
+from rp_ui.account_table import render_account_breakdown_by_member
 from rp_ui.api_client import ask_walkthrough_question
 from rp_ui.errors import OllamaUnavailableError, RpUiError
 from rp_ui.formatting import format_currency
@@ -88,6 +89,9 @@ for offset, story in enumerate(batch_stories):
 
     with st.expander("How was this year's math computed?"):
         render_year_computation_detail(story["detail"])
+
+    with st.expander("Where withdrawals came from, by household member"):
+        render_account_breakdown_by_member(story.get("account_breakdown", []), list(story["member_ages"].keys()))
 
     render_verification_indicator(story.get("unverified_figure_names", []))
     st.divider()

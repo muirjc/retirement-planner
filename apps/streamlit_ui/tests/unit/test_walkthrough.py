@@ -118,6 +118,7 @@ def _story(
     tax_year: int,
     unverified_figure_names: list[str] | None = None,
     detail_overrides: dict | None = None,
+    account_breakdown: list[dict] | None = None,
 ) -> dict:
     detail = _detail()
     if detail_overrides:
@@ -136,6 +137,16 @@ def _story(
             }
         ],
         "unverified_figure_names": unverified_figure_names or [],
+        "account_breakdown": account_breakdown
+        if account_breakdown is not None
+        else [
+            {
+                "account_id": "traditional-0", "account_type": "traditional", "owner": "you",
+                "starting_balance": 100_000.0, "ending_balance": 95_000.0,
+                "rmd_amount": 5_000.0, "withdrawal_amount": 5_000.0,
+                "attribution": "independently_tracked",
+            }
+        ],
     }
 
 
@@ -241,9 +252,9 @@ def test_computation_detail_expander_renders_the_balance_waterfall_and_tax_break
     at.run()
 
     assert not at.exception
-    assert len(at.expander) == 2  # the computation-detail expander + the Q&A "About this AI assistant" one (rp-4p3)
+    assert len(at.expander) == 3  # computation-detail + account-breakdown-by-member (rp-kmu) + the Q&A "About this AI assistant" one (rp-4p3)
     assert at.expander[0].label == "How was this year's math computed?"
-    assert len(at.dataframe) == 1  # the balance-waterfall table
+    assert len(at.dataframe) == 2  # the balance-waterfall table + one account-breakdown table (owner "you")
     markdown_text = " ".join(m.value for m in at.markdown)
     assert "Account balance walk" in markdown_text
     assert "Ordinary income composition" in markdown_text
@@ -286,7 +297,7 @@ def test_inherited_account_ten_year_rule_deadline_shows_the_reason():
     assert not at.exception
     markdown_text = " ".join(m.value for m in at.markdown)
     assert "Inherited accounts" in markdown_text
-    assert len(at.dataframe) == 2  # balance waterfall + inherited accounts
+    assert len(at.dataframe) == 3  # balance waterfall + inherited accounts + one account-breakdown table (owner "you")
     rows = at.dataframe[1].value
     assert rows.iloc[0]["Account"] == "traditional-6"
     assert "10-year rule" in rows.iloc[0]["Why"]
@@ -409,3 +420,61 @@ def test_about_this_ai_assistant_disclosure_is_present():
     at.run()
 
     assert any(e.label == "About this AI assistant" for e in at.expander)
+
+
+# --- Account breakdown by household member (rp-kmu) ---
+
+
+def test_account_breakdown_expander_present_per_shown_year():
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = _run_last_result(2)
+    at.run()
+
+    assert not at.exception
+    breakdown_expanders = [e for e in at.expander if e.label == "Where withdrawals came from, by household member"]
+    assert len(breakdown_expanders) == 2  # one per shown plan year
+
+
+def test_account_breakdown_groups_rows_by_member_and_shows_each_owner():
+    story = _story(
+        1,
+        2026,
+        account_breakdown=[
+            {
+                "account_id": "traditional-0", "account_type": "traditional", "owner": "you",
+                "starting_balance": 500_000.0, "ending_balance": 480_000.0,
+                "rmd_amount": 20_000.0, "withdrawal_amount": 20_000.0,
+                "attribution": "independently_tracked",
+            },
+            {
+                "account_id": "taxable-1", "account_type": "taxable", "owner": "spouse",
+                "starting_balance": 100_000.0, "ending_balance": 90_000.0,
+                "rmd_amount": 0.0, "withdrawal_amount": 10_000.0,
+                "attribution": "fixed_share_of_pooled_total",
+            },
+        ],
+    )
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = {
+        "run": {"path_results": [{"years": [_year_detail(1, 2026)]}]},
+        "narrative": {"selected_path_index": 0, "years": [story]},
+    }
+    at.run()
+
+    assert not at.exception
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "you" in markdown_text and "$20,000.00" in markdown_text
+    assert "spouse" in markdown_text and "$10,000.00" in markdown_text
+    assert len(at.dataframe) == 3  # the balance-waterfall table + one account-breakdown table per owner (2)
+
+
+def test_account_breakdown_shows_explicit_message_when_empty():
+    at = AppTest.from_file(str(WALKTHROUGH_PAGE))
+    at.session_state["run_last_result"] = {
+        "run": {"path_results": [{"years": [_year_detail(1, 2026)]}]},
+        "narrative": {"selected_path_index": 0, "years": [_story(1, 2026, account_breakdown=[])]},
+    }
+    at.run()
+
+    assert not at.exception
+    assert any("No per-account breakdown available" in i.value for i in at.info)

@@ -76,3 +76,48 @@ def render_account_table(account_detail: list[dict]) -> None:
         "same way its converting traditional accounts are."
     )
     st.dataframe(rows)
+
+
+def render_account_breakdown_by_member(account_breakdown: list[dict], member_order: list[str]) -> None:
+    """rp-kmu: one plan year's own per-account rows (YearStory's own
+    account_breakdown field, computed against that same year's selected
+    representative path -- never account_detail's own, separately-
+    selected detail_path_index), grouped by owner. member_order (the
+    household's own member order, e.g. that year's member_ages.keys())
+    keeps the layout stable across years; any owner not in member_order
+    (an inherited account's own past/unlisted owner) still renders,
+    appended after every named member rather than silently dropped."""
+    if not account_breakdown:
+        st.info("No per-account breakdown available for this year.")
+        return
+
+    by_owner: dict[str, list[dict]] = {}
+    for account in account_breakdown:
+        by_owner.setdefault(account["owner"], []).append(account)
+
+    ordered_owners = [owner for owner in member_order if owner in by_owner]
+    ordered_owners += [owner for owner in by_owner if owner not in ordered_owners]
+
+    for owner in ordered_owners:
+        accounts = by_owner[owner]
+        total_withdrawal = sum(account["withdrawal_amount"] for account in accounts)
+        st.markdown(f"**{owner or '(unknown owner)'}** -- total withdrawn this year: {format_currency(total_withdrawal)}")
+        rows = [
+            {
+                "account_id": account["account_id"],
+                "account_type": account["account_type"],
+                "starting_balance": format_currency(account["starting_balance"]),
+                "ending_balance": format_currency(account["ending_balance"]),
+                "rmd_amount": format_currency(account["rmd_amount"]),
+                "withdrawal_amount": format_currency(account["withdrawal_amount"]),
+                "figure_basis": _ATTRIBUTION_LABELS.get(account["attribution"], account["attribution"]),
+            }
+            for account in accounts
+        ]
+        st.dataframe(rows)
+
+    st.caption(
+        "\"apportioned (est.)\" figures are a fixed share of a combined "
+        "account-type total, not independently observed for that specific "
+        "account -- see docs/BRD.md for how this is computed."
+    )

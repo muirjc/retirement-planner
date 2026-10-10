@@ -14,6 +14,7 @@ from retirement_planner.mechanics import WITHDRAWAL_STRATEGIES, AccountType
 from retirement_planner.scenario import Household
 from retirement_planner.simulation import SimulationRun
 
+from .account_attribution import AccountShare, PlanYearAccountDetail, attribute_plan_projection
 from .aggregation import figure_citations, unverified_figure_names
 from .models import NarrativeEntry, RunNarrative, YearStory
 from .year_detail import build_year_computation_detail
@@ -373,18 +374,32 @@ _BASELINE_ENTRY = NarrativeEntry(
 fired -- never an empty entries list."""
 
 
-def build_year_stories(projection: PlanProjection, household: Household, reference_tax_year: int) -> list[YearStory]:
+def build_year_stories(
+    projection: PlanProjection,
+    household: Household,
+    reference_tax_year: int,
+    account_year_details: list[PlanYearAccountDetail] | None = None,
+) -> list[YearStory]:
     """FR-002/FR-003/FR-005: walks projection.years pairwise (plan year 1
     compared against a synthetic all-zero/starting-state "prior", spec.md
     Edge Cases) detecting the v1 driver set (research.md §3). Every plan
     year produces exactly one YearStory, with a single baseline
     NarrativeEntry when nothing else fired. Pure and deterministic:
     identical projection input -> byte-identical output every call
-    (FR-006)."""
+    (FR-006).
+
+    account_year_details (rp-kmu): one PlanYearAccountDetail per
+    projection.years entry, same order -- the caller (build_narrative_for_run())
+    guarantees this by building both from the exact same selected path, so
+    indexing by position here is safe without re-matching on plan_year.
+    Defaults to None (every YearStory.account_breakdown stays []),
+    reproducing this function's exact prior behavior when omitted -- every
+    caller/test predating this feature is unaffected."""
     withdrawal_order = WITHDRAWAL_STRATEGIES[projection.strategy.withdrawal_strategy]
     stories: list[YearStory] = []
     prior_year: PlanYearProjection | None = None
-    for year in projection.years:
+    for index, year in enumerate(projection.years):
+        account_breakdown = account_year_details[index].accounts if account_year_details is not None else []
         entries: list[NarrativeEntry] = [
             *_rmd_start_entries(year, prior_year),
             *_inherited_distribution_entries(year),
@@ -422,6 +437,10 @@ def build_year_stories(projection: PlanProjection, household: Household, referen
                 # unverified_figure_names immediately above, no new
                 # computation.
                 figure_citations=figure_citations(year.figures_used),
+                # rp-kmu: this year's own per-account/per-owner breakdown,
+                # against this SAME selected path -- never account_detail's
+                # own, separately-selected detail_path_index.
+                account_breakdown=account_breakdown,
             )
         )
         prior_year = year
@@ -429,12 +448,25 @@ def build_year_stories(projection: PlanProjection, household: Household, referen
     return stories
 
 
-def build_narrative_for_run(run: SimulationRun, household: Household, reference_tax_year: int) -> RunNarrative:
+def build_narrative_for_run(
+    run: SimulationRun, household: Household, reference_tax_year: int, shares: list[AccountShare] | None = None
+) -> RunNarrative:
     """Composes select_representative_path() + build_year_stories() over
     run.path_results[selected_path_index]. The single entry point BFF
     routes call -- computed once, for the selected path only (FR-008: no
-    per-path computation, no new round trip)."""
+    per-path computation, no new round trip).
+
+    shares (rp-kmu): the request's own AccountShare list (reporting.
+    compute_account_shares(), already computed once per request by every
+    BFF caller for account_detail) -- reused here to attribute this same
+    selected path's own per-year figures per account/owner, via
+    attribute_plan_projection(), guaranteeing the breakdown describes the
+    exact same path the narrative text/computation detail already does.
+    Defaults to None (every YearStory.account_breakdown stays []),
+    reproducing this function's exact prior behavior when omitted -- every
+    caller/test predating this feature is unaffected."""
     selected_path_index = select_representative_path(run)
     selected_path = run.path_results[selected_path_index]
-    years = build_year_stories(selected_path, household, reference_tax_year)
+    account_year_details = attribute_plan_projection(selected_path, shares) if shares is not None else None
+    years = build_year_stories(selected_path, household, reference_tax_year, account_year_details)
     return RunNarrative(selected_path_index=selected_path_index, years=years)

@@ -230,8 +230,11 @@ def run_simulation_route(body: SimulationRequest, scenarios_dir: Path | None = D
     # 028-results-walkthrough (rp-bm8.1, contracts/reporting-narrative-api.md):
     # computed once, for build_narrative_for_run()'s own selected
     # representative path -- independent of body.detail_path_index above,
-    # which governs account_detail's separately-selected path.
-    narrative = build_narrative_for_run(run, household=context.household, reference_tax_year=body.reference_tax_year)
+    # which governs account_detail's separately-selected path. rp-kmu:
+    # reuses the same `shares` computed above for account_detail --
+    # build_narrative_for_run() attributes its own per-account breakdown
+    # against its own selected path, never detail_path_index's.
+    narrative = build_narrative_for_run(run, household=context.household, reference_tax_year=body.reference_tax_year, shares=shares)
 
     return {
         "run": to_jsonable(run),

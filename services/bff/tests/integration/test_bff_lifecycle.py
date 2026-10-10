@@ -591,9 +591,28 @@ def test_run_simulation_response_includes_a_narrative_field_shaped_per_plan_year
         "entries",
         "unverified_figure_names",
         "figure_citations",  # rp-4p3
+        "account_breakdown",  # rp-kmu
     }
     assert len(first_year["entries"]) >= 1  # FR-005: never empty
     assert first_year["member_ages"].keys() == {"you", "spouse"}
+
+
+def test_narrative_account_breakdown_is_populated_and_owner_tagged(client):
+    """rp-kmu: every narrative year's own account_breakdown is non-empty
+    and tags each row with its real owner -- this scenario's three
+    accounts split across "you" and "spouse" (_SCENARIO_BODY)."""
+    client.put("/api/v1/scenarios/base_case", json=_SCENARIO_BODY)
+
+    response = client.post("/api/v1/simulations", json=_RUN_BODY)
+
+    assert response.status_code == 200
+    payload = response.json()
+    first_year = payload["narrative"]["years"][0]
+    assert len(first_year["account_breakdown"]) == 3  # the scenario's three accounts
+    owners = {row["owner"] for row in first_year["account_breakdown"]}
+    assert owners == {"you", "spouse"}
+    account_types = {row["account_id"]: row["account_type"] for row in first_year["account_breakdown"]}
+    assert account_types == {"traditional-0": "traditional", "roth-1": "roth", "taxable-2": "taxable"}
 
 
 def test_narrative_field_does_not_change_the_run_summary_or_account_detail_fields(client):

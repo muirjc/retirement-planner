@@ -252,6 +252,61 @@ def test_parse_scenario_contribution_401k_amounts_individually_optional():
     assert scenario.household.members[0].contribution_401k.roth_annual_amount == 0.0
 
 
+def test_parse_scenario_defaults_employer_contribution_to_none_when_omitted():
+    # rp-04u: a contribution_401k block with no nested employer_contribution
+    # key round-trips to None, mirroring contribution_401k's own
+    # optional-block precedent one level up.
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      contribution_401k:\n"
+        "        pretax_annual_amount: 20000\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    assert scenario.household.members[0].contribution_401k.employer_contribution is None
+
+
+def test_parse_scenario_passes_through_employer_contribution():
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      contribution_401k:\n"
+        "        pretax_annual_amount: 20000\n"
+        "        employer_contribution:\n"
+        "          match_rate: 0.5\n"
+        "          match_cap_pct_of_pay: 0.06\n"
+        "          lump_sum_annual_amount: 1000\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    employer_contribution = scenario.household.members[0].contribution_401k.employer_contribution
+    assert employer_contribution.match_rate == 0.5
+    assert employer_contribution.match_cap_pct_of_pay == 0.06
+    assert employer_contribution.lump_sum_annual_amount == 1_000
+    # The second member still gets the default -- employer_contribution is per-member.
+    assert scenario.household.members[1].contribution_401k is None
+
+
+def test_parse_scenario_employer_contribution_fields_individually_optional():
+    """A member can configure just a lump sum with no match formula --
+    the other fields default to 0.0, no ScenarioParseError."""
+    yaml_text = FULL_SCENARIO_YAML.replace(
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n",
+        "      ss_claim_age: 67\n      ss_annual_benefit: 32000\n"
+        "      contribution_401k:\n"
+        "        pretax_annual_amount: 20000\n"
+        "        employer_contribution:\n"
+        "          lump_sum_annual_amount: 1000\n",
+        1,
+    )
+    scenario = parse_scenario(yaml_text)
+    employer_contribution = scenario.household.members[0].contribution_401k.employer_contribution
+    assert employer_contribution.match_rate == 0.0
+    assert employer_contribution.match_cap_pct_of_pay == 0.0
+    assert employer_contribution.lump_sum_annual_amount == 1_000
+
+
 def test_parse_scenario_reports_missing_required_field():
     yaml_text = FULL_SCENARIO_YAML.replace(
         "spending:\n  annual_need_real: 110000\n", ""

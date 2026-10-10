@@ -218,6 +218,49 @@ def test_contribution_401k_round_trips_and_defaults_to_none_when_omitted(client)
     assert read_response["household"]["members"][1]["contribution_401k"] is None
 
 
+def test_employer_contribution_round_trips_and_defaults_to_none_when_omitted(client):
+    """rp-04u: explicit employer_contribution (nested inside
+    contribution_401k) round-trips through PUT/GET; a member that
+    configures contribution_401k but omits employer_contribution stays
+    None -- no resolution.py change needed, same reasoning as
+    contribution_401k's own test immediately above."""
+    body_with_employer_contribution = {
+        **_SCENARIO_BODY,
+        "household": {
+            **_SCENARIO_BODY["household"],
+            "members": [
+                {
+                    **_SCENARIO_BODY["household"]["members"][0],
+                    "contribution_401k": {
+                        "pretax_annual_amount": 20_000,
+                        "employer_contribution": {
+                            "match_rate": 0.5,
+                            "match_cap_pct_of_pay": 0.06,
+                            "lump_sum_annual_amount": 1_000,
+                        },
+                    },
+                },
+                {
+                    **_SCENARIO_BODY["household"]["members"][1],
+                    "contribution_401k": {"pretax_annual_amount": 15_000},
+                },
+            ],
+        },
+    }
+    save_response = client.put("/api/v1/scenarios/employer_contribution_case", json=body_with_employer_contribution)
+    assert save_response.status_code == 200
+
+    read_response = client.get("/api/v1/scenarios/employer_contribution_case").json()
+    assert read_response["household"]["members"][0]["contribution_401k"]["employer_contribution"] == {
+        "match_rate": 0.5,
+        "match_cap_pct_of_pay": 0.06,
+        "lump_sum_annual_amount": 1_000,
+    }
+    # The second member configured contribution_401k but not
+    # employer_contribution -- stays None.
+    assert read_response["household"]["members"][1]["contribution_401k"]["employer_contribution"] is None
+
+
 def test_survivor_spending_reduction_pct_round_trips_and_defaults_to_zero_when_omitted(client):
     """018-survivor-scenario-projection: an explicit
     survivor_spending_reduction_pct round-trips through PUT/GET; a

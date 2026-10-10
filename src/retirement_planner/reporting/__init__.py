@@ -15,6 +15,7 @@ from .account_attribution import (
     compute_account_shares,
 )
 from .aggregation import (
+    figure_citations,
     summarize_deterministic_comparison,
     summarize_run,
     summarize_simulation_comparison,
@@ -24,6 +25,7 @@ from .export import deterministic_comparison_to_csv_text, run_to_csv_text, simul
 from .models import (
     AccountTypeWaterfall,
     BalanceWaterfall,
+    FigureCitation,
     IncomeComposition,
     InheritedAccountDetail,
     NarrativeEntry,
@@ -41,6 +43,7 @@ __all__ = [
     "AccountTypeWaterfall",
     "AccountYearDetail",
     "BalanceWaterfall",
+    "FigureCitation",
     "IncomeComposition",
     "InheritedAccountDetail",
     "NarrativeEntry",
@@ -56,6 +59,7 @@ __all__ = [
     "build_year_stories",
     "compute_account_shares",
     "deterministic_comparison_to_csv_text",
+    "figure_citations",
     "run_to_csv_text",
     "select_representative_path",
     "simulation_comparison_to_csv_text",

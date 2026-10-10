@@ -14,7 +14,7 @@ from retirement_planner.mechanics import WITHDRAWAL_STRATEGIES, AccountType
 from retirement_planner.scenario import Household
 from retirement_planner.simulation import SimulationRun
 
-from .aggregation import unverified_figure_names
+from .aggregation import figure_citations, unverified_figure_names
 from .models import NarrativeEntry, RunNarrative, YearStory
 from .year_detail import build_year_computation_detail
 
@@ -417,6 +417,11 @@ def build_year_stories(projection: PlanProjection, household: Household, referen
                 # US3/FR-011 (research.md §4): this year's own unverified
                 # figures, via the same derivation SummaryStatistics uses.
                 unverified_figure_names=unverified_figure_names(year.figures_used),
+                # rp-4p3: every figure this year touched, with its real
+                # citation/verified status -- same figures_used input as
+                # unverified_figure_names immediately above, no new
+                # computation.
+                figure_citations=figure_citations(year.figures_used),
             )
         )
         prior_year = year

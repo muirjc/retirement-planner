@@ -10,6 +10,7 @@ continuing that feature's convention.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Literal
 
 from retirement_planner.simulation import PercentileBand
@@ -59,6 +60,27 @@ class SummaryStatistics:
 
 
 @dataclass
+class FigureCitation:
+    """rp-4p3: one figure's own citation metadata for a single plan year
+    -- a snapshot of FigureUsage's own name/citation/last_verified/verified
+    fields, deduplicated by name the same way aggregation.py's own
+    unverified_figure_names() already dedupes (research.md §5 there:
+    a reader wants to know which figures were used, not how many
+    differently-dated citations of the same figure exist). Unlike
+    unverified_figure_names (which discards everything but the name, and
+    only for unverified figures), this carries the real citation string
+    and verified status for EVERY figure a plan year touched -- the
+    Walkthrough AI Q&A feature (rp-4p3) needs this to honestly answer
+    "where does this number come from" and "is it verified," which the
+    bare name list alone can't support."""
+
+    name: str
+    citation: str
+    verified: bool
+    last_verified: date
+
+
+@dataclass
 class NarrativeEntry:
     """One detected driver within a single plan year's story
     (028-results-walkthrough data-model.md § NarrativeEntry). driver_key is
@@ -95,6 +117,14 @@ class YearStory:
     partial (there is exactly one YearStory construction site)."""
     entries: list[NarrativeEntry] = field(default_factory=list)
     unverified_figure_names: list[str] = field(default_factory=list)
+    figure_citations: list[FigureCitation] = field(default_factory=list)
+    """rp-4p3: every figure this plan year touched, with its real citation
+    string and verified/last_verified status -- a superset of (and built
+    from the same figures_used source as) unverified_figure_names above,
+    but never discarding the citation/verified metadata the way that
+    bare-name list does. Defaults to [] for direct-construction callers
+    predating this feature, mirroring unverified_figure_names' own
+    always-a-list-never-None convention."""
 
 
 @dataclass

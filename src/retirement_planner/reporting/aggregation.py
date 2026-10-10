@@ -19,7 +19,7 @@ from retirement_planner.comparison import (
 from retirement_planner.scenario import Household
 from retirement_planner.simulation import SimulationComparisonResult, SimulationRun
 
-from .models import SummaryStatistics
+from .models import FigureCitation, SummaryStatistics
 
 
 def unverified_figure_names(figures_used) -> list[str]:
@@ -32,6 +32,37 @@ def unverified_figure_names(figures_used) -> list[str]:
     exact derivation per plan year, rather than re-implementing it --
     behavior unchanged."""
     return sorted({figure.name for figure in figures_used if not figure.verified})
+
+
+def figure_citations(figures_used) -> list[FigureCitation]:
+    """rp-4p3: every distinct figure in figures_used -- verified ones
+    included, unlike unverified_figure_names above -- with its real
+    citation string and verified/last_verified status preserved (neither
+    is discarded the way unverified_figure_names discards everything but
+    the name). Deduplicates by name, same rationale as
+    unverified_figure_names: a reader (or an AI answering on their
+    behalf) wants to know each figure's own current citation, not every
+    differently-dated snapshot of the same figure across a multi-year
+    projection. When the same figure name appears more than once, the
+    first occurrence's citation/verified/last_verified wins -- in
+    practice the same SourcedFigure's own citation is stable across any
+    one plan year's computation, so this tie-break is never actually
+    exercised by real data; it exists only so the function has
+    deterministic behavior if that assumption is ever violated.
+
+    Sorted by name, mirroring unverified_figure_names' own sorted-list
+    convention (FR-006: deterministic, byte-identical output for
+    identical input)."""
+    by_name: dict[str, FigureCitation] = {}
+    for figure in figures_used:
+        if figure.name not in by_name:
+            by_name[figure.name] = FigureCitation(
+                name=figure.name,
+                citation=figure.citation,
+                verified=figure.verified,
+                last_verified=figure.last_verified,
+            )
+    return [by_name[name] for name in sorted(by_name)]
 
 
 def _depletion_age(projection: PlanProjection, household: Household, reference_tax_year: int) -> float | None:

@@ -590,6 +590,7 @@ def test_run_simulation_response_includes_a_narrative_field_shaped_per_plan_year
         "detail",  # rp-bm8.3
         "entries",
         "unverified_figure_names",
+        "figure_citations",  # rp-4p3
     }
     assert len(first_year["entries"]) >= 1  # FR-005: never empty
     assert first_year["member_ages"].keys() == {"you", "spouse"}

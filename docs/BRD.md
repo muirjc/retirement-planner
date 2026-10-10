@@ -162,6 +162,7 @@ methodology this table's federal rows were most recently produced by.
 | Medicare IRMAA surcharge tiers (Parts B & D, combined) | CMS.gov, 2026 IRMAA tables (CMS-8089-N/8090-N/8091-N) | `tax/irmaa.py` |
 | HSA contribution limits (self-only, family, 55+ catch-up) | IRS Rev. Proc. 2025-19, tax year 2026 (catch-up fixed by IRC §223(b)(3)) | `mechanics/hsa.py` |
 | 401(k)/Roth 401(k) elective-deferral limit, incl. 50+ catch-up | IRC §402(g)(1)(B) (catch-up per §414(v)) — **unverified placeholder**, not yet cross-checked against a real IRS Revenue Procedure for tax year 2026 | `mechanics/contribution_401k.py` |
+| §415(c) "annual additions" limit (combined employee + employer 401(k) dollars) | IRC §415(c)(1)(A) — **unverified placeholder**, not yet cross-checked against a real IRS Revenue Procedure for tax year 2026; does not separately exclude age-50+ catch-up from the counted total the way the real statute (IRC §414(v)(3)) does | `mechanics/employer_contribution_401k.py` |
 | RMD start age, including the scheduled 2033 73→75 step | 26 U.S.C. §401(a)(9)(C)(v), as amended by SECURE 2.0 Act (Pub. L. 117-328) §107 | `mechanics/rmd.py` |
 | Uniform Lifetime Table (RMD divisors, ages 72–120+) | IRS Pub. 590-B (2025), Appendix B, Table III | `mechanics/rmd.py` |
 | Single Life Expectancy Table (inherited-account divisors, ages 0–120+) | IRS Pub. 590-B (2025), Appendix B, Table I | `mechanics/inherited_rmd.py` |
@@ -191,7 +192,10 @@ Carolina/Delaware's own placeholder status (§5.4) rather than HSA's or
 RMD's verified status directly above/below it in this same table.
 Verifying it against the real Revenue Procedure is tracked as separate,
 not-yet-scheduled follow-on work, the same way SC/DE's own verification
-is.
+is. The §415(c) "annual additions" limit immediately below carries the
+same unverified status, for the same reason, shipped in `rp-04u`
+(`mechanics/employer_contribution_401k.py`) — a second placeholder figure
+in the same family as the §402(g) one, not a new kind of gap.
 
 ### 5.2 Federal — real math, "real-dollar" bracket/tier convention
 
@@ -712,21 +716,80 @@ other year would be false precision layered on an already-approximate
 model, not a real fix. Tracked as a documented limitation (§7), not
 resolved here.
 
-**Not modeled**: employer match (a structurally different rule —
-excluded from the §402(g) elective-deferral limit, subject instead to
-the separate §415(c) total-additions limit, and routinely
-vesting-schedule-gated, a concept this engine has none of anywhere);
-SECURE 2.0's enhanced age-60–63 "super" catch-up (only the flat 50+
+**Update (`rp-04u`): employer match and discretionary lump-sum
+contributions.** An optional `EmployerContributionPlan`, nested inside
+`Contribution401kPlan` (meaningless without the employee's own 401(k)
+plan it's attached to) — `match_rate`/`match_cap_pct_of_pay` for a
+percentage-based match (e.g. "50% of what's deferred, up to 6% of pay"),
+and an independent `lump_sum_annual_amount` for a discretionary employer
+contribution (e.g. profit-sharing) with no link to the employee's own
+deferral at all. Both default to `0.0` and are independently optional —
+match only, lump sum only, both, or neither.
+
+*Formula*: `matched_contribution = min(employee's own pretax+Roth
+contribution, match_cap_pct_of_pay × earned_income_this_year)`;
+`match_amount = match_rate × matched_contribution`. Both pieces are gated
+on the same member-eligibility rule (`earned_income_this_year > 0`) the
+employee's own contribution already uses.
+
+*Tax treatment*: neither piece was ever part of the employee's own wages,
+so neither affects `ordinary_income` at all (unlike the employee's own
+`pretax_annual_amount`) and neither needs any change to
+`net_earned_income_against_spending`'s own netting logic — employer money
+was never counted as household earned income in the first place, so
+there's nothing to net out. FICA (§6.2e) is likewise untouched.
+
+*Limits*: excluded from the employee's own §402(g) elective-deferral
+limit; instead, the combined total (employee contribution + match + lump
+sum) is capped against the separate IRC §415(c) "annual additions" limit
+— another unverified placeholder (§5.1), consulted only when a household
+actually configures a nonzero match or lump sum, mirroring §402(g)'s own
+"don't surface the placeholder for scenarios that don't use it"
+discipline. When the combined total would exceed that limit, the
+discretionary lump sum is trimmed first, then match — the employee's own
+already-§402(g)-capped contribution is never re-opened or reduced here
+(an arbitrary but documented tiebreak, the same kind rp-wei's own
+pretax-before-Roth split already established). Real IRC §415(c) excludes
+age-50+ catch-up dollars from the counted total (IRC §414(v)(3)); this
+engine checks the employee's full contribution (base + catch-up), a
+documented simplification, not modeled precisely.
+
+*Balance-crediting mechanics*: both pieces always credit the Traditional
+balance, never Roth — the correct historical default (employer
+contributions were pretax/traditional regardless of the employee's own
+Roth election, before SECURE 2.0 §604's newer, plan-sponsor-optional Roth
+employer contribution). Credited at the same point and for the same
+reason as the employee's own contribution above (after this year's
+withdrawal/RMD/conversion/tax-funding sequence, before growth) —
+`traditional_ownership_shares` stays untouched for the same reason.
+
+100% immediate vesting is assumed — this codebase has no existing
+"partial ownership building up over years" concept anywhere (confirmed by
+grepping `vest` across `src/`/`specs/`/`docs/`, which turns up only NC's
+unrelated Bailey-settlement historical-date cutoff) — a real vesting
+schedule would be a first-of-its-kind addition, not an extension of an
+existing pattern, and is out of scope here.
+
+**Not modeled**: a real vesting schedule for employer match/lump sum
+(graded or cliff — see immediately above); SECURE 2.0 §604's
+plan-sponsor-optional Roth employer contribution (match/lump sum always
+credit Traditional here); SECURE 2.0's enhanced age-60–63 "super"
+catch-up on the employee's own elective deferral (only the flat 50+
 catch-up is modeled); after-tax/mega-backdoor contributions; more than
 one concurrent 401(k)/403(b) plan per member (the IRS elective-deferral
 limit is shared across every plan one person has anyway, so a single
 per-member pretax/Roth pair is the more, not less, correct v1
-simplification); and no post-death cutoff — a deceased member's
-configured contribution keeps firing exactly as their `earned_income`
-stream already does today (018-survivor-scenario-projection only
-switches filing status/Social Security income/spending need, never zeros
-out a member's own income or contribution configuration) — an inherited,
-pre-existing gap this feature does not introduce and does not fix.
+simplification); a lump sum reaching a member who isn't otherwise
+eligible that year (no `earned_income`) — gated on the same eligibility
+rule as match and the employee's own deferral, a documented v1
+simplification since a real discretionary employer contribution can
+sometimes reach a partial-year employee too; and no post-death cutoff —
+a deceased member's configured contribution (employee or employer) keeps
+firing exactly as their `earned_income` stream already does today
+(018-survivor-scenario-projection only switches filing status/Social
+Security income/spending need, never zeros out a member's own income or
+contribution configuration) — an inherited, pre-existing gap this feature
+does not introduce and does not fix.
 
 ### 6.3 Net Investment Income Tax (NIIT)
 
@@ -1121,17 +1184,28 @@ simulation at that figure directly.
   is an unverified placeholder — cross-checking it against a real IRS
   Revenue Procedure is separate, not-yet-scheduled follow-on work, the
   same status South Carolina/Delaware's own figures already carry (§5.4).
-- 401(k)/Roth 401(k) employer match is not modeled at all (§6.2f) — only
-  a member's own employee elective deferral is; a household relying on
-  employer matching to reach its projected balances will see this tool
-  understate real accumulation.
+- The IRC §415(c) "annual additions" limit (§5.1, §6.2f, `rp-04u`) carries
+  the same unverified-placeholder status, for the same reason, and also
+  doesn't separately exclude age-50+ catch-up dollars from the counted
+  total the way the real statute does (IRC §414(v)(3)) — a documented
+  simplification, not modeled precisely.
+- 401(k)/Roth 401(k) employer contributions are now modeled as a
+  percentage-based match plus an independent discretionary lump sum
+  (§6.2f, `rp-04u`), both assuming 100% immediate vesting. Still not
+  modeled: a real vesting schedule (this codebase has no existing
+  "partial ownership building up over years" concept anywhere to build
+  one on); SECURE 2.0 §604's plan-sponsor-optional Roth employer
+  contribution (match/lump sum always credit Traditional here); and a
+  discretionary lump sum reaching a member who isn't otherwise eligible
+  that plan year.
 - `traditional_ownership_shares` (`011-per-owner-accounts`) is fixed at
   scenario entry and never updated as balances actually change —
-  including for a 401(k) contribution credited during the plan horizon
-  (§6.2f) — so a long working-years-then-retirement household's true
-  per-member RMD/early-withdrawal-penalty attribution can drift from this
-  tool's reported figures over time; a pre-existing simplification this
-  feature inherits rather than introduces.
+  including for a 401(k) contribution (employee or employer) credited
+  during the plan horizon (§6.2f) — so a long working-years-then-
+  retirement household's true per-member RMD/early-withdrawal-penalty
+  attribution can drift from this tool's reported figures over time; a
+  pre-existing simplification this feature inherits rather than
+  introduces.
 
 ## 8. Non-Functional Requirements
 

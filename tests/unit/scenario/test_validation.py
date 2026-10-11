@@ -813,3 +813,32 @@ def test_validate_warns_but_does_not_block_relocation_to_the_same_state():
 def test_validate_accepts_well_formed_relocation():
     scenario = _clean_scenario(state="GA", relocation_state="SC", relocation_plan_year=5)
     assert validate(scenario) == []
+
+
+# --- rp-e0h: cash_reserve_years ---
+
+
+def test_validate_accepts_no_cash_reserve_configured():
+    scenario = _clean_scenario()  # cash_reserve_years defaults to None
+    assert validate(scenario) == []
+
+
+def test_validate_flags_zero_cash_reserve_years_as_blocking():
+    scenario = _clean_scenario(cash_reserve_years=0)
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "cash_reserve_years"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_flags_negative_cash_reserve_years_as_blocking():
+    scenario = _clean_scenario(cash_reserve_years=-2)
+    flags = validate(scenario)
+    assert len(flags) == 1
+    assert flags[0].field == "cash_reserve_years"
+    assert flags[0].severity == "blocking"
+
+
+def test_validate_accepts_well_formed_cash_reserve_years():
+    scenario = _clean_scenario(cash_reserve_years=3)
+    assert validate(scenario) == []

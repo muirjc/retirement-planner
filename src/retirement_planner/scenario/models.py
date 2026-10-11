@@ -343,6 +343,12 @@ class MarketAssumptions:
     bond_return_mean_real: float
     bond_return_std_real: float
     correlation: float
+    cash_return_mean_real: float = 0.0
+    """rp-e0h: the household's own cash-reserve balance's real annual
+    return -- deliberately a single, stable mean with no std-dev/
+    correlation fields (cash is modeled as low-or-no-volatility by
+    design, not a third stochastic asset class). Defaults to 0.0,
+    reproducing every existing scenario's exact current behavior."""
 
 
 @dataclass
@@ -407,6 +413,19 @@ class Scenario:
     plan_year numbering PlanYearProjection.plan_year uses. Must be set
     together with relocation_state (both None, or both set) -- enforced
     by validate(), not by this dataclass itself."""
+    cash_reserve_years: float | None = None
+    """rp-e0h: holds this many years' worth of annual_need_real in the
+    household's own cash reserve as its own target -- in a down plan
+    year (the simulated blended return for that year is negative),
+    spending is drawn from cash first; in an up year, cash is refilled
+    from taxable toward that same target. Defaults to None ("no cash-
+    reserve policy configured"), reproducing every existing scenario's
+    exact current behavior. Monte Carlo only (comparison/projection.py's
+    own run_plan_projection() docstring) -- accepted here regardless of
+    engine, but only threaded onto a resolved run's own
+    StrategyConfiguration for a genuinely Monte Carlo BFF request
+    (services/bff/src/rp_bff/resolution.py's own
+    apply_cash_reserve_strategy())."""
     validation_flags: list[ValidationFlag] = field(default_factory=list)
 
     @property

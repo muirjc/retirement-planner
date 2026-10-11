@@ -25,6 +25,7 @@ def validate(scenario: Scenario) -> list[ValidationFlag]:
     flags.extend(_validate_spending(scenario))
     flags.extend(_validate_roth_conversion(scenario))
     flags.extend(_validate_relocation(scenario))
+    flags.extend(_validate_cash_reserve(scenario))
     return flags
 
 
@@ -461,6 +462,28 @@ def _validate_relocation(scenario: Scenario) -> list[ValidationFlag]:
                 field="relocation_state",
                 message=f"relocation_state ({scenario.relocation_state!r}) is the same as state -- this configures no actual move.",
                 severity="warning",
+            )
+        )
+    return flags
+
+
+def _validate_cash_reserve(scenario: Scenario) -> list[ValidationFlag]:
+    """rp-e0h: cash_reserve_years, when configured, must be a positive
+    number of years -- mirrors relocation_plan_year's own non-positive
+    check immediately above. No check against the household's own cash
+    balance or against STATE_MODULES-style registries here -- unlike
+    relocation_state, cash_reserve_years has no external registry to
+    validate against; an unusually large value (e.g. 50 years) is left
+    alone as an unusual-but-not-invalid configuration, the same way an
+    unusually high spending need is already only ever a warning
+    elsewhere, never blocked."""
+    flags: list[ValidationFlag] = []
+    if scenario.cash_reserve_years is not None and scenario.cash_reserve_years <= 0:
+        flags.append(
+            ValidationFlag(
+                field="cash_reserve_years",
+                message=f"cash_reserve_years ({scenario.cash_reserve_years}) must be a positive number of years.",
+                severity="blocking",
             )
         )
     return flags

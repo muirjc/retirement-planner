@@ -332,7 +332,11 @@ def _build_hsa_contribution(data: object, source: str) -> HsaContributionPlan | 
 
 def _build_market_assumptions(data: object, source: str) -> MarketAssumptions:
     values = {f: _require(data, f, source, "market_assumptions") for f in _MARKET_ASSUMPTION_FIELDS}
-    return MarketAssumptions(**values)
+    # rp-e0h: optional, not in _MARKET_ASSUMPTION_FIELDS/_require() above --
+    # adding it there would make it required in every existing scenario's
+    # own saved YAML, breaking every one that predates this feature.
+    cash_return_mean_real = data.get("cash_return_mean_real", 0.0) if isinstance(data, dict) else 0.0
+    return MarketAssumptions(cash_return_mean_real=cash_return_mean_real, **values)
 
 
 def _build_simulation_settings(data: object, source: str) -> SimulationSettings:
@@ -389,4 +393,5 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
         hsa_contribution=_build_hsa_contribution(data.get("hsa_contribution"), source),
         relocation_state=data.get("relocation_state"),
         relocation_plan_year=data.get("relocation_plan_year"),
+        cash_reserve_years=data.get("cash_reserve_years"),
     )

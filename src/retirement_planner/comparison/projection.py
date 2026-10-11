@@ -35,6 +35,8 @@ from retirement_planner.mechanics import (
     compute_spousal_benefit_floor,
     compute_survivor_benefit,
     compute_withdrawal_plan,
+    resolve_cash_reserve_draw,
+    resolve_cash_reserve_refill,
     resolve_gap_window,
 )
 from retirement_planner.scenario import Household, HouseholdMember
@@ -565,6 +567,26 @@ def run_plan_projection(
     None, reproducing this function's exact prior behavior (state fixed
     for the whole horizon) when omitted.
 
+    strategy.cash_reserve_years/cash_return_mean_real (rp-e0h): when
+    cash_reserve_years is set, a down year (this year's own annual_return
+    < 0.0) draws spending from accounts.cash first, up to
+    cash_reserve_years x this year's own spending need (the reserve's
+    target); an up year refills the reserve from taxable instead, up to
+    that same target, capped by whatever taxable actually has available.
+    accounts.cash grows every year at cash_return_mean_real -- a single,
+    stable rate, never the blended equity/bond return_assumption every
+    other balance uses -- regardless of whether cash_reserve_years is
+    set. This mechanic is tracked entirely outside
+    compute_withdrawal_plan()/WITHDRAWAL_STRATEGIES, which stay
+    completely unaware of it (mechanics/cash_reserve.py's own module
+    docstring). cash_reserve_years defaults to None and
+    cash_return_mean_real to 0.0, reproducing this function's exact prior
+    behavior when both are omitted -- this function itself is engine-
+    agnostic (004 and 005 share it identically); which callers actually
+    populate cash_reserve_years on the StrategyConfiguration they build
+    is a resolution-layer (BFF) policy decision, not a restriction
+    enforced here.
+
     strategy.conversion_window_mode/conversion_ceiling_mode (rp-595,
     comparison-api.md): when "auto_gap_year"/"named_bracket" respectively,
     this call resolves strategy.conversion_window/
@@ -631,6 +653,17 @@ def run_plan_projection(
 
     years: list[PlanYearProjection] = []
     current_balances = accounts
+    # rp-e0h: tracked as a plain float across the whole horizon, entirely
+    # outside current_balances/compute_plan_year_mechanics() -- neither
+    # compute_withdrawal_plan() nor plan_year.py's own ending_balances
+    # reconstruction is aware of a 4th account type (the latter rebuilds
+    # AccountBalances(traditional=.., roth=.., taxable=..) explicitly,
+    # which would silently reset .cash to 0.0 every year if relied on).
+    # This loop's own ending_balances construction, below, is the only
+    # place .cash is ever written with the real, correct value -- current_
+    # balances = ending_balances at the end of each iteration then carries
+    # it forward exactly like every other balance already does.
+    cash_balance = accounts.cash
     plan_year = start_plan_year
     tax_year = start_tax_year
 
@@ -771,6 +804,15 @@ def run_plan_projection(
             if relocation_state is not None and relocation_plan_year is not None and plan_year >= relocation_plan_year
             else state
         )
+        # rp-cqu/rp-e0h: moved here (from where growth_factor is applied,
+        # much later in this same loop) specifically so rp-e0h's own
+        # down-year cash-reserve draw, below, can see this year's own
+        # return before any withdrawal decision is made -- return_assumption
+        # may be a DeterministicReturnAssumption (004, a fixed value every
+        # plan year) or a ReturnPath (005, one value per plan year), both
+        # satisfying ReturnSchedule (research.md §1).
+        annual_return = return_assumption.return_for_plan_year(plan_year)
+        is_down_year = annual_return < 0.0
 
         # rp-595: applied on top of (not instead of) the survivor-reduction
         # logic above -- member_earned_income was already computed earlier
@@ -959,6 +1001,21 @@ def run_plan_projection(
         else:
             resolved_conversion_ceiling = strategy.conversion_bracket_ceiling_or_amount
 
+        # rp-e0h: applied to whatever spending need remains after every
+        # other netting above (rp-595/rp-89t's own earned-income netting)
+        # -- the cash reserve covers what's actually still needed from
+        # accounts this year, not the household's gross spending figure.
+        # spending_need_before_cash_draw is snapshotted here (before the
+        # draw reduces effective_spending_need below) since it's also
+        # this year's own basis for the up-year refill target further
+        # down this same iteration -- the reserve's target size tracks
+        # real spending, not a draw-reduced figure.
+        spending_need_before_cash_draw = effective_spending_need
+        cash_drawn = 0.0
+        if strategy.cash_reserve_years is not None:
+            cash_drawn, effective_spending_need = resolve_cash_reserve_draw(effective_spending_need, cash_balance, is_down_year)
+            cash_balance -= cash_drawn
+
         mechanics_result = compute_plan_year_mechanics(
             # conversion_window is calendar-year-based (001's Scenario.roth_conversion.window,
             # e.g. (2028, 2034)) and compute_roth_conversion() checks it against this
@@ -1137,6 +1194,19 @@ def run_plan_projection(
 
         post_tax_balances = tax_funding_withdrawal.ending_balances
 
+        # rp-e0h: an up year refills the cash reserve from taxable, after
+        # this year's full spending/RMD/conversion/tax-funding sequence
+        # has already run -- so the refill draws against the TRUE
+        # remaining taxable balance, never forcing a shortfall to top
+        # cash back up. cash_target uses spending_need_before_cash_draw
+        # (this year's real spending need, not a draw-reduced figure) as
+        # its own basis, captured earlier this same iteration.
+        cash_refilled = 0.0
+        if strategy.cash_reserve_years is not None:
+            cash_target = strategy.cash_reserve_years * spending_need_before_cash_draw
+            cash_refilled = resolve_cash_reserve_refill(cash_target, cash_balance, post_tax_balances.taxable, is_down_year)
+            cash_balance += cash_refilled
+
         # rp-wei: this year's own 401(k)/Roth 401(k) contribution is
         # credited here -- after this year's own RMD/withdrawal/conversion/
         # tax-funding sequence has already run (so it was never part of
@@ -1168,18 +1238,25 @@ def run_plan_projection(
                 + employer_contribution_401k.total_lump_sum
             ),
             roth=post_tax_balances.roth + contribution_401k.total_roth_contributed,
-            taxable=post_tax_balances.taxable,
+            # rp-e0h: cash_refilled (0.0 unless this year actually
+            # refilled, computed just above) moved out of taxable into
+            # cash_balance -- never below 0.0, since
+            # resolve_cash_reserve_refill() already caps it at
+            # post_tax_balances.taxable.
+            taxable=post_tax_balances.taxable - cash_refilled,
         )
 
-        # return_assumption may be a DeterministicReturnAssumption (004, a
-        # fixed value every plan year) or a ReturnPath (005, one value per
-        # plan year) -- both satisfy ReturnSchedule (research.md §1).
-        annual_return = return_assumption.return_for_plan_year(plan_year)
+        # annual_return was already captured earlier this same iteration
+        # (rp-cqu/rp-e0h) -- reused here, not recomputed.
         growth_factor = 1.0 + annual_return
+        # rp-e0h: cash grows at its own, separate, stable rate -- never
+        # the blended equity/bond growth_factor every other balance uses.
+        cash_balance *= 1.0 + strategy.cash_return_mean_real
         ending_balances = AccountBalances(
             traditional=post_contribution_balances.traditional * growth_factor,
             roth=post_contribution_balances.roth * growth_factor,
             taxable=post_contribution_balances.taxable * growth_factor,
+            cash=cash_balance,
         )
 
         # 012-inherited-ira-rmd (research.md §10): each inherited account
@@ -1254,6 +1331,8 @@ def run_plan_projection(
                 unseasoned_roth_withdrawal=ladder_result.unseasoned_amount_flagged,
                 member_ss_earnings_test_withheld=member_ss_earnings_test_withheld,
                 annual_return=annual_return,
+                cash_reserve_draw=cash_drawn,
+                cash_reserve_refill=cash_refilled,
             )
         )
 

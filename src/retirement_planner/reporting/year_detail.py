@@ -23,8 +23,10 @@ design and the checkpoint chain this relies on:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from retirement_planner.comparison import PlanYearProjection
-from retirement_planner.mechanics import AccountType, WithdrawalLineItem
+from retirement_planner.mechanics import WithdrawalLineItem
 
 from .models import (
     AccountTypeWaterfall,
@@ -36,7 +38,13 @@ from .models import (
     YearComputationDetail,
 )
 
-_ACCOUNT_TYPES: tuple[AccountType, ...] = ("traditional", "roth", "taxable")
+# rp-e0h: deliberately a local, narrower alias -- NOT mechanics.AccountType
+# (now widened to include "cash") -- this module doesn't yet support a 4th
+# waterfall entry for the cash reserve (rp-e0h.2's own job); decoupling
+# here keeps that an explicit, separate addition rather than an implicit
+# side effect of this feature's own core-layer type widening.
+_WaterfallAccountType = Literal["traditional", "roth", "taxable"]
+_ACCOUNT_TYPES: tuple[_WaterfallAccountType, ...] = ("traditional", "roth", "taxable")
 
 _STATE_EXCLUSION_LABELS: dict[str, str] = {
     "SC": "age-65 exclusion",
@@ -49,13 +57,13 @@ the tax module's) -- keyed off StateTaxResult.state. A state not in this
 map (none exist today) falls back to a generic label rather than raising."""
 
 
-def _sequence_amount(items: list[WithdrawalLineItem], account_type: AccountType) -> float:
+def _sequence_amount(items: list[WithdrawalLineItem], account_type: _WaterfallAccountType) -> float:
     """This account type's own total across a WithdrawalPlan's
     sequence_withdrawals (0.0 if that type wasn't drawn on)."""
     return sum(item.amount for item in items if item.account_type == account_type)
 
 
-def _waterfall_for_type(year: PlanYearProjection, account_type: AccountType) -> AccountTypeWaterfall:
+def _waterfall_for_type(year: PlanYearProjection, account_type: _WaterfallAccountType) -> AccountTypeWaterfall:
     starting_balance = getattr(year.starting_balances, account_type)
     after_spending_withdrawal = getattr(year.mechanics.withdrawal_plan.ending_balances, account_type)
     after_conversion = getattr(year.mechanics.ending_balances, account_type)

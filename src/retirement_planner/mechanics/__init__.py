@@ -8,6 +8,7 @@ specs/010-advanced-tax-benefits/contracts/mechanics-api.md for the
 additive HSA extension.
 """
 
+from .cash_reserve import resolve_cash_reserve_draw, resolve_cash_reserve_refill
 from .contribution_401k import compute_401k_contribution, compute_401k_eligibility
 from .employer_contribution_401k import compute_employer_contribution
 from .hsa import compute_hsa_contribution, compute_hsa_eligibility
@@ -115,5 +116,7 @@ __all__ = [
     "fill_to_bracket_ceiling",
     "first_rmd_tax_year",
     "fixed_dollar_amount",
+    "resolve_cash_reserve_draw",
+    "resolve_cash_reserve_refill",
     "resolve_gap_window",
 ]

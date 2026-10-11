@@ -83,6 +83,28 @@ class StrategyConfiguration:
     itself each run/year rather than using them as given. Defaults
     reproduce every existing StrategyConfiguration construction's exact
     current behavior unmodified."""
+    cash_reserve_years: float | None = None
+    """rp-e0h: when set, run_plan_projection() draws a down plan year's
+    spending need from the household's own cash reserve first (up to
+    cash_reserve_years x that year's own spending need, the reserve's
+    target size), and refills the reserve from taxable in an up year.
+    None (the default) reproduces every existing StrategyConfiguration
+    construction's exact current behavior -- no cash-reserve logic runs
+    at all. Bundled here (like hsa_contribution above) purely as a
+    convenient threading vehicle -- it's a scenario-level setting, not a
+    withdrawal/conversion strategy choice, but StrategyConfiguration is
+    already the one object every run_plan_projection()/run_simulation()
+    caller forwards uniformly, so this avoids a new standalone parameter
+    rippling through every one of those signatures."""
+    cash_return_mean_real: float = 0.0
+    """rp-e0h: the household's own cash reserve's real annual return --
+    deliberately a single, stable mean with no std-dev/volatility
+    component (never varies by path or year), unlike the blended equity/
+    bond return_assumption every other balance grows by. Applied
+    regardless of whether cash_reserve_years is set, so a household with
+    a nonzero starting cash balance but no configured reserve policy
+    still sees it grow at this rate. Defaults to 0.0, reproducing every
+    existing StrategyConfiguration construction's exact current behavior."""
 
 
 @dataclass
@@ -257,6 +279,23 @@ class PlanYearProjection:
     account type's own balance is $0 that year). Always populated by
     run_plan_projection(); 0.0 only if some other caller constructs a
     PlanYearProjection directly without setting it."""
+    cash_reserve_draw: float = 0.0
+    """rp-e0h: the amount drawn from the cash reserve to fund this year's
+    spending need -- nonzero only in a down year (annual_return < 0.0)
+    with StrategyConfiguration.cash_reserve_years set, never both
+    cash_reserve_draw and cash_reserve_refill nonzero the same year (a
+    year is either down or up, never both). Always populated by
+    run_plan_projection(); 0.0 for a household with no cash-reserve
+    policy configured, or whenever this year's draw happened to be
+    exactly 0.0 (an empty reserve, or a $0 spending need)."""
+    cash_reserve_refill: float = 0.0
+    """rp-e0h: the amount moved from taxable into the cash reserve this
+    year -- nonzero only in an up year (annual_return >= 0.0) whose
+    reserve balance was below its own cash_reserve_years x spending-need
+    target, capped by whatever taxable actually had available. Always
+    populated by run_plan_projection(); 0.0 for a household with no
+    cash-reserve policy configured, a reserve already at target, or an
+    empty taxable balance to refill from."""
 
 
 @dataclass

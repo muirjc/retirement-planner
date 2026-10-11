@@ -84,7 +84,11 @@ for offset, story in enumerate(batch_stories):
         st.markdown(f"**{entry['label']}.** {entry['explanation']}")
 
     ending_balances = year_detail["ending_balances"]
-    ending_total = ending_balances["traditional"] + ending_balances["roth"] + ending_balances["taxable"]
+    # rp-e0h.4: cash is real, spendable money -- omitting it here would
+    # understate "Ending balance" for any household with a cash balance.
+    ending_total = (
+        ending_balances["traditional"] + ending_balances["roth"] + ending_balances["taxable"] + ending_balances["cash"]
+    )
     metric_cols = st.columns(3)
     metric_cols[0].metric("Ending balance", format_currency(ending_total))
     metric_cols[1].metric(

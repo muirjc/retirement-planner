@@ -192,7 +192,7 @@ def _fill_minimal_valid_scenario(at: AppTest, *, name: str, state: str = "FL") -
 
 def test_us2_married_household_renders_per_member_account_fields_with_structural_owner():
     """011-per-owner-accounts User Story 2: a married household gets its
-    own row of account fields per member (traditional/roth/taxable), and
+    own row of account fields per member (traditional/roth/taxable/cash), and
     the owner submitted for each is exactly whichever member's row it was
     entered in -- never a free-text or omittable field."""
     handler, store = make_fake_bff()
@@ -229,7 +229,7 @@ def test_us2_married_household_renders_per_member_account_fields_with_structural
 
     assert not at.exception
     saved_accounts = store["couple"]["accounts"]
-    assert len(saved_accounts) == 6
+    assert len(saved_accounts) == 8  # 4 (traditional/roth/taxable/cash) per member
     you_traditional = next(a for a in saved_accounts if a["owner"] == "you" and a["account_type"] == "traditional")
     spouse_traditional = next(a for a in saved_accounts if a["owner"] == "spouse" and a["account_type"] == "traditional")
     assert you_traditional["balance"] == 900_000.0
@@ -1070,7 +1070,7 @@ def test_inherited_ira_save_round_trip_produces_inherited_account():
 
     assert not at.exception
     saved_accounts = store["inherited_case"]["accounts"]
-    assert len(saved_accounts) == 4  # 3 ordinary + 1 inherited
+    assert len(saved_accounts) == 5  # 4 ordinary (traditional/roth/taxable/cash) + 1 inherited
     inherited_account = next(a for a in saved_accounts if a.get("inherited") is not None)
     assert inherited_account["account_type"] == "traditional"
     assert inherited_account["balance"] == 250_000.0
@@ -2781,3 +2781,128 @@ def test_relocation_checkbox_resets_when_loading_a_scenario_without_relocation()
     at.selectbox(key="scenario_load_select").set_value("plain_case")
     at.button(key="load_button").click().run()
     assert at.checkbox(key="include_relocation").value is False
+
+
+# -- rp-e0h.4: cash-reserve ("bucket") withdrawal strategy -------------------
+
+
+def test_cash_balance_fields_save_and_load_round_trip():
+    """Cash is a fourth account-type field per member, alongside
+    traditional/roth/taxable -- not gated by the cash-reserve checkbox
+    below (a household can hold cash without opting into the reserve
+    strategy, rp-e0h's own design)."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="cash_case")
+    at.number_input(key="member1_cash_balance").set_value(60_000.0)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    saved_accounts = store["cash_case"]["accounts"]
+    cash_account = next(a for a in saved_accounts if a["account_type"] == "cash")
+    assert cash_account["balance"] == 60_000.0
+    assert cash_account["owner"] == "Alex"
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("cash_case")
+    at.button(key="load_button").click().run()
+    assert at.number_input(key="member1_cash_balance").value == 60_000.0
+
+
+def test_cash_yield_defaults_zero_and_is_saved_and_reloaded():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.number_input(key="cash_return_mean_real").value == 0.0
+
+    _fill_minimal_valid_scenario(at, name="cash_yield_case")
+    at.number_input(key="cash_return_mean_real").set_value(0.015)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["cash_yield_case"]["market_assumptions"]["cash_return_mean_real"] == 0.015
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("cash_yield_case")
+    at.button(key="load_button").click().run()
+    assert at.number_input(key="cash_return_mean_real").value == 0.015
+
+
+def test_cash_reserve_section_hidden_until_checkbox_checked():
+    handler, _store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    assert at.checkbox(key="include_cash_reserve").value is False
+    with pytest.raises(KeyError):
+        at.number_input(key="cash_reserve_years")
+
+    at.checkbox(key="include_cash_reserve").set_value(True)
+    at.run()
+    assert at.number_input(key="cash_reserve_years").value == 2.0
+
+
+def test_cash_reserve_save_round_trip():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="cash_reserve_case")
+    at.checkbox(key="include_cash_reserve").set_value(True)
+    at.run()
+    at.number_input(key="cash_reserve_years").set_value(3.0)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["cash_reserve_case"]["cash_reserve_years"] == 3.0
+
+
+def test_cash_reserve_unchecked_saves_none():
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="no_cash_reserve_case")
+    at.button(key="save_button").click().run()
+
+    assert not at.exception
+    assert store["no_cash_reserve_case"]["cash_reserve_years"] is None
+
+
+def test_cash_reserve_checkbox_resets_when_loading_a_scenario_without_it():
+    """rp-e0h.4: mirrors test_relocation_checkbox_resets_when_loading_a_scenario_without_relocation
+    and rp-04u.5's own fixed stale-checkbox bug class -- loading a scenario
+    with no cash reserve configured must reset the checkbox to False,
+    never leaving a previously-loaded scenario's own True value stuck on."""
+    handler, store = make_fake_bff()
+    _install(handler)
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="cash_reserve_case")
+    at.checkbox(key="include_cash_reserve").set_value(True)
+    at.run()
+    at.number_input(key="cash_reserve_years").set_value(3.0)
+    at.run()
+    at.button(key="save_button").click().run()
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    _fill_minimal_valid_scenario(at, name="plain_case")
+    at.button(key="save_button").click().run()
+
+    assert "cash_reserve_case" in store and "plain_case" in store
+
+    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
+    at.selectbox(key="scenario_load_select").set_value("cash_reserve_case")
+    at.button(key="load_button").click().run()
+    assert at.checkbox(key="include_cash_reserve").value is True
+    assert at.number_input(key="cash_reserve_years").value == 3.0
+
+    at.selectbox(key="scenario_load_select").set_value("plain_case")
+    at.button(key="load_button").click().run()
+    assert at.checkbox(key="include_cash_reserve").value is False

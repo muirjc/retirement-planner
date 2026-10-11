@@ -41,6 +41,7 @@ def _year_detail(plan_year: int, tax_year: int) -> dict:
         "federal_tax": {"federal_tax_owed": 100.0},
         "state_tax": {"state_tax_owed": 50.0},
         "shortfall": 0.0,
+        "annual_return": 0.0,  # rp-cqu
     }
 
 

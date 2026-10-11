@@ -87,6 +87,39 @@ def comparison_overlay_chart(summaries: list[dict]) -> go.Figure:
     return fig
 
 
+_RETURN_HOVERTEMPLATE = "Plan year %{x}<br>%{y:.1%}<extra></extra>"
+_POSITIVE_RETURN_COLOR = "#2a9d4a"
+_NEGATIVE_RETURN_COLOR = "#c0392b"
+
+
+def returns_by_year_chart(years: list[dict]) -> go.Figure:
+    """rp-cqu: one bar per plan year, that year's own annual_return
+    (comparison.PlanYearProjection, the single blended rate actually
+    applied to every account balance that year) -- colored by sign so a
+    down year (equities/bonds both fell, or fell more than the other
+    rose) is visible at a glance, directly answering "how is the market
+    driving the portfolio" rather than requiring a reader to infer it
+    from ending-balance deltas alone."""
+    fig = go.Figure()
+    if not years:
+        return fig
+
+    plan_years = [year["plan_year"] for year in years]
+    returns = [year["annual_return"] for year in years]
+    colors = [_POSITIVE_RETURN_COLOR if r >= 0 else _NEGATIVE_RETURN_COLOR for r in returns]
+
+    fig.add_trace(
+        go.Bar(x=plan_years, y=returns, marker_color=colors, hovertemplate=_RETURN_HOVERTEMPLATE)
+    )
+    fig.update_layout(
+        title="Portfolio return by plan year",
+        xaxis_title="Plan year",
+        yaxis_title="Return",
+        yaxis=dict(tickformat=".1%"),
+    )
+    return fig
+
+
 def comparison_bar_chart(summaries: list[dict]) -> go.Figure:
     """One bar group per candidate, comparing ending_balance and
     median_lifetime_tax_paid -- the only scalar metrics a deterministic

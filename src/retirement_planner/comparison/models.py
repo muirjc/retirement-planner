@@ -249,6 +249,14 @@ class PlanYearProjection:
     inapplicable" convention. No lifetime cumulative field is added
     (PlanOutcome) -- unlike a tax, withheld Social Security is fully
     recovered via the FRA recredit, not a genuine lifetime cost."""
+    annual_return: float = 0.0
+    """rp-cqu: the blended portfolio return actually applied to every
+    account balance this plan year -- return_assumption.return_for_plan_year(plan_year),
+    captured where growth_factor is already computed rather than
+    back-derived from dollar deltas (which would be ambiguous whenever an
+    account type's own balance is $0 that year). Always populated by
+    run_plan_projection(); 0.0 only if some other caller constructs a
+    PlanYearProjection directly without setting it."""
 
 
 @dataclass

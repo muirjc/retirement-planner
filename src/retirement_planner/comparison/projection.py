@@ -1174,7 +1174,8 @@ def run_plan_projection(
         # return_assumption may be a DeterministicReturnAssumption (004, a
         # fixed value every plan year) or a ReturnPath (005, one value per
         # plan year) -- both satisfy ReturnSchedule (research.md §1).
-        growth_factor = 1.0 + return_assumption.return_for_plan_year(plan_year)
+        annual_return = return_assumption.return_for_plan_year(plan_year)
+        growth_factor = 1.0 + annual_return
         ending_balances = AccountBalances(
             traditional=post_contribution_balances.traditional * growth_factor,
             roth=post_contribution_balances.roth * growth_factor,
@@ -1252,6 +1253,7 @@ def run_plan_projection(
                 effective_spending_need=effective_spending_need,
                 unseasoned_roth_withdrawal=ladder_result.unseasoned_amount_flagged,
                 member_ss_earnings_test_withheld=member_ss_earnings_test_withheld,
+                annual_return=annual_return,
             )
         )
 

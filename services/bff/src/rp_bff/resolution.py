@@ -10,7 +10,7 @@ computation of its own -- it only assembles already-validated inputs for
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -198,12 +198,12 @@ def _sum_accounts(scenario: Scenario) -> AccountBalances:
     inherited account is excluded entirely -- it is never legally
     commingled with the beneficiary's own accounts (research.md §5), and
     is instead tracked independently via _inherited_accounts() below."""
-    totals = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0}
+    totals = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0, "cash": 0.0}
     for account in scenario.accounts:
         if account.inherited is not None:
             continue
         totals[account.account_type] += account.balance
-    return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"])
+    return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"], cash=totals["cash"])
 
 
 def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
@@ -441,6 +441,35 @@ def resolve_run_context(
         net_earned_income_against_spending=scenario.spending.net_earned_income_against_spending,
         relocation_state=resolved_relocation_state,
         relocation_plan_year=resolved_relocation_plan_year,
+    )
+
+
+def apply_cash_reserve_strategy(context: ResolvedRunContext) -> ResolvedRunContext:
+    """rp-e0h: threads the scenario's own configured cash_reserve_years/
+    cash_return_mean_real onto context.strategy.
+
+    Deliberately NOT applied inside resolve_run_context() itself, which
+    is shared by every caller including the Deterministic (004) engine's
+    own resolution and the "state" comparison axis -- comparison/
+    projection.py's run_plan_projection() docstring documents that this
+    feature's own down-year detection never actually fires for a fixed,
+    single-value return (004), so threading it in there would be dead
+    configuration with no behavioral payoff, exactly the "Monte Carlo
+    only" scoping this feature's own design settled on. Callers that are
+    genuinely Monte Carlo -- resolve_and_run_simulation() and
+    resolve_and_search_sustainable_spending() (routes/simulations.py),
+    resolve_and_compare_simulated() (routes/comparisons.py) -- call this
+    explicitly, right after resolve_run_context() succeeds.
+    resolve_and_compare_deterministic() never does, so
+    context.strategy.cash_reserve_years stays None there, reproducing
+    comparison/compare.py's own behavior exactly unchanged."""
+    return replace(
+        context,
+        strategy=replace(
+            context.strategy,
+            cash_reserve_years=context.scenario.cash_reserve_years,
+            cash_return_mean_real=context.scenario.market_assumptions.cash_return_mean_real,
+        ),
     )
 
 

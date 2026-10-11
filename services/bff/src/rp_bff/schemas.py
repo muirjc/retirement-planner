@@ -109,7 +109,7 @@ class InheritedIraDetailsRequest(BaseModel):
 class AccountRequest(BaseModel):
     """Mirrors 001's Account fields exactly."""
 
-    account_type: Literal["traditional", "roth", "taxable"]
+    account_type: Literal["traditional", "roth", "taxable", "cash"]
     balance: float
     owner: str | None = None
     """011-per-owner-accounts."""
@@ -138,6 +138,9 @@ class MarketAssumptionsRequest(BaseModel):
     bond_return_mean_real: float
     bond_return_std_real: float
     correlation: float
+    cash_return_mean_real: float = 0.0
+    """rp-e0h: defaults to 0.0, reproducing every existing request's exact
+    current behavior."""
 
 
 class SimulationSettingsRequest(BaseModel):
@@ -205,4 +208,7 @@ class ScenarioRequest(BaseModel):
     relocation_state: str | None = None
     relocation_plan_year: int | None = None
     """rp-vim: both default to None (no relocation configured),
+    reproducing every existing request's exact current behavior."""
+    cash_reserve_years: float | None = None
+    """rp-e0h: defaults to None (no cash-reserve policy configured),
     reproducing every existing request's exact current behavior."""

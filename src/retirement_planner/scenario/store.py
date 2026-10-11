@@ -152,6 +152,9 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
         # first written field-by-field rather than generically.
         "relocation_state": scenario.relocation_state,
         "relocation_plan_year": scenario.relocation_plan_year,
+        # rp-e0h: same flat-optional-scalar, always-written convention as
+        # relocation_state/relocation_plan_year immediately above.
+        "cash_reserve_years": scenario.cash_reserve_years,
         "market_assumptions": {
             "equity_allocation": scenario.market_assumptions.equity_allocation,
             "equity_return_mean_real": scenario.market_assumptions.equity_return_mean_real,
@@ -160,6 +163,12 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
             "bond_return_mean_real": scenario.market_assumptions.bond_return_mean_real,
             "bond_return_std_real": scenario.market_assumptions.bond_return_std_real,
             "correlation": scenario.market_assumptions.correlation,
+            # rp-e0h: always written, 0.0 default -- unlike relocation_state
+            # above, this has no "unconfigured" sentinel of its own (a cash
+            # reserve's own yield is meaningful even with cash_reserve_years
+            # left None, e.g. a household that just holds cash without an
+            # active drawdown policy).
+            "cash_return_mean_real": scenario.market_assumptions.cash_return_mean_real,
         },
         "simulation_settings": {
             "n_paths": scenario.simulation_settings.n_paths,

@@ -46,6 +46,7 @@ from ..resolution import (
     ResolvedRunContext,
     SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
+    apply_cash_reserve_strategy,
     build_survival_curves,
     check_run_cost,
     generate_configured_return_paths,
@@ -137,6 +138,10 @@ def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | No
             status_code=422,
             detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value},
         )
+    # rp-e0h: this route is genuinely Monte Carlo (run_simulation() below)
+    # -- see apply_cash_reserve_strategy()'s own docstring for why this
+    # isn't done inside resolve_run_context() itself.
+    context = apply_cash_reserve_strategy(context)
 
     try:
         check_run_cost(context)
@@ -323,6 +328,9 @@ def resolve_and_search_sustainable_spending(
             status_code=422,
             detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value},
         )
+    # rp-e0h: this route is genuinely Monte Carlo (find_sustainable_spending_range()
+    # below) -- see apply_cash_reserve_strategy()'s own docstring.
+    context = apply_cash_reserve_strategy(context)
 
     owner = deemed_rmd_owner(context.household)
     horizon_years = context.plan_to_age - owner.current_age + 1

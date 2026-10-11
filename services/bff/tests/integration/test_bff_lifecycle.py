@@ -1534,3 +1534,89 @@ def test_relocation_state_without_relocation_plan_year_is_a_blocking_validation_
     run_response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "bad_relocation"})
     assert run_response.status_code == 422
     assert run_response.json()["error"] == "blocking_validation_flags"
+
+
+# --- rp-e0h: cash-reserve (bucket) withdrawal strategy ---
+
+
+def test_cash_reserve_years_round_trips_through_save_and_read(client):
+    body = {**_SCENARIO_BODY, "cash_reserve_years": 3}
+    save_response = client.put("/api/v1/scenarios/cash_reserve_case", json=body)
+    assert save_response.json()["is_usable"] is True
+
+    read_response = client.get("/api/v1/scenarios/cash_reserve_case")
+    assert read_response.json()["cash_reserve_years"] == 3
+
+
+def test_cash_account_saves_and_loads_correctly(client):
+    body = {
+        **_SCENARIO_BODY,
+        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 75_000, "owner": "you"}],
+    }
+    save_response = client.put("/api/v1/scenarios/cash_account_case", json=body)
+    assert save_response.json()["is_usable"] is True
+
+    read_response = client.get("/api/v1/scenarios/cash_account_case")
+    accounts = read_response.json()["accounts"]
+    cash_accounts = [a for a in accounts if a["account_type"] == "cash"]
+    assert len(cash_accounts) == 1
+    assert cash_accounts[0]["balance"] == 75_000
+
+
+def test_cash_return_mean_real_round_trips_through_save_and_read(client):
+    body = {
+        **_SCENARIO_BODY,
+        "market_assumptions": {**_SCENARIO_BODY["market_assumptions"], "cash_return_mean_real": 0.02},
+    }
+    client.put("/api/v1/scenarios/cash_yield_case", json=body)
+
+    read_response = client.get("/api/v1/scenarios/cash_yield_case")
+    assert read_response.json()["market_assumptions"]["cash_return_mean_real"] == 0.02
+
+
+def test_simulations_resolves_cash_reserve_years_and_it_reaches_run_simulation(client):
+    """rp-e0h: can't assert an exact draw/refill figure (real Monte Carlo
+    volatility, not a controlled ReturnPath like the core-level tests use)
+    -- instead confirms the field flows all the way through the real
+    stack end-to-end, by scanning every path's own years for at least one
+    real nonzero draw or refill, which a long, volatile-enough horizon
+    makes a near statistical certainty."""
+    body = {
+        **_SCENARIO_BODY,
+        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 100_000, "owner": "you"}],
+        "cash_reserve_years": 3,
+    }
+    client.put("/api/v1/scenarios/cash_reserve_e2e_case", json=body)
+
+    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "cash_reserve_e2e_case"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    all_years = [year for path in payload["run"]["path_results"] for year in path["years"]]
+    assert all_years  # the scenario actually produced years
+    assert all("cash_reserve_draw" in year and "cash_reserve_refill" in year for year in all_years)
+    assert any(year["cash_reserve_draw"] > 0 or year["cash_reserve_refill"] > 0 for year in all_years)
+
+
+def test_cash_reserve_years_omitted_never_affects_cash_balance(client):
+    body = {
+        **_SCENARIO_BODY,
+        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 50_000, "owner": "you"}],
+    }
+    client.put("/api/v1/scenarios/cash_no_policy_case", json=body)
+
+    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "cash_no_policy_case"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    all_years = [year for path in payload["run"]["path_results"] for year in path["years"]]
+    assert all(year["cash_reserve_draw"] == 0.0 and year["cash_reserve_refill"] == 0.0 for year in all_years)
+    # cash_return_mean_real also defaults to 0.0 -- the $50,000 starting
+    # cash balance never moves at all without a configured policy.
+    assert all(year["ending_balances"]["cash"] == 50_000.0 for year in all_years)
+
+
+def test_unregistered_account_type_is_a_clean_422_not_a_bare_500(client):
+    body = {**_SCENARIO_BODY, "accounts": [{"account_type": "bitcoin", "balance": 1000, "owner": "you"}]}
+    response = client.put("/api/v1/scenarios/bad_account_type_case", json=body)
+    assert response.status_code == 422

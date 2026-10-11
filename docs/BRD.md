@@ -87,6 +87,17 @@ the analysis from scratch each time.
   income tax resolved correctly for each plan year against whichever
   state applied that year. Narrated on the Walkthrough page the plan
   year the move takes effect
+- Cash-reserve ("bucket") withdrawal strategy (`rp-e0h`): a household
+  can hold a low-volatility cash balance (a fourth account type,
+  alongside traditional/Roth/taxable) and optionally configure
+  `cash_reserve_years` — a target of that many years' worth of
+  spending held in cash. In a simulated plan year with a negative
+  blended portfolio return, spending is drawn from cash first instead
+  of selling equities/bonds at a loss; in a positive-return year, cash
+  is topped back up toward its target from the taxable account. Cash
+  itself always grows at its own configured yield regardless of
+  whether the reserve strategy is enabled. Narrated on the Walkthrough
+  page every year cash is drawn from or refilled
 
 ### 2.2 Explicit non-goals
 
@@ -138,6 +149,27 @@ first draft:
   state," unaffected by a scenario's own configured relocation (an
   explicit override disables that scenario's relocation for the one
   resolved run, rather than combining the two).
+- **Cash-reserve strategy non-goals (`rp-e0h`)**: more than one
+  cash-like bucket, or a general N-bucket glide path — this is
+  specifically a two-tier model, cash vs. everything else, not an
+  arbitrary bucket ladder; any effect under the Deterministic engine
+  or any comparison axis other than "state" — `cash_reserve_years` is
+  accepted on a scenario, but only the two genuinely single-run Monte
+  Carlo resolution paths (`resolve_and_run_simulation()`,
+  `resolve_and_search_sustainable_spending()`) apply it. The
+  Deterministic engine's one fixed return never produces a "down year"
+  to trigger it at all, and the `roth_conversion_strategy`/
+  `withdrawal_sequencing` comparison axes build their own
+  `StrategyConfiguration` from scratch rather than inheriting the
+  resolved one, so a configured cash reserve silently has no effect
+  there either — a known, deliberate gap, not yet extended to those
+  axes; a configurable down-year threshold (always "any negative
+  blended portfolio return," never a tunable percentage); and a third
+  stochastic asset class with its own volatility or correlation to
+  equity/bond returns — cash's own yield (`cash_return_mean_real`) is
+  a single fixed mean applied identically every plan year and every
+  simulated path, never varied by the Monte Carlo draw the way equity/
+  bond returns are.
 
 ### 2.3 Reference use case
 
@@ -1294,6 +1326,31 @@ simulation at that figure directly.
   ownership_shares` above both already identify as absent from this
   schema — a coordinated, not yet scheduled, follow-on feature, not a
   quick fix to this one area alone.
+- **Cash-reserve interest is not taxed annually (`rp-e0h`) — a
+  resolved, deliberate extension of the taxable-account simplification
+  immediately above, not an oversight left open by this feature's own
+  design**: a cash balance's `cash_return_mean_real` growth is applied
+  the same untaxed way Traditional/Roth growth already is, every plan
+  year. It is never fed into NIIT's own `investment_income` stand-in
+  (computed strictly from `sequence_withdrawals` where `account_type
+  == "taxable"`, §6.3 — a `cash_reserve_draw` never appears in that
+  sum) and never fed into `ordinary_income` either, regardless of
+  whether or when it's drawn. In the real world this is arguably a
+  *larger* simplification than the taxable account's own immediately
+  above: real cash/high-yield-savings interest is 100% ordinary
+  taxable income every year it's earned, with no capital-gains/cost-
+  basis complexity to even partially excuse deferring it, unlike a
+  taxable brokerage's dividends and realized gains. The decision here
+  is to accept that larger simplification rather than build a
+  one-off, cash-only annual-interest-taxation path: doing this
+  correctly needs the same account-level interest-vs-principal
+  tracking the taxable-account bullet above already identifies as
+  absent from this schema, so it is deferred to that same coordinated,
+  not-yet-scheduled follow-on feature rather than solved in isolation
+  for cash alone. Net effect: a household funding a large or long-held
+  cash reserve will see this tool overstate that balance's real
+  after-tax growth, compounding the same direction of error the
+  taxable-account bullet above already describes.
 
 ## 8. Non-Functional Requirements
 

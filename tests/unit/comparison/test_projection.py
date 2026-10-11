@@ -3664,3 +3664,53 @@ def test_relocation_taking_effect_in_plan_year_one_applies_from_the_start():
     )
 
     assert [year.state_tax.state for year in result.years] == ["SC", "SC"]
+
+
+# --- rp-cqu: per-plan-year annual_return ---
+
+
+def test_annual_return_matches_the_deterministic_return_assumption_every_year():
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=58,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0623),
+    )
+
+    assert all(year.annual_return == pytest.approx(0.0623) for year in result.years)
+
+
+def test_annual_return_matches_each_years_own_entry_in_a_return_path():
+    from retirement_planner.simulation import ReturnPath
+
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+    strategy = _strategy(claiming_ages={"you": 99})
+    return_path = ReturnPath(start_plan_year=1, annual_returns=[0.10, -0.08, 0.03, 0.0], generation_mode="parametric", figures_used=[])
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=10_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=58,
+        strategy=strategy,
+        return_assumption=return_path,
+    )
+
+    assert [year.annual_return for year in result.years] == [0.10, -0.08, 0.03, 0.0]

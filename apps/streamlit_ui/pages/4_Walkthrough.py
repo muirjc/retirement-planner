@@ -12,6 +12,7 @@ import streamlit as st
 
 from rp_ui.account_table import render_account_breakdown_by_member
 from rp_ui.api_client import ask_walkthrough_question
+from rp_ui.charts import returns_by_year_chart
 from rp_ui.errors import OllamaUnavailableError, RpUiError
 from rp_ui.formatting import format_currency
 from rp_ui.verification import render_verification_indicator
@@ -51,6 +52,11 @@ total_batches = (len(years) + _BATCH_SIZE - 1) // _BATCH_SIZE
 batch_index = min(st.session_state.get("walkthrough_batch_index", 0), total_batches - 1)
 
 st.caption(f"Path {selected_path_index} of {len(result['run']['path_results'])} -- the simulated path closest to the median outcome.")
+
+# rp-cqu: full-horizon, unlike the batched narrative below -- path_years
+# already spans every plan year of the selected path, same relationship
+# Run Simulation's own fan chart has to that page's other content.
+st.plotly_chart(returns_by_year_chart(path_years))
 
 nav_prev, nav_status, nav_next = st.columns([1, 2, 1])
 with nav_prev:

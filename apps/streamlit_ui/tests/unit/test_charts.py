@@ -4,7 +4,7 @@ SummaryStatistics/percentile_bands-shaped fixtures matching 007's actual
 to_jsonable() rendering (plan.md's Testing note; research.md §3).
 """
 
-from rp_ui.charts import comparison_bar_chart, comparison_overlay_chart, fan_chart
+from rp_ui.charts import comparison_bar_chart, comparison_overlay_chart, fan_chart, returns_by_year_chart
 
 PERCENTILE_BANDS = [
     {
@@ -96,3 +96,36 @@ def test_comparison_bar_chart_yaxis_and_hover_use_currency_formatting():
     fig = comparison_bar_chart(summaries)
     assert fig.layout.yaxis.tickformat == "$,.2f"
     assert fig.data[0].hovertemplate == "%{x}<br>%{y:$,.2f}<extra>%{fullData.name}</extra>"
+
+
+# --- rp-cqu: returns_by_year_chart ---
+
+_YEARS = [
+    {"plan_year": 1, "annual_return": 0.08},
+    {"plan_year": 2, "annual_return": -0.05},
+    {"plan_year": 3, "annual_return": 0.0},
+]
+
+
+def test_returns_by_year_chart_has_one_bar_per_plan_year():
+    fig = returns_by_year_chart(_YEARS)
+    assert len(fig.data) == 1
+    assert list(fig.data[0].x) == [1, 2, 3]
+    assert list(fig.data[0].y) == [0.08, -0.05, 0.0]
+
+
+def test_returns_by_year_chart_colors_negative_years_differently():
+    fig = returns_by_year_chart(_YEARS)
+    colors = list(fig.data[0].marker.color)
+    assert colors[0] == colors[2]  # both non-negative (0.08, 0.0)
+    assert colors[1] != colors[0]  # the one negative year
+
+
+def test_returns_by_year_chart_yaxis_is_percent_formatted():
+    fig = returns_by_year_chart(_YEARS)
+    assert fig.layout.yaxis.tickformat == ".1%"
+
+
+def test_returns_by_year_chart_handles_empty_years():
+    fig = returns_by_year_chart([])
+    assert len(fig.data) == 0

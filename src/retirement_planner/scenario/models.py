@@ -182,7 +182,13 @@ class InheritedIraDetails:
 class Account:
     """A single balance bucket. data-model.md § Account."""
 
-    account_type: Literal["traditional", "roth", "taxable"]
+    account_type: Literal["traditional", "roth", "taxable", "cash"]
+    """rp-e0h: "cash" added here (not yet wired through the BFF's own
+    AccountRequest schema, scenario.loader.py validation against
+    STATE_MODULES-style registries, or any Streamlit UI form -- those are
+    later phases) since account_attribution.py (this same phase) directly
+    consumes list[Account], and a real cash Account is the only way to
+    exercise/test it meaningfully end-to-end."""
     balance: float
     owner: str | None = None
     """011-per-owner-accounts: references a household.members[*].person_name.

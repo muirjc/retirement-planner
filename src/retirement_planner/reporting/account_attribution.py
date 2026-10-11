@@ -23,7 +23,7 @@ from typing import Literal
 from retirement_planner.comparison import PlanProjection
 from retirement_planner.scenario import Account
 
-AccountType = Literal["traditional", "roth", "taxable"]
+AccountType = Literal["traditional", "roth", "taxable", "cash"]
 Attribution = Literal["independently_tracked", "fixed_share_of_pooled_total"]
 
 
@@ -86,7 +86,7 @@ def compute_account_shares(accounts: list[Account]) -> list[AccountShare]:
     the scenario's own accounts list."""
     ordinary = [account for account in accounts if account.inherited is None]
 
-    type_totals: dict[AccountType, float] = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0}
+    type_totals: dict[AccountType, float] = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0, "cash": 0.0}
     for account in ordinary:
         type_totals[account.account_type] += account.balance
 
@@ -146,8 +146,23 @@ def _within_member_shares(shares: list[AccountShare], member: str) -> dict[str, 
 def _withdrawal_totals_by_type(year) -> dict[AccountType, float]:
     """This year's total withdrawal per account type -- the pooled RMD
     amount (traditional only) plus both withdrawal passes' sequence line
-    items (spending-need and tax-funding), summed per type."""
-    totals: dict[AccountType, float] = {"traditional": year.mechanics.withdrawal_plan.rmd_drawn, "roth": 0.0, "taxable": 0.0}
+    items (spending-need and tax-funding), summed per type.
+
+    cash (rp-e0h): pre-seeded with year.cash_reserve_draw, mirroring
+    traditional's own rmd_drawn pre-seed above -- a down-year cash draw
+    is tracked entirely outside compute_withdrawal_plan() (mechanics/
+    cash_reserve.py's own module docstring), so no "cash"-typed
+    WithdrawalLineItem ever appears in either sequence below; this is
+    the only source of a nonzero cash total. The refill side (an up
+    year) is an inflow, not a withdrawal, and isn't represented here at
+    all -- the same way an existing 401(k) contribution inflow isn't
+    represented as a negative withdrawal for traditional/roth either."""
+    totals: dict[AccountType, float] = {
+        "traditional": year.mechanics.withdrawal_plan.rmd_drawn,
+        "roth": 0.0,
+        "taxable": 0.0,
+        "cash": year.cash_reserve_draw,
+    }
     for item in (*year.mechanics.withdrawal_plan.sequence_withdrawals, *year.tax_funding_withdrawal.sequence_withdrawals):
         totals[item.account_type] += item.amount
     return totals

@@ -102,10 +102,55 @@ def _waterfall_for_type(year: PlanYearProjection, account_type: _WaterfallAccoun
     )
 
 
+def _cash_waterfall(year: PlanYearProjection) -> AccountTypeWaterfall:
+    """rp-e0h: NOT built via _waterfall_for_type()'s own generic
+    getattr()-per-checkpoint pattern -- cash has no real intermediate
+    checkpoint objects the way traditional/roth/taxable do.
+    compute_withdrawal_plan() preserves an account type's own balance
+    across checkpoints via dataclasses.replace(), but mechanics/plan_year.py's
+    own final ending_balances = AccountBalances(traditional=.., roth=..,
+    taxable=..) reconstruction has no `cash` keyword at all, silently
+    resetting it to 0.0 -- confirmed directly, and the reason
+    comparison/projection.py (rp-e0h.1) tracks cash as its own loop-local
+    float rather than trusting any intermediate AccountBalances to carry
+    it. Only year.starting_balances.cash and year.ending_balances.cash
+    are real; everything else here is derived from year.cash_reserve_draw/
+    cash_reserve_refill (rp-e0h.1's own always-populated fields) instead.
+
+    rmd_drawn/conversion_delta/tax_funding_withdrawal are always 0.0 --
+    cash is never RMD'd, never a Roth conversion destination, and this
+    feature never routes a tax-bill withdrawal through cash. The refill
+    step (an up year) has no separate checkpoint of its own; it's bundled
+    into `growth` instead, the same way an existing 401(k) contribution
+    is already bundled into traditional/roth's own growth figure rather
+    than getting a dedicated waterfall step."""
+    starting_balance = year.starting_balances.cash
+    after_spending_withdrawal = starting_balance - year.cash_reserve_draw
+    ending_balance = year.ending_balances.cash
+    growth = ending_balance - after_spending_withdrawal
+    growth_rate_pct = (growth / after_spending_withdrawal * 100.0) if after_spending_withdrawal != 0.0 else None
+
+    return AccountTypeWaterfall(
+        account_type="cash",
+        starting_balance=starting_balance,
+        rmd_drawn=0.0,
+        spending_withdrawal=year.cash_reserve_draw,
+        after_spending_withdrawal=after_spending_withdrawal,
+        conversion_delta=0.0,
+        after_conversion=after_spending_withdrawal,
+        tax_funding_withdrawal=0.0,
+        after_tax_withdrawal=after_spending_withdrawal,
+        growth=growth,
+        growth_rate_pct=growth_rate_pct,
+        ending_balance=ending_balance,
+    )
+
+
 def _build_balance_waterfall(year: PlanYearProjection) -> BalanceWaterfall:
     traditional = _waterfall_for_type(year, "traditional")
     roth = _waterfall_for_type(year, "roth")
     taxable = _waterfall_for_type(year, "taxable")
+    cash = _cash_waterfall(year)
     # Matches comparison/projection.py's own tax_owed local exactly --
     # the amount tax_funding_withdrawal was sized to cover -- reconstructed
     # from six already-stored fields, never itself a stored field.
@@ -121,8 +166,9 @@ def _build_balance_waterfall(year: PlanYearProjection) -> BalanceWaterfall:
         traditional=traditional,
         roth=roth,
         taxable=taxable,
-        total_starting_balance=traditional.starting_balance + roth.starting_balance + taxable.starting_balance,
-        total_ending_balance=traditional.ending_balance + roth.ending_balance + taxable.ending_balance,
+        cash=cash,
+        total_starting_balance=traditional.starting_balance + roth.starting_balance + taxable.starting_balance + cash.starting_balance,
+        total_ending_balance=traditional.ending_balance + roth.ending_balance + taxable.ending_balance + cash.ending_balance,
         total_tax_owed=total_tax_owed,
     )
 

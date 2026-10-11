@@ -3714,3 +3714,161 @@ def test_annual_return_matches_each_years_own_entry_in_a_return_path():
     )
 
     assert [year.annual_return for year in result.years] == [0.10, -0.08, 0.03, 0.0]
+
+
+# --- rp-e0h: cash-reserve (bucket) withdrawal strategy ---
+
+
+def test_cash_reserve_draws_from_cash_in_a_down_year_leaving_traditional_untouched():
+    from retirement_planner.simulation import ReturnPath
+
+    household = _single_member_household(current_age=70)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0, cash=100_000)
+    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
+    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=40_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=return_path,
+    )
+
+    year = result.years[0]
+    assert year.cash_reserve_draw == pytest.approx(40_000.0)
+    assert year.cash_reserve_refill == 0.0
+    # Traditional balance only grows (by the down-year return applied to
+    # it) -- nothing drawn from it when cash alone covers spending.
+    assert year.ending_balances.traditional == pytest.approx(500_000 * 0.90)
+    assert year.ending_balances.cash == pytest.approx(100_000 - 40_000)
+
+
+def test_cash_reserve_falls_back_to_configured_order_when_cash_cant_cover_a_down_year():
+    from retirement_planner.simulation import ReturnPath
+
+    household = _single_member_household(current_age=70)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000, cash=10_000)
+    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
+    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=40_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=return_path,
+    )
+
+    year = result.years[0]
+    assert year.cash_reserve_draw == pytest.approx(10_000.0)
+    assert year.cash_reserve_refill == 0.0
+    assert year.ending_balances.cash == pytest.approx(0.0)
+    # The remaining $30,000 shortfall falls back to the configured order
+    # (taxable first) -- $500,000 - $30,000, then that down-year's return.
+    assert year.ending_balances.taxable == pytest.approx((500_000 - 30_000) * 0.90)
+
+
+def test_cash_reserve_refills_from_taxable_in_an_up_year_up_to_target():
+    from retirement_planner.simulation import ReturnPath
+
+    household = _single_member_household(current_age=70)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000, cash=20_000)
+    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
+    return_path = ReturnPath(start_plan_year=1, annual_returns=[0.08], generation_mode="parametric", figures_used=[])
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=40_000,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=70,
+        strategy=strategy,
+        return_assumption=return_path,
+    )
+
+    year = result.years[0]
+    # Up year: spending drawn via the configured order (taxable), cash
+    # untouched for spending -- target = 3 x $40,000 = $120,000, refilled
+    # from whatever taxable has left after spending ($460,000).
+    assert year.cash_reserve_draw == 0.0
+    assert year.cash_reserve_refill == pytest.approx(100_000.0)  # $120,000 target - $20,000 current
+    assert year.ending_balances.cash == pytest.approx((20_000 + 100_000) * 1.0)  # cash_return_mean_real defaults to 0.0
+    assert year.ending_balances.taxable == pytest.approx((500_000 - 40_000 - 100_000) * 1.08)
+
+
+def test_cash_grows_at_its_own_rate_regardless_of_cash_reserve_years():
+    household = _single_member_household(current_age=70)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0, cash=100_000)
+    strategy = _strategy(claiming_ages={"you": 99}, cash_return_mean_real=0.05)  # cash_reserve_years left None
+
+    result = run_plan_projection(
+        household=household,
+        accounts=accounts,
+        traditional_ownership_shares={"you": 1.0},
+        annual_spending_need=0,
+        state="FL",
+        reference_tax_year=2026,
+        start_plan_year=1,
+        start_tax_year=2026,
+        plan_to_age=72,
+        strategy=strategy,
+        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+    )
+
+    assert [year.cash_reserve_draw for year in result.years] == [0.0, 0.0, 0.0]
+    assert [year.cash_reserve_refill for year in result.years] == [0.0, 0.0, 0.0]
+    assert result.years[0].ending_balances.cash == pytest.approx(105_000.0)
+    assert result.years[1].ending_balances.cash == pytest.approx(105_000.0 * 1.05)
+    assert result.years[2].ending_balances.cash == pytest.approx(105_000.0 * 1.05 * 1.05)
+
+
+def test_cash_reserve_omitted_reproduces_exact_prior_behavior():
+    household = _single_member_household(current_age=70)
+    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
+
+    def _run(strategy_overrides: dict) -> list:
+        strategy = _strategy(claiming_ages={"you": 99}, **strategy_overrides)
+        return run_plan_projection(
+            household=household,
+            accounts=accounts,
+            traditional_ownership_shares={"you": 1.0},
+            annual_spending_need=40_000,
+            state="FL",
+            reference_tax_year=2026,
+            start_plan_year=1,
+            start_tax_year=2026,
+            plan_to_age=72,
+            strategy=strategy,
+            return_assumption=DeterministicReturnAssumption(annual_real_return=-0.10),
+        ).years
+
+    without_cash_reserve = _run({})
+    explicit_none = _run({"cash_reserve_years": None, "cash_return_mean_real": 0.0})
+
+    assert all(year.cash_reserve_draw == 0.0 for year in without_cash_reserve)
+    assert all(year.cash_reserve_refill == 0.0 for year in without_cash_reserve)
+    assert all(year.ending_balances.cash == 0.0 for year in without_cash_reserve)
+    # Byte-identical to an explicit None/0.0 -- no cash-reserve-specific
+    # code path silently altered the traditional/roth/taxable arithmetic
+    # every existing caller already depends on.
+    for a, b in zip(without_cash_reserve, explicit_none):
+        assert a.ending_balances.traditional == b.ending_balances.traditional
+        assert a.ending_balances.taxable == b.ending_balances.taxable
+        assert a.shortfall == b.shortfall

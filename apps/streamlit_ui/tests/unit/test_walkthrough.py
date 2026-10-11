@@ -37,7 +37,7 @@ def _year_detail(plan_year: int, tax_year: int) -> dict:
     return {
         "plan_year": plan_year,
         "tax_year": tax_year,
-        "ending_balances": {"traditional": 100_000.0, "roth": 0.0, "taxable": 0.0},
+        "ending_balances": {"traditional": 100_000.0, "roth": 0.0, "taxable": 0.0, "cash": 0.0},  # rp-e0h.4
         "federal_tax": {"federal_tax_owed": 100.0},
         "state_tax": {"state_tax_owed": 50.0},
         "shortfall": 0.0,

@@ -7,7 +7,7 @@ Household member count is fixed to 1 (single) or 2 (married_filing_jointly)
 by 001's own Scenario.household rule (FR-013 of 001), so this form shows a
 second member's fields only when filing_status is married -- there is no
 free-form add/remove list to build here. Accounts are fixed to exactly one
-balance per account type per household member (traditional/roth/taxable),
+balance per account type per household member (traditional/roth/taxable/cash),
 mirroring that same fixed-shape convention -- a scenario with two
 "traditional" accounts *for the same person* is not a case this form needs
 to support (011-per-owner-accounts). Each account's owner is therefore
@@ -87,9 +87,11 @@ DEFAULTS = {
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
     "member1_taxable_balance": 0.0,
+    "member1_cash_balance": 0.0,  # rp-e0h.4
     "member2_traditional_balance": 0.0,
     "member2_roth_balance": 0.0,
     "member2_taxable_balance": 0.0,
+    "member2_cash_balance": 0.0,  # rp-e0h.4
     "annual_need_real": 0.0,
     "net_earned_income_against_spending": False,  # rp-0ff
     "state": None,
@@ -100,6 +102,9 @@ DEFAULTS = {
     "bond_return_mean_real": 0.02,
     "bond_return_std_real": 0.06,
     "correlation": 0.0,
+    "cash_return_mean_real": 0.0,  # rp-e0h.4
+    "include_cash_reserve": False,  # rp-e0h.4
+    "cash_reserve_years": 2.0,
     "n_paths": 1000,
     "seed": 42,
     "plan_to_age": 95,
@@ -237,7 +242,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         if owner in member_names:
             balances_by_owner[(account["account_type"], owner)] = account["balance"]
     for index, person_name in enumerate(member_names, start=1):
-        for account_type in ("traditional", "roth", "taxable"):
+        for account_type in ("traditional", "roth", "taxable", "cash"):  # rp-e0h.4: cash added
             st.session_state[f"member{index}_{account_type}_balance"] = balances_by_owner.get(
                 (account_type, person_name), 0.0
             )
@@ -278,6 +283,18 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         "bond_allocation", "bond_return_mean_real", "bond_return_std_real", "correlation",
     ):
         st.session_state[field] = ma[field]
+    # rp-e0h.4: `.get(..., 0.0)` guards a hand-built fixture predating this
+    # field, mirroring survivor_spending_reduction_pct's own guard comment
+    # above -- the real backend always resolves this to a concrete float.
+    st.session_state["cash_return_mean_real"] = ma.get("cash_return_mean_real", 0.0)
+    # rp-e0h.4: reset unconditionally (not nested inside the `if` below) --
+    # mirrors include_relocation's own precedent above, so a stale True
+    # from a previously loaded scenario can never leak through when the
+    # newly loaded scenario has no cash reserve configured at all.
+    cash_reserve_years = scenario.get("cash_reserve_years")
+    st.session_state["include_cash_reserve"] = cash_reserve_years is not None
+    if cash_reserve_years is not None:
+        st.session_state["cash_reserve_years"] = cash_reserve_years
     ss = scenario["simulation_settings"]
     st.session_state["n_paths"] = ss["n_paths"]
     st.session_state["seed"] = ss["seed"]
@@ -743,21 +760,29 @@ st.subheader("Accounts")
 _TRADITIONAL_HELP = "This person's own pre-tax IRA/401(k) balance. Entered per person, never combined with a spouse's."
 _ROTH_HELP = "This person's own Roth IRA/401(k) balance."
 _TAXABLE_HELP = "This person's own ordinary (non-retirement) brokerage or savings balance."
+_CASH_HELP = (
+    "This person's own low-volatility cash/savings balance. Grows at the Cash yield set under "
+    "Market assumptions below, every year, regardless of whether a cash reserve strategy is "
+    "enabled further down -- the reserve strategy only controls whether it's ever drawn from or "
+    "refilled (rp-e0h)."
+)
 
 member1_label = st.session_state["member1_person_name"] or "Member 1"
 st.markdown(f"**{member1_label}**")
-a1, a2, a3 = st.columns(3)
+a1, a2, a3, a4 = st.columns(4)
 a1.number_input("Traditional balance ($)", step=1000.0, key="member1_traditional_balance", help=_TRADITIONAL_HELP)
 a2.number_input("Roth balance ($)", step=1000.0, key="member1_roth_balance", help=_ROTH_HELP)
 a3.number_input("Taxable balance ($)", step=1000.0, key="member1_taxable_balance", help=_TAXABLE_HELP)
+a4.number_input("Cash balance ($)", step=1000.0, key="member1_cash_balance", help=_CASH_HELP)
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     member2_label = st.session_state["member2_person_name"] or "Member 2"
     st.markdown(f"**{member2_label}**")
-    a1, a2, a3 = st.columns(3)
+    a1, a2, a3, a4 = st.columns(4)
     a1.number_input("Traditional balance ($)", step=1000.0, key="member2_traditional_balance", help=_TRADITIONAL_HELP)
     a2.number_input("Roth balance ($)", step=1000.0, key="member2_roth_balance", help=_ROTH_HELP)
     a3.number_input("Taxable balance ($)", step=1000.0, key="member2_taxable_balance", help=_TAXABLE_HELP)
+    a4.number_input("Cash balance ($)", step=1000.0, key="member2_cash_balance", help=_CASH_HELP)
 
 st.subheader("Inherited IRA (optional)")
 # 012-inherited-ira-rmd: a separate, always-independent account from the
@@ -1025,6 +1050,37 @@ with m2:
         key="bond_return_std_real",
         help="Expected annual volatility (standard deviation) of bond returns, inflation-adjusted.",
     )
+    st.number_input(
+        "Cash yield (real)",
+        key="cash_return_mean_real",
+        help=(
+            "Expected average annual yield on the Cash balance(s) above, inflation-adjusted, as a "
+            "decimal (e.g. 0.01 = 1%). No volatility field -- cash is modeled as stable, not a third "
+            "stochastic asset class (rp-e0h)."
+        ),
+    )
+
+st.subheader("Cash reserve strategy (optional)")
+st.checkbox(
+    "Maintain a cash reserve for down years",
+    key="include_cash_reserve",
+    help=(
+        "When a simulated year's blended portfolio return is negative, spending is drawn from the "
+        "Cash balance(s) above first (up to what's available), leaving equities/bonds untouched that "
+        "year; in a positive-return year, Cash is topped back up toward its target from the Taxable "
+        "balance. Only affects Monte Carlo simulation runs -- the Deterministic engine's single fixed "
+        "return never produces a down year, so this has no effect there. Leave unchecked if you don't "
+        "want this behavior; a Cash balance above still earns the Cash yield either way (rp-e0h)."
+    ),
+)
+if st.session_state["include_cash_reserve"]:
+    st.number_input(
+        "Years of spending to hold in cash",
+        min_value=0.0,
+        step=0.5,
+        key="cash_reserve_years",
+        help="The cash target each year = this number x that year's spending need, in real dollars.",
+    )
 
 st.subheader("Simulation settings")
 s1, s2, s3 = st.columns(3)
@@ -1203,6 +1259,11 @@ def _build_body() -> dict:
                 "balance": st.session_state["member1_taxable_balance"],
                 "owner": st.session_state["member1_person_name"],
             },
+            {
+                "account_type": "cash",
+                "balance": st.session_state["member1_cash_balance"],
+                "owner": st.session_state["member1_person_name"],
+            },
         ],
         "spending": {
             "annual_need_real": st.session_state["annual_need_real"],
@@ -1221,12 +1282,17 @@ def _build_body() -> dict:
             "bond_return_mean_real": st.session_state["bond_return_mean_real"],
             "bond_return_std_real": st.session_state["bond_return_std_real"],
             "correlation": st.session_state["correlation"],
+            "cash_return_mean_real": st.session_state["cash_return_mean_real"],
         },
         "simulation_settings": {
             "n_paths": st.session_state["n_paths"],
             "seed": st.session_state["seed"],
             "plan_to_age": st.session_state["plan_to_age"],
         },
+        # rp-e0h.4: None when the checkbox is off, mirroring
+        # relocation_state's own "flat optional scalar, always present"
+        # convention immediately above.
+        "cash_reserve_years": st.session_state["cash_reserve_years"] if st.session_state["include_cash_reserve"] else None,
         "roth_conversion": None,
         "hsa_contribution": None,
     }
@@ -1258,6 +1324,11 @@ def _build_body() -> dict:
                 {
                     "account_type": "taxable",
                     "balance": st.session_state["member2_taxable_balance"],
+                    "owner": st.session_state["member2_person_name"],
+                },
+                {
+                    "account_type": "cash",
+                    "balance": st.session_state["member2_cash_balance"],
                     "owner": st.session_state["member2_person_name"],
                 },
             ]

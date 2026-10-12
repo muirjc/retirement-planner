@@ -288,39 +288,6 @@ def _state_change_entries(year: PlanYearProjection, prior_year: PlanYearProjecti
     ]
 
 
-def _cash_reserve_entries(year: PlanYearProjection) -> list[NarrativeEntry]:
-    """rp-e0h.4: cash_reserve_draw/cash_reserve_refill > 0, every
-    occurrence -- mirrors _shortfall_entries()/_roth_conversion_entries()
-    (not just a transition), since a real draw or refill naturally
-    recurs across down/up years for as long as the strategy is active."""
-    entries = []
-    if year.cash_reserve_draw > 0.0:
-        entries.append(
-            NarrativeEntry(
-                driver_key="cash_reserve_draw",
-                label="Drew from cash reserve",
-                explanation=(
-                    f"A down market year drew {_format_currency(year.cash_reserve_draw)} from the cash "
-                    "reserve instead of selling other investments at a loss."
-                ),
-                amounts={"cash_reserve_draw": year.cash_reserve_draw},
-            )
-        )
-    if year.cash_reserve_refill > 0.0:
-        entries.append(
-            NarrativeEntry(
-                driver_key="cash_reserve_refill",
-                label="Refilled cash reserve",
-                explanation=(
-                    f"{_format_currency(year.cash_reserve_refill)} was moved from the taxable account "
-                    "back into the cash reserve."
-                ),
-                amounts={"cash_reserve_refill": year.cash_reserve_refill},
-            )
-        )
-    return entries
-
-
 def _shortfall_entries(year: PlanYearProjection) -> list[NarrativeEntry]:
     """FR-003/spec.md Edge Cases: shortfall > 0.0, every occurrence -- not
     just the first, even in years after the plan has already gone into
@@ -462,7 +429,6 @@ def build_year_stories(
             *_earned_income_entries(year, prior_year, household),
             *_roth_conversion_entries(year),
             *_withdrawal_source_change_entries(year, prior_year, withdrawal_order),
-            *_cash_reserve_entries(year),
             *_tax_change_entries(year, prior_year),
             *_irmaa_entries(year, prior_year),
             *_survivor_death_entries(year, prior_year, household),

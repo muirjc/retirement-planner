@@ -8,12 +8,13 @@ dataclass construction.
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting.year_detail import build_year_computation_detail
-from retirement_planner.scenario import Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember, IncomeStream
 
-_RETURN_4PCT = DeterministicReturnAssumption(annual_real_return=0.04)
+_RETURN_4PCT = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.04 for ac in ASSET_CLASSES})
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _strategy(**overrides):
@@ -43,6 +44,9 @@ def _project(household, accounts, strategy, spending_need=40_000, plan_to_age=80
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=_RETURN_4PCT,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         inherited_accounts=inherited_accounts or [],
     )
 
@@ -55,7 +59,7 @@ def _rmd_onset_household():
 
 
 def _accounts_by_type(waterfall):
-    return {"traditional": waterfall.traditional, "roth": waterfall.roth, "taxable": waterfall.taxable, "cash": waterfall.cash}
+    return {"traditional": waterfall.traditional, "roth": waterfall.roth, "taxable": waterfall.taxable}
 
 
 def test_balance_waterfall_reconciles_for_every_type_and_every_year():
@@ -263,99 +267,3 @@ def test_fica_tax_detail_is_zero_for_a_household_with_no_earned_income():
     assert fica_detail.total_fica_tax == 0.0
 
 
-# --- rp-e0h: cash-reserve waterfall (AccountTypeWaterfall.cash) ---
-
-
-def test_cash_waterfall_in_a_down_year_shows_the_draw_as_spending_withdrawal():
-    from retirement_planner.mechanics import AccountBalances as AB
-    from retirement_planner.simulation import ReturnPath
-
-    household = Household(
-        filing_status="single",
-        members=[HouseholdMember(person_name="Alex", current_age=70, ss_claim_age=99, ss_annual_benefit=0)],
-    )
-    strategy = _strategy(claiming_ages={"Alex": 99}, cash_reserve_years=3)
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
-    projection = run_plan_projection(
-        household=household,
-        accounts=AB(traditional=500_000, roth=0, taxable=0, cash=100_000),
-        traditional_ownership_shares={"Alex": 1.0},
-        annual_spending_need=40_000,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=70,
-        strategy=strategy,
-        return_assumption=return_path,
-    )
-
-    year = projection.years[0]
-    cash_waterfall = build_year_computation_detail(year).balance_waterfall.cash
-    assert cash_waterfall.account_type == "cash"
-    assert cash_waterfall.starting_balance == 100_000.0
-    assert cash_waterfall.rmd_drawn == 0.0
-    assert cash_waterfall.spending_withdrawal == pytest.approx(40_000.0)
-    assert cash_waterfall.conversion_delta == 0.0
-    assert cash_waterfall.tax_funding_withdrawal == 0.0
-    assert cash_waterfall.ending_balance == year.ending_balances.cash
-    # The reconciliation identity (same formula every other type's
-    # waterfall already satisfies) holds for cash too.
-    reconciled = (
-        cash_waterfall.starting_balance
-        - cash_waterfall.rmd_drawn
-        - cash_waterfall.spending_withdrawal
-        + cash_waterfall.conversion_delta
-        - cash_waterfall.tax_funding_withdrawal
-        + cash_waterfall.growth
-    )
-    assert reconciled == pytest.approx(cash_waterfall.ending_balance)
-
-
-def test_cash_waterfall_in_an_up_year_bundles_the_refill_into_growth():
-    from retirement_planner.mechanics import AccountBalances as AB
-    from retirement_planner.simulation import ReturnPath
-
-    household = Household(
-        filing_status="single",
-        members=[HouseholdMember(person_name="Alex", current_age=70, ss_claim_age=99, ss_annual_benefit=0)],
-    )
-    strategy = _strategy(claiming_ages={"Alex": 99}, cash_reserve_years=3)
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[0.08], generation_mode="parametric", figures_used=[])
-    projection = run_plan_projection(
-        household=household,
-        accounts=AB(traditional=0, roth=0, taxable=500_000, cash=20_000),
-        traditional_ownership_shares={"Alex": 1.0},
-        annual_spending_need=40_000,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=70,
-        strategy=strategy,
-        return_assumption=return_path,
-    )
-
-    year = projection.years[0]
-    cash_waterfall = build_year_computation_detail(year).balance_waterfall.cash
-    assert cash_waterfall.spending_withdrawal == 0.0  # up year -- cash untouched for spending
-    assert year.cash_reserve_refill > 0.0
-    # growth bundles the refill together with cash's own real return
-    # (0.0 here -- cash_return_mean_real defaults) -- so growth equals
-    # exactly the refill amount in this fixture.
-    assert cash_waterfall.growth == pytest.approx(year.cash_reserve_refill)
-    assert cash_waterfall.ending_balance == year.ending_balances.cash
-
-
-def test_balance_waterfall_total_ending_balance_includes_cash():
-    from retirement_planner.mechanics import AccountBalances as AB
-
-    household = _rmd_onset_household()
-    strategy = _strategy(claiming_ages={"Alex": 99}, cash_reserve_years=3)
-    projection = _project(household, AB(traditional=700_000, roth=100_000, taxable=100_000, cash=50_000), strategy)
-
-    year = projection.years[0]
-    wf = build_year_computation_detail(year).balance_waterfall
-    assert wf.total_ending_balance == pytest.approx(
-        year.ending_balances.traditional + year.ending_balances.roth + year.ending_balances.taxable + year.ending_balances.cash
-    )

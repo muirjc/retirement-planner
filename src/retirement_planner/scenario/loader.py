@@ -21,6 +21,11 @@ import yaml
 
 from .models import (
     Account,
+    AllocationPeriod,
+    AllocationSchedule,
+    ASSET_CLASSES,
+    AssetClass,
+    AssetClassAssumptions,
     Contribution401kPlan,
     EmployerContributionPlan,
     Household,
@@ -43,17 +48,10 @@ _REQUIRED_TOP_LEVEL_FIELDS = (
     "spending",
     "state",
     "market_assumptions",
+    "taxable_allocation_schedule",
+    "traditional_allocation_schedule",
+    "roth_allocation_schedule",
     "simulation_settings",
-)
-
-_MARKET_ASSUMPTION_FIELDS = (
-    "equity_allocation",
-    "equity_return_mean_real",
-    "equity_return_std_real",
-    "bond_allocation",
-    "bond_return_mean_real",
-    "bond_return_std_real",
-    "correlation",
 )
 
 
@@ -330,13 +328,62 @@ def _build_hsa_contribution(data: object, source: str) -> HsaContributionPlan | 
     )
 
 
+def _build_asset_class_assumptions(data: object, source: str, context: str) -> dict[AssetClass, AssetClassAssumptions]:
+    asset_classes_data = _require(data, "asset_classes", source, context)
+    if not isinstance(asset_classes_data, dict):
+        raise ScenarioParseError(source, f"expected a mapping at '{context}.asset_classes'")
+    result: dict[AssetClass, AssetClassAssumptions] = {}
+    for asset_class in ASSET_CLASSES:
+        entry_context = f"{context}.asset_classes.{asset_class}"
+        if asset_class not in asset_classes_data:
+            raise ScenarioParseError(source, f"missing required field '{entry_context}'")
+        entry = asset_classes_data[asset_class]
+        result[asset_class] = AssetClassAssumptions(
+            mean_real=_require(entry, "mean_real", source, entry_context),
+            std_real=_require(entry, "std_real", source, entry_context),
+        )
+    return result
+
+
 def _build_market_assumptions(data: object, source: str) -> MarketAssumptions:
-    values = {f: _require(data, f, source, "market_assumptions") for f in _MARKET_ASSUMPTION_FIELDS}
-    # rp-e0h: optional, not in _MARKET_ASSUMPTION_FIELDS/_require() above --
-    # adding it there would make it required in every existing scenario's
-    # own saved YAML, breaking every one that predates this feature.
-    cash_return_mean_real = data.get("cash_return_mean_real", 0.0) if isinstance(data, dict) else 0.0
-    return MarketAssumptions(cash_return_mean_real=cash_return_mean_real, **values)
+    correlation_matrix_data = _require(data, "correlation_matrix", source, "market_assumptions")
+    return MarketAssumptions(
+        asset_classes=_build_asset_class_assumptions(data, source, "market_assumptions"),
+        correlation_matrix=[[float(value) for value in row] for row in correlation_matrix_data],
+    )
+
+
+def _build_allocation_period(data: object, source: str, context: str) -> AllocationPeriod:
+    """rp-aev: `weights` requires every one of the 8 ASSET_CLASSES keys
+    present -- a structural (parse-time) check, mirroring how every other
+    required field in this module raises ScenarioParseError rather than a
+    value-level ValidationFlag for a missing key. Whether the 8 values
+    actually sum to 1.0 is a value-level plausibility check and belongs to
+    validation.py, not here."""
+    weights_data = _require(data, "weights", source, context)
+    if not isinstance(weights_data, dict):
+        raise ScenarioParseError(source, f"expected a mapping at '{context}.weights'")
+    weights: dict[AssetClass, float] = {}
+    for asset_class in ASSET_CLASSES:
+        if asset_class not in weights_data:
+            raise ScenarioParseError(source, f"missing required field '{context}.weights.{asset_class}'")
+        weights[asset_class] = float(weights_data[asset_class])
+    return AllocationPeriod(
+        start_plan_year=_require(data, "start_plan_year", source, context),
+        weights=weights,
+    )
+
+
+def _build_allocation_schedule(data: object, source: str, context: str) -> AllocationSchedule:
+    periods_data = _require(data, "periods", source, context)
+    if not periods_data:
+        raise ScenarioParseError(source, f"'{context}.periods' must contain at least one entry")
+    return AllocationSchedule(
+        periods=[
+            _build_allocation_period(period, source, f"{context}.periods[{i}]")
+            for i, period in enumerate(periods_data)
+        ]
+    )
 
 
 def _build_simulation_settings(data: object, source: str) -> SimulationSettings:
@@ -388,10 +435,18 @@ def parse_scenario(yaml_text: str, *, name: str | None = None) -> Scenario:
         spending=_build_spending(data["spending"], source),
         state=data["state"],
         market_assumptions=_build_market_assumptions(data["market_assumptions"], source),
+        taxable_allocation_schedule=_build_allocation_schedule(
+            data["taxable_allocation_schedule"], source, "taxable_allocation_schedule"
+        ),
+        traditional_allocation_schedule=_build_allocation_schedule(
+            data["traditional_allocation_schedule"], source, "traditional_allocation_schedule"
+        ),
+        roth_allocation_schedule=_build_allocation_schedule(
+            data["roth_allocation_schedule"], source, "roth_allocation_schedule"
+        ),
         simulation_settings=_build_simulation_settings(data["simulation_settings"], source),
         roth_conversion=_build_roth_conversion(data.get("roth_conversion"), source),
         hsa_contribution=_build_hsa_contribution(data.get("hsa_contribution"), source),
         relocation_state=data.get("relocation_state"),
         relocation_plan_year=data.get("relocation_plan_year"),
-        cash_reserve_years=data.get("cash_reserve_years"),
     )

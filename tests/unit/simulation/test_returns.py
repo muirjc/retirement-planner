@@ -1,39 +1,32 @@
 """Unit tests for retirement_planner.simulation.returns: parametric
-correlated-normal return generation (US1), historical-bootstrap resampling
-(US3), and sequence-of-returns stress overlay (US4).
+correlated-normal return generation (8 asset classes, rp-aev),
+historical-bootstrap resampling, and sequence-of-returns stress overlay.
 """
 
-import math
 import random
 
 import pytest
 
-from retirement_planner.scenario import MarketAssumptions
-from retirement_planner.simulation.models import ReturnPath, StressScenario
+from retirement_planner.scenario import ASSET_CLASSES, DEFAULT_MARKET_ASSUMPTIONS, cholesky_lower
+from retirement_planner.simulation.models import AssetClassReturnPath, StressScenario
 
-MARKET = MarketAssumptions(
-    equity_allocation=0.60,
-    equity_return_mean_real=0.065,
-    equity_return_std_real=0.17,
-    bond_allocation=0.40,
-    bond_return_mean_real=0.015,
-    bond_return_std_real=0.06,
-    correlation=-0.10,
-)
+MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_N = len(ASSET_CLASSES)
 
 
-def _expected_blended_return(z1: float, z2: float, market: MarketAssumptions) -> float:
-    equity_return = market.equity_return_mean_real + market.equity_return_std_real * z1
-    bond_return = market.bond_return_mean_real + market.bond_return_std_real * (
-        market.correlation * z1 + math.sqrt(1 - market.correlation**2) * z2
-    )
-    return market.equity_allocation * equity_return + market.bond_allocation * bond_return
+def _expected_asset_returns(independent_draws: list[float], market) -> dict:
+    lower = cholesky_lower(market.correlation_matrix)
+    correlated = [sum(lower[i][k] * independent_draws[k] for k in range(i + 1)) for i in range(_N)]
+    return {
+        asset_class: market.asset_classes[asset_class].mean_real + market.asset_classes[asset_class].std_real * correlated[index]
+        for index, asset_class in enumerate(ASSET_CLASSES)
+    }
 
 
-# --- generate_return_paths() (US1, research.md §3) ---
+# --- generate_return_paths() (8-asset correlated draw) ---
 
 
-def test_correlated_normal_draws_match_manual_computation_in_fixed_order():
+def test_correlated_draws_match_manual_computation_in_fixed_order():
     from retirement_planner.simulation.returns import generate_return_paths
 
     seed = 42
@@ -42,20 +35,22 @@ def test_correlated_normal_draws_match_manual_computation_in_fixed_order():
     )
 
     # Manually replicate the documented RNG consumption order: path 0's
-    # years in order, then path 1's; two .gauss() calls per year, z1
-    # before z2 (research.md §3).
+    # years in order, then path 1's; 8 .gauss() calls per year, in
+    # ASSET_CLASSES order.
     rng = random.Random(seed)
     expected_path0 = []
     expected_path1 = []
     for _ in range(3):
-        z1, z2 = rng.gauss(0.0, 1.0), rng.gauss(0.0, 1.0)
-        expected_path0.append(_expected_blended_return(z1, z2, MARKET))
+        draws = [rng.gauss(0.0, 1.0) for _ in range(_N)]
+        expected_path0.append(_expected_asset_returns(draws, MARKET))
     for _ in range(3):
-        z1, z2 = rng.gauss(0.0, 1.0), rng.gauss(0.0, 1.0)
-        expected_path1.append(_expected_blended_return(z1, z2, MARKET))
+        draws = [rng.gauss(0.0, 1.0) for _ in range(_N)]
+        expected_path1.append(_expected_asset_returns(draws, MARKET))
 
-    assert paths[0].annual_returns == pytest.approx(expected_path0)
-    assert paths[1].annual_returns == pytest.approx(expected_path1)
+    for year_index in range(3):
+        for asset_class in ASSET_CLASSES:
+            assert paths[0].asset_returns[year_index][asset_class] == pytest.approx(expected_path0[year_index][asset_class])
+            assert paths[1].asset_returns[year_index][asset_class] == pytest.approx(expected_path1[year_index][asset_class])
     assert paths[0].generation_mode == "parametric"
     assert paths[0].figures_used == []
     assert paths[0].start_plan_year == 1
@@ -79,7 +74,28 @@ def test_generate_return_paths_is_reproducible_under_identical_seed():
     assert first == second
 
 
-# --- generate_historical_bootstrap_paths() (US3, research.md §4) ---
+def test_generate_return_paths_reproduces_the_configured_correlation_structure():
+    """Property test for the Cholesky transform: over enough draws, the
+    empirical correlation between two asset classes' own return series
+    should approximate the configured correlation_matrix entry."""
+    from retirement_planner.simulation.returns import generate_return_paths
+
+    paths = generate_return_paths(market_assumptions=MARKET, path_count=1, horizon_years=20_000, start_plan_year=1, seed=99)
+    us_large = [year["us_large"] for year in paths[0].asset_returns]
+    aggregate_bond = [year["aggregate_bond"] for year in paths[0].asset_returns]
+
+    mean_a = sum(us_large) / len(us_large)
+    mean_b = sum(aggregate_bond) / len(aggregate_bond)
+    cov = sum((a - mean_a) * (b - mean_b) for a, b in zip(us_large, aggregate_bond)) / len(us_large)
+    std_a = (sum((a - mean_a) ** 2 for a in us_large) / len(us_large)) ** 0.5
+    std_b = (sum((b - mean_b) ** 2 for b in aggregate_bond) / len(aggregate_bond)) ** 0.5
+    empirical_correlation = cov / (std_a * std_b)
+
+    configured_correlation = MARKET.correlation_matrix[ASSET_CLASSES.index("us_large")][ASSET_CLASSES.index("aggregate_bond")]
+    assert empirical_correlation == pytest.approx(configured_correlation, abs=0.03)
+
+
+# --- generate_historical_bootstrap_paths() ---
 
 
 def test_historical_bootstrap_paths_are_built_from_contiguous_blocks():
@@ -95,26 +111,23 @@ def test_historical_bootstrap_paths_are_built_from_contiguous_blocks():
 
     for path in paths:
         assert path.generation_mode == "historical_bootstrap"
-        assert len(path.annual_returns) == 25
+        assert len(path.asset_returns) == 25
         assert len(path.figures_used) > 0
         assert all(not usage.verified for usage in path.figures_used)
+        assert all(set(year.keys()) == set(ASSET_CLASSES) for year in path.asset_returns)
 
-    # Every block of `block_length` consecutive returns in a path must be
+    # Every block of `block_length` consecutive years in a path must be
     # explainable as one contiguous run of documented historical years
     # (not independently resampled individual years) -- verify by
-    # reconstructing candidate blended values for every documented
-    # contiguous block and confirming each path's first block matches one
-    # of them exactly, in order.
-    def _blend(year):
-        equity, bond = HISTORICAL_RETURNS.schedule[year]
-        return MARKET.equity_allocation * equity + MARKET.bond_allocation * bond
-
+    # reconstructing every documented contiguous block's own us_large
+    # series and confirming each path's first block matches one of them
+    # exactly, in order.
     candidate_blocks = [
-        [_blend(y) for y in documented_years[i : i + block_length]]
+        [HISTORICAL_RETURNS.schedule[y]["us_large"] for y in documented_years[i : i + block_length]]
         for i in range(0, len(documented_years) - block_length + 1)
     ]
     for path in paths:
-        first_block = path.annual_returns[:block_length]
+        first_block = [year["us_large"] for year in path.asset_returns[:block_length]]
         assert any(
             all(a == pytest.approx(b) for a, b in zip(first_block, candidate))
             for candidate in candidate_blocks
@@ -155,30 +168,38 @@ def test_generate_historical_bootstrap_paths_rejects_non_positive_block_length()
         )
 
 
-# --- apply_stress_scenario() (US4, research.md § StressScenario) ---
+# --- apply_stress_scenario() ---
 
 
 def test_apply_stress_scenario_overrides_only_the_configured_window():
     from retirement_planner.simulation.returns import apply_stress_scenario
 
     base_paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.05, 0.06, 0.07, 0.08], generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(
+            start_plan_year=1,
+            asset_returns=[{ac: rate for ac in ASSET_CLASSES} for rate in (0.05, 0.06, 0.07, 0.08)],
+            generation_mode="parametric",
+            figures_used=[],
+        ),
     ]
     stress = StressScenario(magnitude=-0.30, duration_years=2, start_plan_year=2)
 
     stressed_paths = apply_stress_scenario(base_paths, stress, horizon_last_plan_year=4)
 
-    assert stressed_paths[0].annual_returns == [0.05, -0.30, -0.30, 0.08]
+    assert stressed_paths[0].asset_returns[0] == {ac: 0.05 for ac in ASSET_CLASSES}
+    assert stressed_paths[0].asset_returns[1] == {ac: -0.30 for ac in ASSET_CLASSES}
+    assert stressed_paths[0].asset_returns[2] == {ac: -0.30 for ac in ASSET_CLASSES}
+    assert stressed_paths[0].asset_returns[3] == {ac: 0.08 for ac in ASSET_CLASSES}
     assert stressed_paths[0].generation_mode == base_paths[0].generation_mode
     assert stressed_paths[0].figures_used == base_paths[0].figures_used
     # Non-mutating: the original paths list is untouched.
-    assert base_paths[0].annual_returns == [0.05, 0.06, 0.07, 0.08]
+    assert base_paths[0].asset_returns[1] == {ac: 0.06 for ac in ASSET_CLASSES}
 
 
 def test_apply_stress_scenario_at_different_start_years_changes_run_simulation_outcome():
     from retirement_planner.comparison import StrategyConfiguration
     from retirement_planner.mechanics import AccountBalances
-    from retirement_planner.scenario import Household, HouseholdMember
+    from retirement_planner.scenario import AllocationPeriod, AllocationSchedule, Household, HouseholdMember
     from retirement_planner.simulation.monte_carlo import run_simulation
     from retirement_planner.simulation.returns import apply_stress_scenario
 
@@ -191,13 +212,21 @@ def test_apply_stress_scenario_at_different_start_years_changes_run_simulation_o
         label="test", withdrawal_strategy="rmd_taxable_traditional_roth", conversion_strategy=None,
         conversion_bracket_ceiling_or_amount=None, conversion_window=None, claiming_ages={"you": 99},
     )
+    even_schedule = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
     base_paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(
+            start_plan_year=1,
+            asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+            generation_mode="parametric",
+            figures_used=[],
+        ),
     ]
     common_kwargs = dict(
         household=household, accounts=accounts, traditional_ownership_shares={"you": 1.0},
         annual_spending_need=50, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=91, strategy=strategy,
+        taxable_allocation_schedule=even_schedule, traditional_allocation_schedule=even_schedule,
+        roth_allocation_schedule=even_schedule,
     )
 
     shock_year1 = apply_stress_scenario(
@@ -221,7 +250,12 @@ def test_apply_stress_scenario_rejects_window_extending_beyond_horizon():
     from retirement_planner.simulation.returns import apply_stress_scenario
 
     base_paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.05, 0.06, 0.07], generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(
+            start_plan_year=1,
+            asset_returns=[{ac: rate for ac in ASSET_CLASSES} for rate in (0.05, 0.06, 0.07)],
+            generation_mode="parametric",
+            figures_used=[],
+        ),
     ]
     stress = StressScenario(magnitude=-0.30, duration_years=2, start_plan_year=2)
 

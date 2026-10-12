@@ -14,25 +14,18 @@ from typing import Literal
 
 from retirement_planner.tax import FigureUsage
 
-AccountType = Literal["traditional", "roth", "taxable", "cash"]
+AccountType = Literal["traditional", "roth", "taxable"]
 
 
 @dataclass
 class AccountBalances:
-    """Household-level balances for the three (now four) account types.
+    """Household-level balances for the three account types.
     data-model.md § AccountBalances.
     """
 
     traditional: float
     roth: float
     taxable: float
-    cash: float = 0.0
-    """rp-e0h: a household's own cash-reserve balance -- tracked entirely
-    separately from compute_withdrawal_plan()/WITHDRAWAL_STRATEGIES (which
-    remain unaware of this field, exactly as before this feature), since
-    cash-reserve draws/refills are a market-return-conditional rule, not a
-    static sequencing order. Defaults to 0.0, reproducing every existing
-    caller's exact current behavior unchanged."""
 
 
 @dataclass

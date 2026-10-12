@@ -1,10 +1,13 @@
 """Unit tests for scenario dataclass construction and field access (US1)."""
 
 from retirement_planner.scenario import (
+    ASSET_CLASSES,
+    DEFAULT_MARKET_ASSUMPTIONS,
     Account,
+    AllocationPeriod,
+    AllocationSchedule,
     Household,
     HouseholdMember,
-    MarketAssumptions,
     RothConversionPlan,
     Scenario,
     SimulationSettings,
@@ -23,15 +26,11 @@ def _member(name="you", age=60, claim_age=67, benefit=32000.0):
 
 
 def _market_assumptions():
-    return MarketAssumptions(
-        equity_allocation=0.6,
-        equity_return_mean_real=0.065,
-        equity_return_std_real=0.17,
-        bond_allocation=0.4,
-        bond_return_mean_real=0.015,
-        bond_return_std_real=0.06,
-        correlation=-0.10,
-    )
+    return DEFAULT_MARKET_ASSUMPTIONS
+
+
+def _even_schedule():
+    return AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def test_household_member_fields_accessible_by_name():
@@ -73,6 +72,9 @@ def test_full_scenario_tree_builds_and_exposes_every_field():
         spending=SpendingProfile(annual_need_real=110_000.0),
         state="GA",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=5000, seed=42, plan_to_age=95),
         roth_conversion=RothConversionPlan(
             strategy="fill_to_bracket",
@@ -86,7 +88,7 @@ def test_full_scenario_tree_builds_and_exposes_every_field():
     assert scenario.accounts[1].account_type == "roth"
     assert scenario.spending.annual_need_real == 110_000.0
     assert scenario.state == "GA"
-    assert scenario.market_assumptions.equity_allocation == 0.6
+    assert scenario.market_assumptions.asset_classes["us_large"].mean_real == DEFAULT_MARKET_ASSUMPTIONS.asset_classes["us_large"].mean_real
     assert scenario.simulation_settings.plan_to_age == 95
     assert scenario.roth_conversion.strategy == "fill_to_bracket"
     assert scenario.roth_conversion.window == (2028, 2034)
@@ -100,6 +102,9 @@ def test_scenario_roth_conversion_defaults_to_none():
         spending=SpendingProfile(annual_need_real=50_000.0),
         state="FL",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=90),
     )
     assert scenario.roth_conversion is None
@@ -114,6 +119,9 @@ def test_scenario_is_usable_true_with_no_blocking_flags():
         spending=SpendingProfile(annual_need_real=50_000.0),
         state="FL",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=90),
         validation_flags=[
             ValidationFlag(field="spending.annual_need_real", message="plausibility note", severity="warning")
@@ -130,6 +138,9 @@ def test_scenario_is_usable_false_with_a_blocking_flag():
         spending=SpendingProfile(annual_need_real=50_000.0),
         state="FL",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=90),
         validation_flags=[
             ValidationFlag(field="accounts[traditional].balance", message="negative balance", severity="blocking")

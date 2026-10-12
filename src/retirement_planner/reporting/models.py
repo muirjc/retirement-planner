@@ -161,7 +161,7 @@ class AccountTypeWaterfall:
     spending_withdrawal/conversion_delta/tax_funding_withdrawal/growth are
     the deltas between two consecutive checkpoints."""
 
-    account_type: Literal["traditional", "roth", "taxable", "cash"]
+    account_type: Literal["traditional", "roth", "taxable"]
     starting_balance: float
     rmd_drawn: float
     """Traditional only; 0.0 for roth/taxable. From
@@ -202,21 +202,11 @@ class AccountTypeWaterfall:
 @dataclass
 class BalanceWaterfall:
     """rp-bm8.3: the full account-balance walk for one plan year, across
-    all four account types plus household totals."""
+    all three account types plus household totals."""
 
     traditional: AccountTypeWaterfall
     roth: AccountTypeWaterfall
     taxable: AccountTypeWaterfall
-    cash: AccountTypeWaterfall
-    """rp-e0h: the household's own cash reserve -- rmd_drawn/conversion_delta/
-    tax_funding_withdrawal are always 0.0 (cash is never RMD'd, never a
-    Roth conversion destination, never drawn for a tax bill by this
-    feature's own design); spending_withdrawal is this year's own
-    cash_reserve_draw (a down year), growth bundles cash_reserve_refill
-    together with cash's own real return (an up year) -- no separate
-    checkpoint exists for the refill step alone, the same way an existing
-    401(k) contribution is already bundled into traditional/roth's own
-    growth figure rather than getting its own waterfall step."""
     total_starting_balance: float
     total_ending_balance: float
     total_tax_owed: float

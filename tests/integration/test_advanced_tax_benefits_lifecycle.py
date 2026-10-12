@@ -13,13 +13,14 @@ these tests is attributable to IRMAA/NIIT, never state tax).
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember, HsaContributionPlan
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember, HsaContributionPlan
 
 _STATE = "FL"
-_RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.0)  # isolates income-driven
+_RETURN_ASSUMPTION = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})  # isolates income-driven
     # effects (IRMAA/NIIT) from market-growth noise across plan years
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _household(you_age=66, spouse_age=64, you_hdhp_coverage=False, spouse_hdhp_coverage=False):
@@ -59,6 +60,9 @@ def test_us1_modest_income_household_has_no_irmaa_surcharge():
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=_strategy(), return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     for year in projection.years:
         assert year.irmaa.surcharge_owed == 0.0
@@ -78,6 +82,9 @@ def test_us1_large_conversion_crosses_an_irmaa_tier_distinct_from_ordinary_tax()
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     first_year = projection.years[0]
     assert first_year.irmaa.surcharge_owed > 0.0
@@ -103,6 +110,9 @@ def test_us1_surcharge_reflects_both_enrolled_members():
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     first_year = projection.years[0]
     assert first_year.irmaa.enrolled_member_count == 2
@@ -120,6 +130,9 @@ def test_us1_no_medicare_eligible_member_has_no_surcharge_regardless_of_income()
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=62,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     for year in projection.years:
         assert year.irmaa.surcharge_owed == 0.0
@@ -145,6 +158,9 @@ def _run_conversion_heavy_projection(conversion_bracket_ceiling_or_amount: float
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -156,6 +172,9 @@ def test_us2_modest_income_household_has_no_niit_surtax():
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=62,
         strategy=_strategy(), return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     for year in projection.years:
         assert year.niit.surtax_owed == 0.0
@@ -208,6 +227,9 @@ def _hsa_household_kwargs(hsa_contribution):
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=60_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -302,6 +324,9 @@ def test_irmaa_niit_hsa_figures_are_all_verified_and_absent_from_unverified_list
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     figure_names = {figure.name for year in projection.years for figure in year.figures_used}
     assert "irmaa_tiers_mfj" in figure_names
@@ -312,13 +337,23 @@ def test_irmaa_niit_hsa_figures_are_all_verified_and_absent_from_unverified_list
 
     # Same propagation through 006's own aggregation, the layer 007/008
     # actually surface unverified_figure_names through to a user.
-    from retirement_planner.simulation import ReturnPath
+    from retirement_planner.simulation import AssetClassReturnPath
 
     run = run_simulation(
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state=_STATE,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy,
-        return_paths=[ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0, 0.0], generation_mode="parametric")],
+        return_paths=[
+            AssetClassReturnPath(
+                start_plan_year=1,
+                asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * 3,
+                generation_mode="parametric",
+                figures_used=[],
+            )
+        ],
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         candidate_label="test",
     )
     summary = summarize_run(run, household=household, reference_tax_year=2026)
@@ -354,7 +389,9 @@ def test_polish_010_full_quickstart_walkthrough():
     projection = run_plan_projection(
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=110_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
-        strategy=strategy, return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        strategy=strategy, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.04 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     first_year = projection.years[0]
     assert first_year.irmaa.tier_crossed is not None
@@ -371,7 +408,9 @@ def test_polish_010_full_quickstart_walkthrough():
     projection_niit = run_plan_projection(
         household=household, accounts=accounts, traditional_ownership_shares={"you": 0.75, "spouse": 0.25}, annual_spending_need=180_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
-        strategy=strategy_niit, return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        strategy=strategy_niit, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.04 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = projection_niit.years[0]
     if year.niit.threshold_exceeded:

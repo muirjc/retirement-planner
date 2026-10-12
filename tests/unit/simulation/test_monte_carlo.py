@@ -13,8 +13,8 @@ import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember, IncomeStream, MarketAssumptions
-from retirement_planner.simulation.models import ReturnPath
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember, IncomeStream
+from retirement_planner.simulation.models import AssetClassReturnPath
 from retirement_planner.simulation.returns import generate_return_paths
 
 _HOUSEHOLD = Household(
@@ -30,6 +30,7 @@ _STRATEGY = StrategyConfiguration(
     conversion_window=None,
     claiming_ages={"you": 99},
 )
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
     accounts=_ACCOUNTS,
@@ -41,6 +42,9 @@ _COMMON_KWARGS = dict(
     start_tax_year=2026,
     plan_to_age=91,  # 2-year horizon: ages 90 and 91
     strategy=_STRATEGY,
+    taxable_allocation_schedule=_EVEN_SCHEDULE,
+    traditional_allocation_schedule=_EVEN_SCHEDULE,
+    roth_allocation_schedule=_EVEN_SCHEDULE,
 )
 
 # Two-year horizon, return-controlled shortfall (see task T010-T014 design):
@@ -48,8 +52,14 @@ _COMMON_KWARGS = dict(
 # means year2 starts with exactly 50 (meets year2's 50 spending need, no
 # shortfall). A -0.5 year1 return means year2 starts with 25 (falls short
 # of the 50 spending need by 25).
-_PATH_OK = ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
-_PATH_FAIL = ReturnPath(start_plan_year=1, annual_returns=[-0.5, 0.0], generation_mode="parametric", figures_used=[])
+_PATH_OK = AssetClassReturnPath(
+    start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+    generation_mode="parametric", figures_used=[],
+)
+_PATH_FAIL = AssetClassReturnPath(
+    start_plan_year=1, asset_returns=[{ac: -0.5 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+    generation_mode="parametric", figures_used=[],
+)
 
 
 def test_success_rate_is_share_of_paths_without_shortfall():
@@ -107,11 +117,7 @@ def test_run_simulation_reproducible_including_under_forced_parallel_dispatch(mo
     # fast path count.
     monkeypatch.setattr(monte_carlo_module, "_PARALLEL_DISPATCH_THRESHOLD", 10)
 
-    market = MarketAssumptions(
-        equity_allocation=0.60, equity_return_mean_real=0.065, equity_return_std_real=0.17,
-        bond_allocation=0.40, bond_return_mean_real=0.015, bond_return_std_real=0.06,
-        correlation=-0.10,
-    )
+    market = DEFAULT_MARKET_ASSUMPTIONS
     return_paths = generate_return_paths(
         market_assumptions=market, path_count=50, horizon_years=2, start_plan_year=1, seed=99
     )
@@ -245,7 +251,7 @@ def test_claiming_age_adjusted_benefit_matches_deterministic_projection_exactly(
     site (research.md Decision 4), so this is a regression guard against
     that ever drifting apart, not a re-test of the formula itself
     (covered by tests/unit/mechanics/test_social_security_benefit.py)."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -280,15 +286,18 @@ def test_claiming_age_adjusted_benefit_matches_deterministic_projection_exactly(
         start_tax_year=2026,
         plan_to_age=64,
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
+            AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[])
         ],
         candidate_label="test",
     )
@@ -310,7 +319,7 @@ def test_spousal_floor_matches_deterministic_projection_exactly():
     that ever drifting apart, not a re-test of the formula itself
     (covered by tests/unit/mechanics/test_social_security_benefit.py and
     tests/unit/comparison/test_projection.py)."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -348,15 +357,18 @@ def test_spousal_floor_matches_deterministic_projection_exactly():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
+            AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[])
         ],
         candidate_label="test",
     )
@@ -382,7 +394,7 @@ def test_death_switch_matches_deterministic_projection_exactly():
     drifting apart, mirroring 016's and 017's own test_monte_carlo.py
     consistency-check precedent -- not a re-test of the switch itself
     (covered by tests/unit/comparison/test_projection.py)."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -422,17 +434,20 @@ def test_death_switch_matches_deterministic_projection_exactly():
         start_tax_year=2026,
         plan_to_age=72,  # spans both pre- and post-death plan years (death at 70)
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(
+            AssetClassReturnPath(
                 start_plan_year=1,
-                annual_returns=[0.0] * len(deterministic.years),
+                asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * len(deterministic.years),
                 generation_mode="parametric",
                 figures_used=[],
             )
@@ -459,7 +474,7 @@ def test_income_stream_matches_deterministic_projection_exactly():
     separate simulation-layer wiring is needed. Mirrors
     test_death_switch_matches_deterministic_projection_exactly's own
     consistency-check precedent."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -500,17 +515,20 @@ def test_income_stream_matches_deterministic_projection_exactly():
         start_tax_year=2026,
         plan_to_age=65,  # spans both pre- and post-pension-start plan years (starts at 62)
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(
+            AssetClassReturnPath(
                 start_plan_year=1,
-                annual_returns=[0.0] * len(deterministic.years),
+                asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * len(deterministic.years),
                 generation_mode="parametric",
                 figures_used=[],
             )
@@ -542,7 +560,7 @@ def test_roth_ladder_flag_matches_deterministic_projection_exactly():
     precedent -- not a re-test of the ladder logic itself (covered by
     tests/unit/mechanics/test_roth_conversion_ladder.py and
     tests/unit/comparison/test_projection.py)."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -569,17 +587,20 @@ def test_roth_ladder_flag_matches_deterministic_projection_exactly():
         start_tax_year=2026,
         plan_to_age=65,  # spans both the unseasoned-draw years and the seasoned year (2031+)
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(
+            AssetClassReturnPath(
                 start_plan_year=1,
-                annual_returns=[0.0] * len(deterministic.years),
+                asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * len(deterministic.years),
                 generation_mode="parametric",
                 figures_used=[],
             )
@@ -611,7 +632,7 @@ def test_early_withdrawal_penalty_matches_deterministic_projection_exactly():
     precedent -- not a re-test of the penalty logic itself (covered by
     tests/unit/tax/test_early_withdrawal_penalty.py and
     tests/unit/comparison/test_projection.py)."""
-    from retirement_planner.comparison import DeterministicReturnAssumption, run_plan_projection
+    from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, run_plan_projection
     from retirement_planner.simulation.monte_carlo import run_simulation
 
     household = Household(
@@ -638,17 +659,20 @@ def test_early_withdrawal_penalty_matches_deterministic_projection_exactly():
         start_tax_year=2026,
         plan_to_age=65,  # spans both under-59.5 and 60+ plan years
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     deterministic = run_plan_projection(
-        **common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0)
+        **common_kwargs, return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
     )
     simulated = run_simulation(
         **common_kwargs,
         return_paths=[
-            ReturnPath(
+            AssetClassReturnPath(
                 start_plan_year=1,
-                annual_returns=[0.0] * len(deterministic.years),
+                asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * len(deterministic.years),
                 generation_mode="parametric",
                 figures_used=[],
             )
@@ -711,6 +735,9 @@ def _married_household_and_kwargs():
         start_tax_year=2026,
         plan_to_age=85,
         strategy=strategy,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         candidate_label="test",
     )
     return household, accounts, strategy, common_kwargs
@@ -747,7 +774,7 @@ def test_death_year_draws_defaulting_to_none_is_identical_to_omitting_the_parame
 
     household, _accounts, _strategy, common_kwargs = _married_household_and_kwargs()
     survival_curves = _survival_curves_for(household)
-    path = ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[])
+    path = AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * 19, generation_mode="parametric", figures_used=[])
 
     explicit_none = run_simulation(
         **common_kwargs, return_paths=[path], survival_curves=survival_curves, death_year_draws=None
@@ -773,7 +800,7 @@ def test_death_year_draw_reproduces_a_direct_run_plan_projection_call_with_that_
 
     household, accounts, strategy, common_kwargs = _married_household_and_kwargs()
     survival_curves = _survival_curves_for(household)
-    path = ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[])
+    path = AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * 19, generation_mode="parametric", figures_used=[])
     # "spouse" (current_age=65) drawn to die at 70 -- 5 years into the
     # horizon; "you" drawn as None -- no death at all for this path.
     death_year_draws = [{"you": None, "spouse": 70}]
@@ -801,6 +828,9 @@ def test_death_year_draw_reproduces_a_direct_run_plan_projection_call_with_that_
         plan_to_age=85,
         strategy=strategy,
         return_assumption=path,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert run.path_results[0] == direct
@@ -817,8 +847,8 @@ def test_death_year_draws_vary_independently_path_to_path():
     household, _accounts, _strategy, common_kwargs = _married_household_and_kwargs()
     survival_curves = _survival_curves_for(household)
     paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[]),
-        ReturnPath(start_plan_year=1, annual_returns=[0.0] * 19, generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * 19, generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}] * 19, generation_mode="parametric", figures_used=[]),
     ]
     death_year_draws = [{"you": None, "spouse": None}, {"you": None, "spouse": 70}]
 
@@ -854,11 +884,7 @@ def test_death_year_draws_identical_under_serial_and_forced_parallel_dispatch(mo
     # deliberately-degenerate always-alive fixture -- this test needs
     # draws that actually vary path to path.
     survival_curves = {"you": SURVIVAL_TABLE["primary"], "spouse": SURVIVAL_TABLE["spouse"]}
-    market = MarketAssumptions(
-        equity_allocation=0.60, equity_return_mean_real=0.065, equity_return_std_real=0.17,
-        bond_allocation=0.40, bond_return_mean_real=0.015, bond_return_std_real=0.06,
-        correlation=-0.10,
-    )
+    market = DEFAULT_MARKET_ASSUMPTIONS
     return_paths = generate_return_paths(
         market_assumptions=market, path_count=50, horizon_years=19, start_plan_year=1, seed=99
     )

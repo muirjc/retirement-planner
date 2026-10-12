@@ -10,8 +10,8 @@ import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember
-from retirement_planner.simulation.models import ReturnPath, SurvivalCurve
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
+from retirement_planner.simulation.models import AssetClassReturnPath, SurvivalCurve
 
 _HOUSEHOLD = Household(
     filing_status="single",
@@ -26,6 +26,7 @@ _STRATEGY = StrategyConfiguration(
     conversion_window=None,
     claiming_ages={"you": 99},
 )
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
     accounts=_ACCOUNTS,
@@ -37,12 +38,21 @@ _COMMON_KWARGS = dict(
     start_tax_year=2026,
     plan_to_age=91,  # 2-year horizon: ages 90 and 91
     strategy=_STRATEGY,
+    taxable_allocation_schedule=_EVEN_SCHEDULE,
+    traditional_allocation_schedule=_EVEN_SCHEDULE,
+    roth_allocation_schedule=_EVEN_SCHEDULE,
 )
 # Same controlled shortfall design as test_monte_carlo.py: year1 return 0.0
 # leaves year2 fully funded (no shortfall); year1 return -0.5 leaves year2
 # short by 25.
-_PATH_OK = ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[])
-_PATH_FAIL = ReturnPath(start_plan_year=1, annual_returns=[-0.5, 0.0], generation_mode="parametric", figures_used=[])
+_PATH_OK = AssetClassReturnPath(
+    start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+    generation_mode="parametric", figures_used=[],
+)
+_PATH_FAIL = AssetClassReturnPath(
+    start_plan_year=1, asset_returns=[{ac: -0.5 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+    generation_mode="parametric", figures_used=[],
+)
 
 
 def _curve(probability_at_91: float) -> SurvivalCurve:

@@ -1,14 +1,17 @@
 """Unit tests for validate() (US3)."""
 
 from retirement_planner.scenario import (
+    ASSET_CLASSES,
+    DEFAULT_MARKET_ASSUMPTIONS,
     Account,
+    AllocationPeriod,
+    AllocationSchedule,
     Contribution401kPlan,
     EmployerContributionPlan,
     Household,
     HouseholdMember,
     IncomeStream,
     InheritedIraDetails,
-    MarketAssumptions,
     RothConversionPlan,
     Scenario,
     SimulationSettings,
@@ -18,14 +21,16 @@ from retirement_planner.scenario.validation import validate
 
 
 def _market_assumptions():
-    return MarketAssumptions(
-        equity_allocation=0.6,
-        equity_return_mean_real=0.065,
-        equity_return_std_real=0.17,
-        bond_allocation=0.4,
-        bond_return_mean_real=0.015,
-        bond_return_std_real=0.06,
-        correlation=-0.10,
+    return DEFAULT_MARKET_ASSUMPTIONS
+
+
+def _even_schedule(*periods_start_plan_years):
+    """Single-period (plan year 1) even schedule by default; pass one or
+    more start_plan_years to build a multi-period schedule instead (each
+    period gets the same even weights -- only start_plan_year varies)."""
+    starts = periods_start_plan_years or (1,)
+    return AllocationSchedule(
+        periods=[AllocationPeriod(start_plan_year=start, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES}) for start in starts]
     )
 
 
@@ -59,6 +64,9 @@ def _clean_scenario(**overrides):
         spending=SpendingProfile(annual_need_real=50_000.0),
         state="GA",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         # plan_to_age matches the default member's current_age (60) so the
         # spending-vs-assets plausibility check has a 0-year horizon and
         # never fires unless a test explicitly sets up a longer horizon.
@@ -815,30 +823,105 @@ def test_validate_accepts_well_formed_relocation():
     assert validate(scenario) == []
 
 
-# --- rp-e0h: cash_reserve_years ---
+# --- rp-aev: correlation_matrix ---
+
+_N = len(ASSET_CLASSES)
+_IDENTITY_MATRIX = [[1.0 if i == j else 0.0 for j in range(_N)] for i in range(_N)]
 
 
-def test_validate_accepts_no_cash_reserve_configured():
-    scenario = _clean_scenario()  # cash_reserve_years defaults to None
-    assert validate(scenario) == []
+def test_validate_accepts_a_well_formed_correlation_matrix():
+    assert _with_market_flags(_IDENTITY_MATRIX) == []
+    assert _with_market_flags(DEFAULT_MARKET_ASSUMPTIONS.correlation_matrix) == []
 
 
-def test_validate_flags_zero_cash_reserve_years_as_blocking():
-    scenario = _clean_scenario(cash_reserve_years=0)
-    flags = validate(scenario)
+def test_validate_flags_wrong_sized_correlation_matrix_as_blocking():
+    flags = _with_market_flags([[1.0, 0.0], [0.0, 1.0]])
     assert len(flags) == 1
-    assert flags[0].field == "cash_reserve_years"
+    assert flags[0].field == "market_assumptions.correlation_matrix"
     assert flags[0].severity == "blocking"
 
 
-def test_validate_flags_negative_cash_reserve_years_as_blocking():
-    scenario = _clean_scenario(cash_reserve_years=-2)
+def test_validate_flags_non_symmetric_correlation_matrix_as_blocking():
+    matrix = [row[:] for row in _IDENTITY_MATRIX]
+    matrix[0][1] = 0.5  # matrix[1][0] left at 0.0 -- not symmetric
+    flags = _with_market_flags(matrix)
+    assert any(f.field == "market_assumptions.correlation_matrix" and f.severity == "blocking" for f in flags)
+
+
+def test_validate_flags_non_unit_diagonal_correlation_matrix_as_blocking():
+    matrix = [row[:] for row in _IDENTITY_MATRIX]
+    matrix[2][2] = 0.9
+    flags = _with_market_flags(matrix)
+    assert any(f.field == "market_assumptions.correlation_matrix" and f.severity == "blocking" for f in flags)
+
+
+def test_validate_flags_out_of_range_correlation_entry_as_blocking():
+    matrix = [row[:] for row in _IDENTITY_MATRIX]
+    matrix[0][1] = 1.5
+    matrix[1][0] = 1.5
+    flags = _with_market_flags(matrix)
+    assert any(f.field == "market_assumptions.correlation_matrix" and f.severity == "blocking" for f in flags)
+
+
+def test_validate_flags_non_positive_semi_definite_correlation_matrix_as_blocking():
+    # Every off-diagonal at a high positive value with no actual common-
+    # factor structure -- not a valid correlation matrix for N > 2 assets.
+    matrix = [[1.0 if i == j else 0.95 for j in range(_N)] for i in range(_N)]
+    matrix[0][1] = matrix[1][0] = -0.95  # breaks PSD without breaking symmetry/range/diagonal
+    flags = _with_market_flags(matrix)
+    assert any(f.field == "market_assumptions.correlation_matrix" and f.severity == "blocking" for f in flags)
+
+
+def _with_market_flags(matrix):
+    from dataclasses import replace
+
+    market = replace(DEFAULT_MARKET_ASSUMPTIONS, correlation_matrix=matrix)
+    scenario = _clean_scenario(market_assumptions=market)
+    return validate(scenario)
+
+
+# --- rp-aev: per-pool allocation schedules ---
+
+
+def test_validate_accepts_a_well_formed_allocation_schedule():
+    assert validate(_clean_scenario()) == []
+
+
+def test_validate_flags_empty_allocation_schedule_as_blocking():
+    scenario = _clean_scenario(taxable_allocation_schedule=AllocationSchedule(periods=[]))
     flags = validate(scenario)
-    assert len(flags) == 1
-    assert flags[0].field == "cash_reserve_years"
-    assert flags[0].severity == "blocking"
+    assert any(f.field == "taxable_allocation_schedule" and f.severity == "blocking" for f in flags)
 
 
-def test_validate_accepts_well_formed_cash_reserve_years():
-    scenario = _clean_scenario(cash_reserve_years=3)
+def test_validate_flags_first_period_not_starting_at_plan_year_1_as_blocking():
+    scenario = _clean_scenario(traditional_allocation_schedule=_even_schedule(2))
+    flags = validate(scenario)
+    assert any(
+        f.field == "traditional_allocation_schedule.periods[0].start_plan_year" and f.severity == "blocking"
+        for f in flags
+    )
+
+
+def test_validate_flags_non_increasing_period_start_years_as_blocking():
+    scenario = _clean_scenario(roth_allocation_schedule=_even_schedule(1, 1))
+    flags = validate(scenario)
+    assert any(
+        f.field == "roth_allocation_schedule.periods[1].start_plan_year" and f.severity == "blocking" for f in flags
+    )
+
+
+def test_validate_accepts_a_multi_period_schedule_with_strictly_increasing_starts():
+    scenario = _clean_scenario(taxable_allocation_schedule=_even_schedule(1, 5, 10))
     assert validate(scenario) == []
+
+
+def test_validate_flags_weights_not_summing_to_one_as_blocking():
+    bad_weights = {ac: 1.0 / 8 for ac in ASSET_CLASSES}
+    bad_weights["cash"] = 0.5  # now sums to well over 1.0
+    scenario = _clean_scenario(
+        taxable_allocation_schedule=AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights=bad_weights)])
+    )
+    flags = validate(scenario)
+    assert any(
+        f.field == "taxable_allocation_schedule.periods[0].weights" and f.severity == "blocking" for f in flags
+    )

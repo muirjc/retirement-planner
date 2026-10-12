@@ -12,7 +12,7 @@ quickstart.md's prose, is not yet an implemented state module — mirrors
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember
 
 _HOUSEHOLD = Household(
     filing_status="married_filing_jointly",
@@ -22,15 +22,8 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
-_MARKET = MarketAssumptions(
-    equity_allocation=0.60,
-    equity_return_mean_real=0.065,
-    equity_return_std_real=0.17,
-    bond_allocation=0.40,
-    bond_return_mean_real=0.015,
-    bond_return_std_real=0.06,
-    correlation=-0.10,
-)
+_MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _HORIZON_YEARS = 95 - 60 + 1
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
@@ -41,6 +34,9 @@ _COMMON_KWARGS = dict(
     start_plan_year=1,
     start_tax_year=2026,
     plan_to_age=95,
+    taxable_allocation_schedule=_EVEN_SCHEDULE,
+    traditional_allocation_schedule=_EVEN_SCHEDULE,
+    roth_allocation_schedule=_EVEN_SCHEDULE,
 )
 _STRATEGY = StrategyConfiguration(
     label="fill_to_22_pct_bracket",
@@ -149,8 +145,8 @@ def test_step4_configurable_stress_scenario():
     early_paths = apply_stress_scenario(return_paths, early_shock, horizon_last_plan_year=_HORIZON_YEARS)
     late_paths = apply_stress_scenario(return_paths, late_shock, horizon_last_plan_year=_HORIZON_YEARS)
 
-    assert early_paths[0].annual_returns[0] == -0.30
-    assert early_paths[0].annual_returns[2] == return_paths[0].annual_returns[2]
+    assert early_paths[0].asset_returns[0]["us_large"] == -0.30
+    assert early_paths[0].asset_returns[2] == return_paths[0].asset_returns[2]
 
     early_run = run_simulation(
         **_COMMON_KWARGS, state="FL", strategy=_STRATEGY, return_paths=early_paths, candidate_label="shock_year_1",

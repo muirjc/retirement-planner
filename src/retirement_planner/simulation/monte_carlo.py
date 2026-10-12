@@ -1,5 +1,5 @@
 """Multi-path Monte Carlo simulation (FR-002-FR-004, FR-006, FR-017-FR-019):
-runs run_plan_projection() once per ReturnPath, aggregating into a success
+runs run_plan_projection() once per AssetClassReturnPath, aggregating into a success
 rate, percentile ending-balance bands, and (optionally) a survival-adjusted
 success rate. Path-level work is dispatched across worker processes once
 path_count exceeds a threshold (research.md §7). See
@@ -39,10 +39,10 @@ from dataclasses import replace
 
 from retirement_planner.comparison import PlanProjection, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household
+from retirement_planner.scenario import AllocationSchedule, Household
 from retirement_planner.tax import FigureUsage
 
-from .models import PercentileBand, ReturnPath, SimulationRun, SurvivalCurve
+from .models import AssetClassReturnPath, PercentileBand, SimulationRun, SurvivalCurve
 
 
 def _fresh_inherited_accounts(inherited_accounts: list[InheritedAccountBalance]) -> list[InheritedAccountBalance]:
@@ -98,6 +98,7 @@ _DEFAULT_PERCENTILES: tuple[float, ...] = (0.10, 0.25, 0.50, 0.75, 0.90)
 _worker_shared_args: (
     tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
+        AllocationSchedule, AllocationSchedule, AllocationSchedule,
         list[InheritedAccountBalance], bool, str | None, int | None,
     ]
     | None
@@ -115,6 +116,9 @@ def _init_worker(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     inherited_accounts: list[InheritedAccountBalance],
     net_earned_income_against_spending: bool,
     relocation_state: str | None,
@@ -130,16 +134,19 @@ def _init_worker(
     inherited_accounts is this worker's own unmutated *base* list;
     _run_one_path_shared() takes a fresh copy of it before every path.
     net_earned_income_against_spending (rp-595) travels the same way.
-    relocation_state/relocation_plan_year (rp-vim) travel the same way too."""
+    relocation_state/relocation_plan_year (rp-vim) travel the same way too.
+    The 3 allocation schedules (rp-aev) travel the same way -- identical
+    for every path, same as household/accounts/strategy."""
     global _worker_shared_args
     _worker_shared_args = (
         household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-        start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts,
-        net_earned_income_against_spending, relocation_state, relocation_plan_year,
+        start_plan_year, start_tax_year, plan_to_age, strategy,
+        taxable_allocation_schedule, traditional_allocation_schedule, roth_allocation_schedule,
+        inherited_accounts, net_earned_income_against_spending, relocation_state, relocation_plan_year,
     )
 
 
-def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) -> PlanProjection:
+def _run_one_path_shared(task: tuple[AssetClassReturnPath, dict[str, int | None] | None]) -> PlanProjection:
     """Module-level (picklable) worker used under parallel dispatch: reads
     the shared, per-worker-process arguments _init_worker() set once, and
     runs run_plan_projection() for just this one path (research.md §7) --
@@ -147,15 +154,16 @@ def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) 
     since this same worker process runs many paths in sequence and
     run_plan_projection() mutates each InheritedAccountBalance in place.
 
-    task pairs this path's own ReturnPath with its own death-year draw
-    (023-probabilistic-death-draws, rp-vgv, research.md §7) -- None when
-    this capability is unused, in which case _household_for_path() is a
-    complete no-op (FR-007)."""
+    task pairs this path's own AssetClassReturnPath with its own death-year
+    draw (023-probabilistic-death-draws, rp-vgv, research.md §7) -- None
+    when this capability is unused, in which case _household_for_path() is
+    a complete no-op (FR-007)."""
     assert _worker_shared_args is not None
     return_path, death_year_draw = task
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy, inherited_accounts,
-     net_earned_income_against_spending, relocation_state, relocation_plan_year) = _worker_shared_args
+     start_plan_year, start_tax_year, plan_to_age, strategy,
+     taxable_allocation_schedule, traditional_allocation_schedule, roth_allocation_schedule,
+     inherited_accounts, net_earned_income_against_spending, relocation_state, relocation_plan_year) = _worker_shared_args
     return run_plan_projection(
         household=_household_for_path(household, death_year_draw),
         accounts=accounts,
@@ -168,6 +176,9 @@ def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) 
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=return_path,
+        taxable_allocation_schedule=taxable_allocation_schedule,
+        traditional_allocation_schedule=traditional_allocation_schedule,
+        roth_allocation_schedule=roth_allocation_schedule,
         inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
         net_earned_income_against_spending=net_earned_income_against_spending,
         relocation_state=relocation_state,
@@ -178,7 +189,8 @@ def _run_one_path_shared(task: tuple[ReturnPath, dict[str, int | None] | None]) 
 def _run_one_path(
     args: tuple[
         Household, AccountBalances, dict[str, float], float, str, int, int, int, int, StrategyConfiguration,
-        ReturnPath, list[InheritedAccountBalance], dict[str, int | None] | None, bool, str | None, int | None,
+        AllocationSchedule, AllocationSchedule, AllocationSchedule,
+        AssetClassReturnPath, list[InheritedAccountBalance], dict[str, int | None] | None, bool, str | None, int | None,
     ],
 ) -> PlanProjection:
     """Module-level (picklable) worker used under serial dispatch: unpacks
@@ -188,12 +200,15 @@ def _run_one_path(
     The trailing death_year_draw element (023-probabilistic-death-draws,
     rp-vgv, research.md §7) is None when this capability is unused, in
     which case _household_for_path() is a complete no-op (FR-007). The
-    net_earned_income_against_spending (rp-595) and relocation_state/
-    relocation_plan_year (rp-vim) elements travel the same way -- extra
-    positional elements per path, not worth their own shared-per-worker
-    tuple the way _run_one_path_shared() gets them."""
+    net_earned_income_against_spending (rp-595), relocation_state/
+    relocation_plan_year (rp-vim), and 3 allocation schedules (rp-aev)
+    elements travel the same way -- extra positional elements per path,
+    not worth their own shared-per-worker tuple the way
+    _run_one_path_shared() gets them."""
     (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-     start_plan_year, start_tax_year, plan_to_age, strategy, return_path, inherited_accounts,
+     start_plan_year, start_tax_year, plan_to_age, strategy,
+     taxable_allocation_schedule, traditional_allocation_schedule, roth_allocation_schedule,
+     return_path, inherited_accounts,
      death_year_draw, net_earned_income_against_spending, relocation_state, relocation_plan_year) = args
     return run_plan_projection(
         household=_household_for_path(household, death_year_draw),
@@ -207,6 +222,9 @@ def _run_one_path(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=return_path,
+        taxable_allocation_schedule=taxable_allocation_schedule,
+        traditional_allocation_schedule=traditional_allocation_schedule,
+        roth_allocation_schedule=roth_allocation_schedule,
         inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
         net_earned_income_against_spending=net_earned_income_against_spending,
         relocation_state=relocation_state,
@@ -273,8 +291,11 @@ def run_simulation(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
     candidate_label: str,
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
@@ -370,6 +391,7 @@ def run_simulation(
             initializer=_init_worker,
             initargs=(household, accounts, traditional_ownership_shares, annual_spending_need, state,
                       reference_tax_year, start_plan_year, start_tax_year, plan_to_age, strategy,
+                      taxable_allocation_schedule, traditional_allocation_schedule, roth_allocation_schedule,
                       inherited_accounts, net_earned_income_against_spending,
                       relocation_state, relocation_plan_year),
         ) as executor:
@@ -378,7 +400,9 @@ def run_simulation(
     else:
         call_args = [
             (household, accounts, traditional_ownership_shares, annual_spending_need, state, reference_tax_year,
-             start_plan_year, start_tax_year, plan_to_age, strategy, path, inherited_accounts, draw,
+             start_plan_year, start_tax_year, plan_to_age, strategy,
+             taxable_allocation_schedule, traditional_allocation_schedule, roth_allocation_schedule,
+             path, inherited_accounts, draw,
              net_earned_income_against_spending, relocation_state, relocation_plan_year)
             for path, draw in zip(return_paths, death_year_draws_by_path)
         ]

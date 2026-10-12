@@ -9,10 +9,12 @@ figure asserted with no derivation.
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting import attribute_plan_projection, compute_account_shares
-from retirement_planner.scenario import Account, Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import ASSET_CLASSES, Account, AllocationPeriod, AllocationSchedule, Household, HouseholdMember, IncomeStream
+
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _strategy(**overrides):
@@ -42,7 +44,10 @@ def _run(household, accounts, traditional_ownership_shares, plan_to_age, inherit
         start_tax_year=2026,
         plan_to_age=plan_to_age,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.04 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         **overrides,
     )
 
@@ -279,55 +284,3 @@ def test_member_income_stream_amounts_pass_through_unchanged():
     detail = attribute_plan_projection(projection, shares)
 
     assert detail[0].member_income_stream_amounts == projection.years[0].member_income_stream_amounts == {"you": 18_000.0}
-
-
-# --- rp-e0h: cash-reserve attribution ---
-
-
-def test_cash_account_rows_appear_with_correct_type_and_apportioned_withdrawal():
-    from retirement_planner.simulation import ReturnPath
-
-    household = Household(
-        filing_status="single",
-        members=[HouseholdMember(person_name="you", current_age=75, ss_claim_age=99, ss_annual_benefit=0)],
-    )
-    scenario_accounts = [
-        Account(account_type="cash", balance=60_000, owner="you", account_id="cash-0"),
-        Account(account_type="cash", balance=40_000, owner="you", account_id="cash-1"),
-        Account(account_type="traditional", balance=500_000, owner="you", account_id="traditional-2"),
-    ]
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
-    projection = run_plan_projection(
-        household=household,
-        accounts=AccountBalances(traditional=500_000, roth=0, taxable=0, cash=100_000),
-        traditional_ownership_shares={"you": 1.0},
-        inherited_accounts=[],
-        annual_spending_need=40_000,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=75,
-        strategy=_strategy(claiming_ages={"you": 99}, cash_reserve_years=3),
-        return_assumption=return_path,
-    )
-    shares = compute_account_shares(scenario_accounts)
-
-    detail = attribute_plan_projection(projection, shares)
-
-    year = projection.years[0]
-    year_detail = detail[0]
-    cash_rows = [r for r in year_detail.accounts if r.account_type == "cash"]
-    assert {r.account_id for r in cash_rows} == {"cash-0", "cash-1"}
-    assert all(r.rmd_amount == 0.0 for r in cash_rows)
-    assert all(r.attribution == "fixed_share_of_pooled_total" for r in cash_rows)
-    # 60/40 split of the pooled $100,000 starting cash balance.
-    starting_by_id = {r.account_id: r.starting_balance for r in cash_rows}
-    assert starting_by_id["cash-0"] == pytest.approx(60_000.0)
-    assert starting_by_id["cash-1"] == pytest.approx(40_000.0)
-    # The pooled cash draw ($40,000, a down year) apportioned the same way.
-    assert sum(r.withdrawal_amount for r in cash_rows) == pytest.approx(year.cash_reserve_draw)
-    withdrawal_by_id = {r.account_id: r.withdrawal_amount for r in cash_rows}
-    assert withdrawal_by_id["cash-0"] == pytest.approx(year.cash_reserve_draw * 0.6)
-    assert withdrawal_by_id["cash-1"] == pytest.approx(year.cash_reserve_draw * 0.4)
-    assert sum(r.ending_balance for r in cash_rows) == pytest.approx(year.ending_balances.cash)

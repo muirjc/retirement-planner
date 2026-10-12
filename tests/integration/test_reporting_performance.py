@@ -12,7 +12,7 @@ import time
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.reporting import run_to_csv_text, summarize_run
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember
 from retirement_planner.simulation import generate_return_paths, run_simulation
 
 _HOUSEHOLD = Household(
@@ -23,15 +23,8 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
-_MARKET = MarketAssumptions(
-    equity_allocation=0.60,
-    equity_return_mean_real=0.065,
-    equity_return_std_real=0.17,
-    bond_allocation=0.40,
-    bond_return_mean_real=0.015,
-    bond_return_std_real=0.06,
-    correlation=-0.10,
-)
+_MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _STRATEGY = StrategyConfiguration(
     label="fill_to_22_pct_bracket",
     withdrawal_strategy="rmd_taxable_traditional_roth",
@@ -55,6 +48,8 @@ def test_summarize_and_export_add_no_perceptible_delay_at_reference_scale():
         annual_spending_need=110_000, state="FL",
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=return_paths, candidate_label="base_case",
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     start = time.perf_counter()

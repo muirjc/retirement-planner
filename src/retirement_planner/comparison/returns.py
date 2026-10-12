@@ -1,25 +1,23 @@
-"""Deterministic return derivation (FR-003).
+"""Deterministic return derivation.
 
-Stands in for genuine multi-path Monte Carlo simulation, which is deferred
-to the future Simulation Engine feature (§3.5) — see
-specs/004-strategy-comparison-layer/research.md §1.
+rp-aev: no longer blends anything itself -- blending by a pool's own
+active glide-path weights happens separately, per plan year, inside
+run_plan_projection() (allocation.py::blended_pool_return()). This
+function just hands back each asset class's own mean_real unchanged,
+satisfying AssetClassReturnSchedule with no variance to sample from
+(there's nothing to sample under the Deterministic engine).
 """
 
 from __future__ import annotations
 
-from retirement_planner.scenario import MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, MarketAssumptions
 
-from .models import DeterministicReturnAssumption
+from .models import DeterministicAssetClassReturnAssumption
 
 
-def derive_deterministic_return(market_assumptions: MarketAssumptions) -> DeterministicReturnAssumption:
-    """Returns the allocation-weighted blend of equity_return_mean_real and
-    bond_return_mean_real (FR-003, research.md §1). Ignores
-    equity_return_std_real, bond_return_std_real, and correlation entirely
-    — this is a fixed value, not a distribution to sample from.
-    """
-    blended_return = (
-        market_assumptions.equity_allocation * market_assumptions.equity_return_mean_real
-        + market_assumptions.bond_allocation * market_assumptions.bond_return_mean_real
+def derive_deterministic_return(market_assumptions: MarketAssumptions) -> DeterministicAssetClassReturnAssumption:
+    return DeterministicAssetClassReturnAssumption(
+        asset_class_means={
+            asset_class: market_assumptions.asset_classes[asset_class].mean_real for asset_class in ASSET_CLASSES
+        }
     )
-    return DeterministicReturnAssumption(annual_real_return=blended_return)

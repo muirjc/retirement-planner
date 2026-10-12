@@ -30,9 +30,9 @@ from dataclasses import dataclass
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household
+from retirement_planner.scenario import AllocationSchedule, Household
 
-from .models import ReturnPath, SurvivalCurve
+from .models import AssetClassReturnPath, SurvivalCurve
 from .monte_carlo import run_simulation
 
 _DEFAULT_TOLERANCE = 0.02
@@ -94,7 +94,10 @@ def _success_rate_at(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     survival_curves: dict[str, SurvivalCurve] | None,
     inherited_accounts: list[InheritedAccountBalance],
     net_earned_income_against_spending: bool,
@@ -124,6 +127,9 @@ def _success_rate_at(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_paths=return_paths,
+        taxable_allocation_schedule=taxable_allocation_schedule,
+        traditional_allocation_schedule=traditional_allocation_schedule,
+        roth_allocation_schedule=roth_allocation_schedule,
         candidate_label=f"spending_search_{spending:.2f}",
         survival_curves=survival_curves,
         inherited_accounts=inherited_accounts,
@@ -145,7 +151,10 @@ def search_spending_for_target_success_rate(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     anchor_spending: float,
     target_success_rate: float,
     survival_curves: dict[str, SurvivalCurve] | None = None,
@@ -209,6 +218,9 @@ def search_spending_for_target_success_rate(
             plan_to_age=plan_to_age,
             strategy=strategy,
             return_paths=return_paths,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             survival_curves=survival_curves,
             inherited_accounts=inherited_accounts,
             net_earned_income_against_spending=net_earned_income_against_spending,
@@ -277,7 +289,10 @@ def find_sustainable_spending_range(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     anchor_spending: float,
     conservative_target_success_rate: float = 0.95,
     flexible_target_success_rate: float = 0.75,
@@ -316,6 +331,9 @@ def find_sustainable_spending_range(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_paths=return_paths,
+        taxable_allocation_schedule=taxable_allocation_schedule,
+        traditional_allocation_schedule=traditional_allocation_schedule,
+        roth_allocation_schedule=roth_allocation_schedule,
         anchor_spending=anchor_spending,
         target_success_rate=conservative_target_success_rate,
         survival_curves=survival_curves,
@@ -338,6 +356,9 @@ def find_sustainable_spending_range(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_paths=return_paths,
+        taxable_allocation_schedule=taxable_allocation_schedule,
+        traditional_allocation_schedule=traditional_allocation_schedule,
+        roth_allocation_schedule=roth_allocation_schedule,
         anchor_spending=anchor_spending,
         target_success_rate=flexible_target_success_rate,
         survival_curves=survival_curves,

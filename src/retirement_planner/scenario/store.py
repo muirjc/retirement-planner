@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from .loader import ScenarioParseError, parse_scenario
-from .models import Account, HouseholdMember, IncomeStream, Scenario
+from .models import ASSET_CLASSES, Account, AllocationSchedule, HouseholdMember, IncomeStream, Scenario
 from .validation import validate
 
 DEFAULT_SCENARIOS_DIR = Path("config/scenarios")
@@ -108,6 +108,21 @@ def _household_member_to_dict(member: HouseholdMember) -> dict:
     return data
 
 
+def _allocation_schedule_to_dict(schedule: AllocationSchedule) -> dict:
+    """rp-aev: round-trips every AllocationPeriod field-by-field, mirroring
+    every other nested-list-of-dataclasses round-trip in this module
+    (_account_to_dict()/_income_stream_to_dict())."""
+    return {
+        "periods": [
+            {
+                "start_plan_year": period.start_plan_year,
+                "weights": {asset_class: period.weights[asset_class] for asset_class in ASSET_CLASSES},
+            }
+            for period in schedule.periods
+        ]
+    }
+
+
 def _scenario_to_dict(scenario: Scenario) -> dict:
     data: dict = {
         "name": scenario.name,
@@ -152,24 +167,19 @@ def _scenario_to_dict(scenario: Scenario) -> dict:
         # first written field-by-field rather than generically.
         "relocation_state": scenario.relocation_state,
         "relocation_plan_year": scenario.relocation_plan_year,
-        # rp-e0h: same flat-optional-scalar, always-written convention as
-        # relocation_state/relocation_plan_year immediately above.
-        "cash_reserve_years": scenario.cash_reserve_years,
         "market_assumptions": {
-            "equity_allocation": scenario.market_assumptions.equity_allocation,
-            "equity_return_mean_real": scenario.market_assumptions.equity_return_mean_real,
-            "equity_return_std_real": scenario.market_assumptions.equity_return_std_real,
-            "bond_allocation": scenario.market_assumptions.bond_allocation,
-            "bond_return_mean_real": scenario.market_assumptions.bond_return_mean_real,
-            "bond_return_std_real": scenario.market_assumptions.bond_return_std_real,
-            "correlation": scenario.market_assumptions.correlation,
-            # rp-e0h: always written, 0.0 default -- unlike relocation_state
-            # above, this has no "unconfigured" sentinel of its own (a cash
-            # reserve's own yield is meaningful even with cash_reserve_years
-            # left None, e.g. a household that just holds cash without an
-            # active drawdown policy).
-            "cash_return_mean_real": scenario.market_assumptions.cash_return_mean_real,
+            "asset_classes": {
+                asset_class: {
+                    "mean_real": scenario.market_assumptions.asset_classes[asset_class].mean_real,
+                    "std_real": scenario.market_assumptions.asset_classes[asset_class].std_real,
+                }
+                for asset_class in ASSET_CLASSES
+            },
+            "correlation_matrix": [list(row) for row in scenario.market_assumptions.correlation_matrix],
         },
+        "taxable_allocation_schedule": _allocation_schedule_to_dict(scenario.taxable_allocation_schedule),
+        "traditional_allocation_schedule": _allocation_schedule_to_dict(scenario.traditional_allocation_schedule),
+        "roth_allocation_schedule": _allocation_schedule_to_dict(scenario.roth_allocation_schedule),
         "simulation_settings": {
             "n_paths": scenario.simulation_settings.n_paths,
             "seed": scenario.simulation_settings.seed,

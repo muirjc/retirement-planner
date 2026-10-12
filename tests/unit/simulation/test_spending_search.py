@@ -10,20 +10,13 @@ hand-picked number.
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember
 from retirement_planner.simulation import find_sustainable_spending_range, generate_return_paths
 from retirement_planner.simulation.monte_carlo import run_simulation
 from retirement_planner.simulation.spending_search import search_spending_for_target_success_rate
 
-_MARKET = MarketAssumptions(
-    equity_allocation=0.6,
-    equity_return_mean_real=0.05,
-    equity_return_std_real=0.18,
-    bond_allocation=0.4,
-    bond_return_mean_real=0.02,
-    bond_return_std_real=0.06,
-    correlation=0.0,
-)
+_MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _household_and_kwargs(current_age=65, plan_to_age=90, traditional_balance=1_000_000.0, path_count=80):
@@ -53,6 +46,9 @@ def _household_and_kwargs(current_age=65, plan_to_age=90, traditional_balance=1_
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_paths=return_paths,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     return common_kwargs
 
@@ -105,6 +101,9 @@ def test_success_rate_is_monotonically_non_increasing_in_spending():
             plan_to_age=kwargs["plan_to_age"],
             strategy=kwargs["strategy"],
             return_paths=kwargs["return_paths"],
+            taxable_allocation_schedule=kwargs["taxable_allocation_schedule"],
+            traditional_allocation_schedule=kwargs["traditional_allocation_schedule"],
+            roth_allocation_schedule=kwargs["roth_allocation_schedule"],
             candidate_label="test",
         ).success_rate
         for spending in spending_levels

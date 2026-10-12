@@ -11,7 +11,11 @@ specs/001-scenario-config-management/contracts/scenario-api.md
 
 from __future__ import annotations
 
-from .models import Scenario, ValidationFlag
+from .correlation import cholesky_lower
+from .models import ASSET_CLASSES, AllocationSchedule, Scenario, ValidationFlag
+
+_WEIGHT_SUM_TOLERANCE = 1e-6
+_CORRELATION_TOLERANCE = 1e-9
 
 
 def validate(scenario: Scenario) -> list[ValidationFlag]:
@@ -25,7 +29,12 @@ def validate(scenario: Scenario) -> list[ValidationFlag]:
     flags.extend(_validate_spending(scenario))
     flags.extend(_validate_roth_conversion(scenario))
     flags.extend(_validate_relocation(scenario))
-    flags.extend(_validate_cash_reserve(scenario))
+    flags.extend(_validate_correlation_matrix(scenario))
+    flags.extend(_validate_allocation_schedule(scenario.taxable_allocation_schedule, "taxable_allocation_schedule"))
+    flags.extend(
+        _validate_allocation_schedule(scenario.traditional_allocation_schedule, "traditional_allocation_schedule")
+    )
+    flags.extend(_validate_allocation_schedule(scenario.roth_allocation_schedule, "roth_allocation_schedule"))
     return flags
 
 
@@ -467,23 +476,133 @@ def _validate_relocation(scenario: Scenario) -> list[ValidationFlag]:
     return flags
 
 
-def _validate_cash_reserve(scenario: Scenario) -> list[ValidationFlag]:
-    """rp-e0h: cash_reserve_years, when configured, must be a positive
-    number of years -- mirrors relocation_plan_year's own non-positive
-    check immediately above. No check against the household's own cash
-    balance or against STATE_MODULES-style registries here -- unlike
-    relocation_state, cash_reserve_years has no external registry to
-    validate against; an unusually large value (e.g. 50 years) is left
-    alone as an unusual-but-not-invalid configuration, the same way an
-    unusually high spending need is already only ever a warning
-    elsewhere, never blocked."""
+def _validate_correlation_matrix(scenario: Scenario) -> list[ValidationFlag]:
+    """rp-aev: every check is blocking -- an invalid correlation matrix
+    must never be silently clamped/symmetrized, it must make the
+    scenario unusable. Checks run in order, each independent of the
+    others still being meaningful (a non-square/non-symmetric matrix
+    makes "is the diagonal 1.0" or "is it positive-semi-definite" checks
+    meaningless to even ask, but every problem found is still reported,
+    per this module's own FR-006 "never stop at the first" discipline --
+    the one exception is the final PSD check, which is only attempted
+    once shape/symmetry/diagonal/range are already confirmed clean,
+    since cholesky_lower() assumes a square, well-formed matrix)."""
     flags: list[ValidationFlag] = []
-    if scenario.cash_reserve_years is not None and scenario.cash_reserve_years <= 0:
+    matrix = scenario.market_assumptions.correlation_matrix
+    n = len(ASSET_CLASSES)
+    field_name = "market_assumptions.correlation_matrix"
+
+    if len(matrix) != n or any(len(row) != n for row in matrix):
         flags.append(
             ValidationFlag(
-                field="cash_reserve_years",
-                message=f"cash_reserve_years ({scenario.cash_reserve_years}) must be a positive number of years.",
+                field=field_name,
+                message=f"correlation_matrix must be exactly {n}x{n} (one row/column per asset class).",
                 severity="blocking",
             )
         )
+        return flags
+
+    shape_clean = True
+    for i in range(n):
+        for j in range(n):
+            if abs(matrix[i][j] - matrix[j][i]) > _CORRELATION_TOLERANCE:
+                flags.append(
+                    ValidationFlag(
+                        field=field_name,
+                        message=(
+                            f"correlation_matrix is not symmetric: [{i}][{j}]={matrix[i][j]} != "
+                            f"[{j}][{i}]={matrix[j][i]}."
+                        ),
+                        severity="blocking",
+                    )
+                )
+                shape_clean = False
+        if abs(matrix[i][i] - 1.0) > _CORRELATION_TOLERANCE:
+            flags.append(
+                ValidationFlag(
+                    field=field_name,
+                    message=f"correlation_matrix's diagonal must be 1.0 (row {i} is {matrix[i][i]}).",
+                    severity="blocking",
+                )
+            )
+            shape_clean = False
+        for j in range(n):
+            if not (-1.0 <= matrix[i][j] <= 1.0):
+                flags.append(
+                    ValidationFlag(
+                        field=field_name,
+                        message=f"correlation_matrix[{i}][{j}]={matrix[i][j]} is outside the valid range [-1, 1].",
+                        severity="blocking",
+                    )
+                )
+                shape_clean = False
+
+    if not shape_clean:
+        return flags
+
+    try:
+        cholesky_lower(matrix)
+    except ValueError:
+        flags.append(
+            ValidationFlag(
+                field=field_name,
+                message="correlation_matrix is not a valid (positive-semi-definite) correlation matrix.",
+                severity="blocking",
+            )
+        )
+    return flags
+
+
+def _validate_allocation_schedule(schedule: AllocationSchedule, field_prefix: str) -> list[ValidationFlag]:
+    """rp-aev: each period's 8 weights must sum to 1.0 (within tolerance);
+    periods must be strictly increasing by start_plan_year, as given --
+    an out-of-order list is rejected as invalid, never silently
+    re-sorted (silently re-sorting user input is more likely to mask a
+    UI bug than help a legitimate use case); the first period must start
+    at plan year 1 so every plan year has an active period."""
+    flags: list[ValidationFlag] = []
+    if not schedule.periods:
+        flags.append(
+            ValidationFlag(
+                field=field_prefix,
+                message="At least one allocation period is required.",
+                severity="blocking",
+            )
+        )
+        return flags
+
+    if schedule.periods[0].start_plan_year != 1:
+        flags.append(
+            ValidationFlag(
+                field=f"{field_prefix}.periods[0].start_plan_year",
+                message=(
+                    f"The first allocation period must start at plan year 1 "
+                    f"(starts at {schedule.periods[0].start_plan_year})."
+                ),
+                severity="blocking",
+            )
+        )
+
+    for index, period in enumerate(schedule.periods):
+        weight_sum = sum(period.weights.get(asset_class, 0.0) for asset_class in ASSET_CLASSES)
+        if abs(weight_sum - 1.0) > _WEIGHT_SUM_TOLERANCE:
+            flags.append(
+                ValidationFlag(
+                    field=f"{field_prefix}.periods[{index}].weights",
+                    message=f"This period's weights sum to {weight_sum:.4f}, not 1.0.",
+                    severity="blocking",
+                )
+            )
+        if index > 0 and period.start_plan_year <= schedule.periods[index - 1].start_plan_year:
+            flags.append(
+                ValidationFlag(
+                    field=f"{field_prefix}.periods[{index}].start_plan_year",
+                    message=(
+                        f"Allocation periods must have strictly increasing start_plan_year "
+                        f"(period {index}'s {period.start_plan_year} does not come after period "
+                        f"{index - 1}'s {schedule.periods[index - 1].start_plan_year})."
+                    ),
+                    severity="blocking",
+                )
+            )
     return flags

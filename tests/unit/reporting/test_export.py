@@ -12,14 +12,16 @@ import pytest
 
 from retirement_planner.comparison import (
     ComparisonResult,
-    DeterministicReturnAssumption,
+    DeterministicAssetClassReturnAssumption,
     StrategyConfiguration,
     run_plan_projection,
 )
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 from retirement_planner.simulation import PercentileBand, SimulationComparisonResult, SimulationRun
 from retirement_planner.tax import FigureUsage
+
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 _HOUSEHOLD = Household(
     filing_status="single",
@@ -51,7 +53,10 @@ def _projection(traditional, taxable, spending_need):
         accounts=accounts,
         traditional_ownership_shares={"you": 1.0},
         annual_spending_need=spending_need,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -171,7 +176,7 @@ def test_deterministic_comparison_to_csv_text_leaves_success_rate_blank():
 
     comparison = ComparisonResult(
         dimension="roth_conversion_strategy",
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES}),
         projections=[_PROJECTION_A, _PROJECTION_B],
     )
 
@@ -190,7 +195,7 @@ def test_comparison_exports_include_has_unverified_figure_column():
     )
     det_comparison = ComparisonResult(
         dimension="withdrawal_sequencing",
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES}),
         projections=[_PROJECTION_A],
     )
 
@@ -244,7 +249,7 @@ def test_comparison_exports_include_irmaa_and_niit_columns():
     )
     det_comparison = ComparisonResult(
         dimension="withdrawal_sequencing",
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES}),
         projections=[_PROJECTION_A],
     )
 

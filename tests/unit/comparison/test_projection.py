@@ -9,7 +9,7 @@ formula -- behavior is unchanged, confirmed by these same tests.
 import pytest
 
 from retirement_planner.comparison import (
-    DeterministicReturnAssumption,
+    DeterministicAssetClassReturnAssumption,
     StrategyConfiguration,
     deemed_rmd_owner,
     member_age_in_tax_year,
@@ -17,8 +17,27 @@ from retirement_planner.comparison import (
 )
 from retirement_planner.comparison.projection import _approximate_magi, _household_gross_social_security_benefit
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Contribution401kPlan, EmployerContributionPlan, Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import (
+    ASSET_CLASSES,
+    AllocationPeriod,
+    AllocationSchedule,
+    Contribution401kPlan,
+    EmployerContributionPlan,
+    Household,
+    HouseholdMember,
+    IncomeStream,
+)
 from retirement_planner.tax import FederalTaxResult, IncomeComponents, compute_taxable_social_security
+
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
+
+
+def _flat_return(rate: float) -> DeterministicAssetClassReturnAssumption:
+    """Every asset class sharing the same mean -- the blended return for
+    ANY pool, under ANY allocation weights, is then exactly `rate`,
+    reproducing this test file's pre-rp-aev single-blended-rate fixtures
+    exactly."""
+    return DeterministicAssetClassReturnAssumption(asset_class_means={ac: rate for ac in ASSET_CLASSES})
 
 
 def _mfj_household(you_age=60, spouse_age=58, you_benefit=32_000, spouse_benefit=24_000, you_fra=67.0, spouse_fra=67.0):
@@ -112,7 +131,7 @@ def test_rmd_reflects_only_the_member_whos_reached_the_starting_age():
     household = _mfj_household(you_age=74, spouse_age=60)
     accounts = AccountBalances(traditional=1_000_000, roth=0, taxable=0)
     strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+    return_assumption = _flat_return(0.0)
 
     result = run_plan_projection(
         household=household,
@@ -126,6 +145,9 @@ def test_rmd_reflects_only_the_member_whos_reached_the_starting_age():
         plan_to_age=74,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert len(result.years) == 1
@@ -139,7 +161,7 @@ def test_rmd_sums_both_members_when_both_have_reached_the_starting_age():
     household = _mfj_household(you_age=76, spouse_age=74)
     accounts = AccountBalances(traditional=2_000_000, roth=0, taxable=0)
     strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+    return_assumption = _flat_return(0.0)
 
     result = run_plan_projection(
         household=household,
@@ -153,6 +175,9 @@ def test_rmd_sums_both_members_when_both_have_reached_the_starting_age():
         plan_to_age=76,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     # you: $1.2M @ 76 (divisor 23.7); spouse: $800k @ 74 (divisor 25.5) --
@@ -165,7 +190,7 @@ def test_rmd_ignores_a_member_with_zero_share_regardless_of_age():
     household = _mfj_household(you_age=80, spouse_age=90)
     accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
     strategy = _strategy(claiming_ages={"you": 99, "spouse": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+    return_assumption = _flat_return(0.0)
 
     result = run_plan_projection(
         household=household,
@@ -179,6 +204,9 @@ def test_rmd_ignores_a_member_with_zero_share_regardless_of_age():
         plan_to_age=90,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     # spouse (90, well past the starting age) owns none of the traditional
@@ -203,7 +231,10 @@ def test_missing_member_from_traditional_ownership_shares_raises_key_error_eager
             start_tax_year=2026,
             plan_to_age=74,
             strategy=strategy,
-            return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+            return_assumption=_flat_return(0.0),
+            taxable_allocation_schedule=_EVEN_SCHEDULE,
+            traditional_allocation_schedule=_EVEN_SCHEDULE,
+            roth_allocation_schedule=_EVEN_SCHEDULE,
         )
 
 
@@ -217,7 +248,7 @@ def test_growth_applied_uniformly_between_years():
     )
     accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.05)
+    return_assumption = _flat_return(0.05)
 
     result = run_plan_projection(
         household=household,
@@ -231,6 +262,9 @@ def test_growth_applied_uniformly_between_years():
         plan_to_age=72,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert len(result.years) == 3
@@ -247,7 +281,7 @@ def test_tax_funding_withdrawal_draws_the_years_tax_owed_from_post_mechanics_bal
     )
     accounts = AccountBalances(traditional=1_000_000, roth=0, taxable=500_000)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+    return_assumption = _flat_return(0.0)
 
     result = run_plan_projection(
         household=household,
@@ -261,6 +295,9 @@ def test_tax_funding_withdrawal_draws_the_years_tax_owed_from_post_mechanics_bal
         plan_to_age=75,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -281,7 +318,7 @@ def test_shortfall_continues_across_years_without_raising_and_never_goes_negativ
     )
     accounts = AccountBalances(traditional=0, roth=0, taxable=1_000)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.0)
+    return_assumption = _flat_return(0.0)
 
     result = run_plan_projection(
         household=household,
@@ -295,6 +332,9 @@ def test_shortfall_continues_across_years_without_raising_and_never_goes_negativ
         plan_to_age=72,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert len(result.years) == 3
@@ -307,16 +347,18 @@ def test_shortfall_continues_across_years_without_raising_and_never_goes_negativ
 
 
 class _YearVaryingReturnStub:
-    """A minimal ReturnSchedule (005-simulation-engine research.md §1) whose
-    return varies by plan_year, used to confirm run_plan_projection() calls
-    return_for_plan_year(plan_year) for its growth factor rather than
-    reading a fixed .annual_real_return field."""
+    """A minimal AssetClassReturnSchedule whose blended return varies by
+    plan_year (every asset class shares the same mean that year, so the
+    blended return is that same value under any allocation weights), used
+    to confirm run_plan_projection() calls asset_returns_for_plan_year(plan_year)
+    for its growth factor rather than reading a fixed value."""
 
     def __init__(self, returns_by_plan_year: dict[int, float]):
         self._returns_by_plan_year = returns_by_plan_year
 
-    def return_for_plan_year(self, plan_year: int) -> float:
-        return self._returns_by_plan_year[plan_year]
+    def asset_returns_for_plan_year(self, plan_year: int) -> dict:
+        rate = self._returns_by_plan_year[plan_year]
+        return {ac: rate for ac in ASSET_CLASSES}
 
 
 def test_growth_factor_calls_return_for_plan_year_and_varies_by_year():
@@ -340,6 +382,9 @@ def test_growth_factor_calls_return_for_plan_year_and_varies_by_year():
         plan_to_age=72,
         strategy=strategy,
         return_assumption=return_schedule,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert len(result.years) == 3
@@ -348,17 +393,17 @@ def test_growth_factor_calls_return_for_plan_year_and_varies_by_year():
     assert result.years[2].ending_balances.taxable == pytest.approx(100_000 * 1.10 * 1.00 * 1.20)
 
 
-def test_deterministic_return_assumption_return_for_plan_year_ignores_plan_year():
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.045)
-    assert return_assumption.return_for_plan_year(1) == 0.045
-    assert return_assumption.return_for_plan_year(35) == 0.045
+def test_deterministic_return_assumption_asset_returns_for_plan_year_ignores_plan_year():
+    return_assumption = _flat_return(0.045)
+    assert return_assumption.asset_returns_for_plan_year(1) == {ac: 0.045 for ac in ASSET_CLASSES}
+    assert return_assumption.asset_returns_for_plan_year(35) == {ac: 0.045 for ac in ASSET_CLASSES}
 
 
 def test_repeated_calls_with_identical_inputs_produce_identical_results():
     household = _mfj_household()
     accounts = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
     strategy = _strategy()
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.045)
+    return_assumption = _flat_return(0.045)
 
     kwargs = dict(
         household=household,
@@ -372,6 +417,9 @@ def test_repeated_calls_with_identical_inputs_produce_identical_results():
         plan_to_age=70,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_run = run_plan_projection(**kwargs)
@@ -453,7 +501,10 @@ def test_inherited_account_annual_distribution_included_in_withdrawal_plan():
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -488,7 +539,10 @@ def test_inherited_account_distribution_excluded_when_no_inherited_accounts_pass
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn == 0.0
@@ -512,7 +566,10 @@ def test_inherited_account_balance_grows_and_divisor_reduces_year_over_year():
         start_tax_year=2026,
         plan_to_age=56,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.05),
+        return_assumption=_flat_return(0.05),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year_1_distribution = result.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
@@ -555,7 +612,10 @@ def test_two_inherited_accounts_from_different_decedents_computed_independently(
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     result_a_alone = run_plan_projection(
         household=household,
@@ -569,7 +629,10 @@ def test_two_inherited_accounts_from_different_decedents_computed_independently(
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     total_drawn = result_both.years[0].mechanics.withdrawal_plan.inherited_distribution_drawn
@@ -601,7 +664,10 @@ def test_inherited_account_forces_full_balance_distribution_in_deadline_year():
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     # The deadline-year distribution is the account's entire $5,000
@@ -628,7 +694,10 @@ def test_inherited_account_contributes_nothing_after_its_depletion_deadline():
         start_tax_year=2026,
         plan_to_age=57,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].tax_year == 2026  # the deadline year itself
@@ -668,7 +737,10 @@ def test_inherited_account_reason_is_ten_year_rule_when_deadline_already_passed_
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -699,7 +771,10 @@ def test_inherited_account_reason_is_annual_rmd_within_the_ten_year_window():
         start_tax_year=2026,
         plan_to_age=56,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -732,7 +807,10 @@ def test_inherited_account_reason_absent_once_account_already_fully_distributed(
         start_tax_year=2026,
         plan_to_age=57,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     later_years = [year for year in result.years if year.tax_year > 2026]
@@ -756,7 +834,7 @@ def test_regression_parity_omitted_vs_explicit_empty_inherited_accounts():
     )
     accounts = AccountBalances(traditional=900_000, roth=200_000, taxable=100_000)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.05)
+    return_assumption = _flat_return(0.05)
 
     kwargs = dict(
         household=household,
@@ -770,6 +848,9 @@ def test_regression_parity_omitted_vs_explicit_empty_inherited_accounts():
         plan_to_age=75,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     omitted = run_plan_projection(**kwargs)
@@ -788,7 +869,7 @@ def test_regression_parity_every_existing_multi_year_test_fixture_unaffected():
     )
     accounts = AccountBalances(traditional=0, roth=0, taxable=100_000)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.05)
+    return_assumption = _flat_return(0.05)
 
     result = run_plan_projection(
         household=household,
@@ -802,6 +883,9 @@ def test_regression_parity_every_existing_multi_year_test_fixture_unaffected():
         plan_to_age=72,
         strategy=strategy,
         return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert len(result.years) == 3
@@ -833,7 +917,10 @@ def test_member_rmd_amounts_sum_to_the_pooled_rmd_drawn_and_match_each_members_o
         start_tax_year=2026,
         plan_to_age=76,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -858,7 +945,10 @@ def test_member_rmd_amounts_omits_a_member_with_zero_share_or_below_start_age():
         start_tax_year=2026,
         plan_to_age=80,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     # spouse has a 0.0 share, so no compute_rmd() call is ever made for them
@@ -883,7 +973,10 @@ def test_member_social_security_benefits_present_even_before_claiming_never_omit
         start_tax_year=2026,
         plan_to_age=70,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]  # you=60, spouse=58 -- neither has claimed yet
@@ -935,7 +1028,10 @@ def test_income_stream_appears_only_within_active_window():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     by_age = {60 + i: year for i, year in enumerate(result.years)}
@@ -985,7 +1081,10 @@ def test_income_streams_are_independent_per_member():
         start_tax_year=2026,
         plan_to_age=66,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]  # both age 62
@@ -1030,7 +1129,10 @@ def test_earned_income_stream_treated_identically_to_pension_for_tax_purposes():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     by_age = {63 + i: year for i, year in enumerate(result.years)}
@@ -1088,7 +1190,10 @@ def test_bailey_qualifying_pension_reduces_nc_state_tax_only():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -1110,7 +1215,10 @@ def test_bailey_qualifying_flag_leaves_federal_fica_irmaa_niit_unaffected():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     with_flag = run_plan_projection(
         household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=True), **common_kwargs
@@ -1144,7 +1252,10 @@ def test_bailey_qualifying_flag_is_inert_outside_nc(state):
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     with_flag = run_plan_projection(
         household=_bailey_and_other_pension_household(40_000.0, 30_000.0, bailey_qualifying=True), **common_kwargs
@@ -1185,7 +1296,10 @@ def test_earned_income_stream_fica_is_funded_from_account_balances():
         start_tax_year=2026,
         plan_to_age=64,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     with_earned_income = run_plan_projection(household=_earned_income_household(40_000), **common_kwargs)
     without_earned_income = run_plan_projection(household=_single_member_household(current_age=63), **common_kwargs)
@@ -1214,7 +1328,10 @@ def test_member_earned_income_retained_and_matches_what_funded_fica():
         start_tax_year=2026,
         plan_to_age=64,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -1242,7 +1359,10 @@ def test_member_earned_income_zero_for_pension_only_household():
         start_tax_year=2026,
         plan_to_age=64,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -1283,7 +1403,10 @@ def test_pension_and_annuity_streams_never_incur_fica():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     for year in result.years:
         assert year.fica_tax.total_fica_tax == 0.0
@@ -1305,7 +1428,10 @@ def test_no_income_streams_produces_zero_fica_and_unaffected_output():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     for year in result.years:
         assert year.fica_tax.total_fica_tax == 0.0
@@ -1329,7 +1455,10 @@ def test_earned_income_over_wage_base_caps_oasdi_in_a_running_projection():
         start_tax_year=2026,
         plan_to_age=63,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     first_year = result.years[0]
     assert first_year.fica_tax.member_oasdi_tax["you"] == pytest.approx(184_500 * 0.062)
@@ -1370,7 +1499,10 @@ def test_additional_medicare_tax_applies_to_combined_mfj_earned_income_in_a_runn
         start_tax_year=2026,
         plan_to_age=63,
         strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     first_year = result.years[0]
     assert first_year.fica_tax.additional_medicare_tax == pytest.approx((300_000 - 250_000) * 0.009)
@@ -1396,7 +1528,10 @@ def test_full_retirement_age_equal_to_claim_age_reproduces_pre_feature_flat_bene
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     last_year = result.years[-1]  # you=67, spouse=67 -- both have just claimed, exactly at FRA
@@ -1429,7 +1564,10 @@ def test_omitted_full_retirement_age_defaults_to_claim_age_even_when_household_b
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[-1].member_social_security_benefits["you"] == 32_000.0
@@ -1455,7 +1593,10 @@ def test_spousal_floor_raises_a_lower_earning_members_benefit():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -1482,7 +1623,10 @@ def test_spousal_floor_uses_the_spousal_specific_reduction_rate():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     spousal_reduction = 24 * (25 / 36) / 100  # spousal-specific tier-1 rate
@@ -1509,7 +1653,10 @@ def test_spousal_floor_does_not_apply_to_this_repos_own_reference_pair():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].member_social_security_benefits == {"you": 32_000.0, "spouse": 24_000.0}
@@ -1537,7 +1684,10 @@ def test_spousal_floor_never_applies_to_a_single_filing_status_household():
         start_tax_year=2026,
         plan_to_age=67,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].member_social_security_benefits["you"] == pytest.approx(6_000.0)
@@ -1563,7 +1713,10 @@ def test_spousal_floor_does_not_apply_until_both_members_have_claimed():
         start_tax_year=2026,
         plan_to_age=62,  # deemed_rmd_owner is the older member (spouse, 62) -- must reach this age for a year to run
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]  # you=60 (not yet claimed), spouse=62 (has claimed)
@@ -1617,7 +1770,10 @@ def test_predicted_death_age_beyond_the_horizon_has_zero_effect_on_projection_ou
         start_tax_year=2026,
         plan_to_age=75,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=_flat_return(0.04),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     without_death_age = run_plan_projection(household=_build(None), **common_kwargs)
@@ -1684,7 +1840,10 @@ def _run_death_projection(household, plan_to_age=80):
         start_tax_year=2026,
         plan_to_age=plan_to_age,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=_flat_return(0.04),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -1798,7 +1957,10 @@ def test_single_filing_status_household_never_affected_by_predicted_death_age():
         start_tax_year=2026,
         plan_to_age=80,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=_flat_return(0.04),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     assert all(year.filing_status == "single" for year in result.years)
     assert all(year.effective_spending_need == 40_000.0 for year in result.years)
@@ -1824,7 +1986,10 @@ def test_death_before_start_tax_year_makes_the_entire_horizon_post_death():
         start_tax_year=2028,  # after the death tax year (2027)
         plan_to_age=75,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=_flat_return(0.04),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     assert all(year.filing_status == "single" for year in result.years)
     assert all(year.effective_spending_need == pytest.approx(60_000.0 * 0.90) for year in result.years)
@@ -1887,7 +2052,10 @@ def test_plain_non_grid_projection_uses_the_reduced_benefit_in_income_and_tax():
         start_tax_year=2026,
         plan_to_age=64,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = result.years[0]
@@ -1931,7 +2099,10 @@ def test_inherited_account_balances_and_distributions_are_snapshotted_per_accoun
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -1965,7 +2136,10 @@ def test_two_inherited_accounts_have_independently_keyed_snapshots():
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -2005,7 +2179,10 @@ def _run_ladder_projection(household, conversion_bracket_ceiling_or_amount=90_00
         start_tax_year=2026,
         plan_to_age=plan_to_age,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -2074,7 +2251,10 @@ def test_household_covered_by_pre_existing_balance_alone_never_flags():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     # Traditional alone comfortably covers spending here -- Roth is never touched at all.
     assert all(y.unseasoned_roth_withdrawal == 0.0 for y in result.years)
@@ -2098,7 +2278,10 @@ def test_no_roth_conversion_configured_leaves_every_year_unaffected():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=no_conversion_strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     assert all(y.unseasoned_roth_withdrawal == 0.0 for y in result.years)
 
@@ -2168,7 +2351,10 @@ def test_multiple_conversions_draw_down_oldest_first_end_to_end():
         start_tax_year=2026,
         plan_to_age=70,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     conversions = {y.tax_year: y.mechanics.conversion.amount_converted for y in result.years}
     assert conversions[2026] > 0 and conversions[2027] > 0 and conversions[2028] > 0
@@ -2227,7 +2413,10 @@ def test_voluntary_traditional_withdrawal_under_59_5_is_penalized():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     assert _traditional_draw(year) == pytest.approx(20_000.0)
@@ -2258,7 +2447,10 @@ def test_rmd_mandated_distribution_is_never_penalized():
         start_tax_year=2026,
         plan_to_age=75,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     assert year.mechanics.withdrawal_plan.rmd_drawn > 0  # real RMD money flowed
@@ -2290,7 +2482,10 @@ def test_per_member_attribution_only_penalizes_the_under_59_5_members_own_share(
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     draw = _traditional_draw(year)
@@ -2318,7 +2513,10 @@ def test_member_at_translated_age_60_is_never_penalized():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     assert _traditional_draw(year) > 0
@@ -2355,7 +2553,10 @@ def test_inherited_account_distribution_is_never_penalized_regardless_of_benefic
         start_tax_year=2026,
         plan_to_age=55,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     assert year.mechanics.withdrawal_plan.inherited_distribution_drawn > 0
@@ -2379,7 +2580,10 @@ def test_penalty_actually_reduces_ending_balance_versus_an_unaffected_household(
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     younger_household = Household(
         filing_status="single",
@@ -2423,7 +2627,10 @@ def test_unaffected_household_sees_zero_penalty_every_year():
         start_tax_year=2026,
         plan_to_age=90,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     assert all(year.early_withdrawal_penalty.penalty_owed == 0.0 for year in result.years)
 
@@ -2456,7 +2663,10 @@ def test_unseasoned_roth_withdrawal_alone_is_penalized_at_ten_percent():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year_2027 = next(y for y in result.years if y.tax_year == 2027)
     assert _traditional_draw(year_2027) == 0.0
@@ -2490,7 +2700,10 @@ def test_combined_traditional_and_roth_exposure_in_the_same_year_is_one_penalty(
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year_2028 = next(y for y in result.years if y.tax_year == 2028)
     traditional_draw = _traditional_draw(year_2028)
@@ -2521,7 +2734,10 @@ def test_no_roth_conversion_configured_means_roth_side_contribution_is_always_ze
         start_tax_year=2026,
         plan_to_age=65,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     assert year.unseasoned_roth_withdrawal == 0.0
@@ -2557,7 +2773,10 @@ def test_irmaa_and_niit_are_included_in_the_actually_funded_tax_withdrawal():
         start_tax_year=2026,
         plan_to_age=70,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     year = result.years[0]
     # Sanity: this scenario actually triggers all three costs simultaneously --
@@ -2598,7 +2817,10 @@ def test_cumulative_tax_paid_meaning_is_unchanged_by_the_irmaa_niit_funding_fix(
         start_tax_year=2026,
         plan_to_age=70,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     expected_cumulative_tax_paid = sum(year.federal_tax.federal_tax_owed + year.state_tax.state_tax_owed for year in result.years)
     assert result.outcome.cumulative_tax_paid == pytest.approx(expected_cumulative_tax_paid)
@@ -2647,7 +2869,10 @@ def _run_earnings_test_projection(household, plan_to_age):
         start_tax_year=2026,
         plan_to_age=plan_to_age,
         strategy=_strategy(claiming_ages={"you": household.members[0].ss_claim_age}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -2783,7 +3008,10 @@ def test_auto_gap_year_window_fires_conversions_only_inside_the_derived_gap():
         start_tax_year=2026,
         plan_to_age=75,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     conversions = {y.tax_year: y.mechanics.conversion.amount_converted for y in result.years}
@@ -2816,7 +3044,10 @@ def test_auto_gap_year_window_resolves_to_none_when_wages_never_end():
         start_tax_year=2026,
         plan_to_age=70,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.resolved_conversion_window is None
@@ -2840,7 +3071,10 @@ def test_named_bracket_ceiling_matches_the_equivalent_manually_computed_dollar_c
         start_plan_year=1,
         start_tax_year=2026,
         plan_to_age=61,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     named = run_plan_projection(
@@ -2887,7 +3121,10 @@ def test_net_earned_income_against_spending_reduces_discretionary_withdrawal_not
         start_tax_year=2026,
         plan_to_age=74,
         strategy=_strategy(claiming_ages={"you": 67}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
@@ -2931,7 +3168,10 @@ def test_net_earned_income_against_spending_defaults_to_false_reproducing_prior_
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 67}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     default_call = run_plan_projection(**kwargs)
@@ -2968,7 +3208,10 @@ def test_net_earned_income_against_spending_also_nets_leftover_wages_against_tax
         start_tax_year=2026,
         plan_to_age=63,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
@@ -3019,7 +3262,10 @@ def test_net_earned_income_against_spending_partially_offsets_a_larger_tax_bill(
         start_tax_year=2026,
         plan_to_age=75,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     without_netting = run_plan_projection(**common_kwargs, net_earned_income_against_spending=False)
@@ -3055,7 +3301,10 @@ def test_net_earned_income_against_spending_tax_funding_offset_defaults_to_false
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 67}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     default_call = run_plan_projection(**kwargs)
@@ -3106,7 +3355,10 @@ def test_rp_89t_reported_scenario_year_one_tax_funding_withdrawal_is_empty_once_
         start_tax_year=2026,
         plan_to_age=64,
         strategy=_strategy(claiming_ages={"john": 67, "susan": 67}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         net_earned_income_against_spending=True,
     )
 
@@ -3156,7 +3408,10 @@ def test_contribution_401k_only_appears_in_years_with_earned_income():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].member_401k_pretax_contributions["you"] == 10_000.0
@@ -3194,7 +3449,10 @@ def test_contribution_401k_no_cross_member_contamination():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -3224,11 +3482,23 @@ def test_contribution_401k_credited_before_growth_is_applied():
         strategy=_strategy(claiming_ages={"you": 99}),
     )
 
-    zero_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0))
+    zero_growth = run_plan_projection(
+        **common_kwargs,
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
+    )
     assert zero_growth.years[0].ending_balances.traditional == pytest.approx(10_000.0)
     assert zero_growth.years[0].ending_balances.roth == pytest.approx(5_000.0)
 
-    five_pct_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.05))
+    five_pct_growth = run_plan_projection(
+        **common_kwargs,
+        return_assumption=_flat_return(0.05),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
+    )
     assert five_pct_growth.years[0].ending_balances.traditional == pytest.approx(10_000.0 * 1.05)
     assert five_pct_growth.years[0].ending_balances.roth == pytest.approx(5_000.0 * 1.05)
 
@@ -3246,7 +3516,10 @@ def test_contribution_401k_ordinary_income_reduced_by_pretax_portion_only():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     def _run(contribution):
@@ -3279,7 +3552,10 @@ def test_contribution_401k_fica_wages_stay_undiminished_by_pretax_deferral():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     def _run(contribution):
@@ -3315,7 +3591,10 @@ def test_contribution_401k_does_not_double_net_against_spending_or_tax_funding()
         start_tax_year=2026,
         plan_to_age=75,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     def _run(contribution):
@@ -3364,7 +3643,10 @@ def test_contribution_401k_defaults_to_none_reproducing_prior_output():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -3400,7 +3682,10 @@ def test_employer_contribution_401k_only_appears_in_years_with_earned_income():
         start_tax_year=2026,
         plan_to_age=65,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert result.years[0].member_401k_employer_match["you"] > 0.0
@@ -3442,7 +3727,10 @@ def test_employer_contribution_401k_no_cross_member_contamination():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99, "spouse": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -3477,10 +3765,22 @@ def test_employer_contribution_401k_credited_before_growth_is_applied():
     # employee 20,000 + match (50% of min(20,000, 6%*150,000=9,000)=9,000 -> 4,500) + lump 1,000 = 25,500
     expected_total = 25_500.0
 
-    zero_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.0))
+    zero_growth = run_plan_projection(
+        **common_kwargs,
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
+    )
     assert zero_growth.years[0].ending_balances.traditional == pytest.approx(expected_total)
 
-    five_pct_growth = run_plan_projection(**common_kwargs, return_assumption=DeterministicReturnAssumption(annual_real_return=0.05))
+    five_pct_growth = run_plan_projection(
+        **common_kwargs,
+        return_assumption=_flat_return(0.05),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
+    )
     assert five_pct_growth.years[0].ending_balances.traditional == pytest.approx(expected_total * 1.05)
 
 
@@ -3499,7 +3799,10 @@ def test_employer_contribution_401k_does_not_affect_ordinary_income():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     def _run(employer_contribution):
@@ -3531,7 +3834,10 @@ def test_employer_contribution_401k_does_not_affect_net_earned_income_against_sp
         start_tax_year=2026,
         plan_to_age=75,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     def _run(employer_contribution):
@@ -3577,7 +3883,10 @@ def test_employer_contribution_401k_defaults_to_none_reproducing_prior_output():
         start_tax_year=2026,
         plan_to_age=45,
         strategy=_strategy(claiming_ages={"you": 99}),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     year = result.years[0]
@@ -3612,7 +3921,10 @@ def test_relocation_switches_state_tax_at_the_configured_plan_year():
         start_tax_year=2026,
         plan_to_age=58,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         relocation_state="SC",
         relocation_plan_year=3,
     )
@@ -3636,7 +3948,10 @@ def test_relocation_omitted_reproduces_a_single_fixed_state_for_the_whole_horizo
         start_tax_year=2026,
         plan_to_age=58,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     assert [year.state_tax.state for year in result.years] == ["FL", "FL", "FL", "FL"]
@@ -3658,7 +3973,10 @@ def test_relocation_taking_effect_in_plan_year_one_applies_from_the_start():
         start_tax_year=2026,
         plan_to_age=56,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=_flat_return(0.0),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         relocation_state="SC",
         relocation_plan_year=1,
     )
@@ -3666,10 +3984,10 @@ def test_relocation_taking_effect_in_plan_year_one_applies_from_the_start():
     assert [year.state_tax.state for year in result.years] == ["SC", "SC"]
 
 
-# --- rp-cqu: per-plan-year annual_return ---
+# --- rp-aev: per-plan-year, per-pool return ---
 
 
-def test_annual_return_matches_the_deterministic_return_assumption_every_year():
+def test_pool_returns_match_the_deterministic_return_assumption_every_year():
     household = _single_member_household(current_age=55)
     accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
     strategy = _strategy(claiming_ages={"you": 99})
@@ -3685,19 +4003,30 @@ def test_annual_return_matches_the_deterministic_return_assumption_every_year():
         start_tax_year=2026,
         plan_to_age=58,
         strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0623),
+        return_assumption=_flat_return(0.0623),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
-    assert all(year.annual_return == pytest.approx(0.0623) for year in result.years)
+    assert all(year.taxable_pool_return == pytest.approx(0.0623) for year in result.years)
+    assert all(year.traditional_pool_return == pytest.approx(0.0623) for year in result.years)
+    assert all(year.roth_pool_return == pytest.approx(0.0623) for year in result.years)
 
 
-def test_annual_return_matches_each_years_own_entry_in_a_return_path():
-    from retirement_planner.simulation import ReturnPath
+def test_pool_returns_match_each_years_own_entry_in_an_asset_class_return_path():
+    from retirement_planner.simulation import AssetClassReturnPath
 
     household = _single_member_household(current_age=55)
     accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
     strategy = _strategy(claiming_ages={"you": 99})
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[0.10, -0.08, 0.03, 0.0], generation_mode="parametric", figures_used=[])
+    rates = [0.10, -0.08, 0.03, 0.0]
+    return_path = AssetClassReturnPath(
+        start_plan_year=1,
+        asset_returns=[{ac: rate for ac in ASSET_CLASSES} for rate in rates],
+        generation_mode="parametric",
+        figures_used=[],
+    )
 
     result = run_plan_projection(
         household=household,
@@ -3711,164 +4040,97 @@ def test_annual_return_matches_each_years_own_entry_in_a_return_path():
         plan_to_age=58,
         strategy=strategy,
         return_assumption=return_path,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
-    assert [year.annual_return for year in result.years] == [0.10, -0.08, 0.03, 0.0]
+    assert [year.taxable_pool_return for year in result.years] == pytest.approx(rates)
 
 
-# --- rp-e0h: cash-reserve (bucket) withdrawal strategy ---
+def test_blended_scalar_growth_matches_independently_simulated_sub_balances():
+    """The core rationale this whole feature leans on (see
+    run_plan_projection()'s own docstring): because a pool is rebalanced
+    to target every year, growing its scalar total by the target-weighted
+    blended return is mathematically IDENTICAL to splitting it into real
+    8-asset-class sub-balances, growing each independently at its own
+    asset-class return, summing, and redistributing (rebalancing) the sum
+    across the next period's own target weights before the next year's
+    growth. This test proves that equivalence directly -- not by calling
+    blended_pool_return() (that would just restate the claim), but by
+    hand-simulating 8 real sub-balances from first principles -- across a
+    withdrawal event AND a glide-path period change, the two places most
+    likely to break the equivalence if it weren't actually exact."""
+    from retirement_planner.simulation import AssetClassReturnPath
 
+    household = _single_member_household(current_age=55)
+    accounts = AccountBalances(traditional=0, roth=0, taxable=1_000_000)
+    strategy = _strategy(claiming_ages={"you": 99})
 
-def test_cash_reserve_draws_from_cash_in_a_down_year_leaving_traditional_untouched():
-    from retirement_planner.simulation import ReturnPath
+    # Deliberately non-uniform returns per year, per asset class -- if the
+    # equivalence only held for a uniform/flat return, it wouldn't be
+    # proving anything about the 8-asset blend itself.
+    per_year_returns = [
+        {"us_large": 0.12, "us_small": -0.05, "us_medium": 0.03, "reit": 0.08, "aggregate_bond": 0.01, "emerging_market": -0.10, "international_ex_us": 0.04, "cash": 0.005},
+        {"us_large": -0.08, "us_small": 0.15, "us_medium": -0.02, "reit": -0.03, "aggregate_bond": 0.02, "emerging_market": 0.20, "international_ex_us": -0.01, "cash": 0.005},
+        {"us_large": 0.05, "us_small": 0.05, "us_medium": 0.05, "reit": 0.05, "aggregate_bond": 0.05, "emerging_market": 0.05, "international_ex_us": 0.05, "cash": 0.005},
+    ]
+    return_path = AssetClassReturnPath(
+        start_plan_year=1, asset_returns=per_year_returns, generation_mode="parametric", figures_used=[],
+    )
 
-    household = _single_member_household(current_age=70)
-    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0, cash=100_000)
-    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
+    # A glide-path period CHANGE at plan year 2 -- weights shift from
+    # equity-heavy to more conservative, so the equivalence must survive a
+    # mid-horizon rebalance target change too, not just a static target.
+    period_1_weights = {"us_large": 0.30, "us_small": 0.20, "us_medium": 0.0, "reit": 0.0, "aggregate_bond": 0.10, "emerging_market": 0.20, "international_ex_us": 0.20, "cash": 0.0}
+    period_2_weights = {"us_large": 0.10, "us_small": 0.0, "us_medium": 0.0, "reit": 0.0, "aggregate_bond": 0.70, "emerging_market": 0.0, "international_ex_us": 0.0, "cash": 0.20}
+    taxable_schedule = AllocationSchedule(
+        periods=[
+            AllocationPeriod(start_plan_year=1, weights=period_1_weights),
+            AllocationPeriod(start_plan_year=2, weights=period_2_weights),
+        ]
+    )
 
     result = run_plan_projection(
         household=household,
         accounts=accounts,
         traditional_ownership_shares={"you": 1.0},
-        annual_spending_need=40_000,
+        annual_spending_need=40_000,  # a real withdrawal every year, from taxable (RMD n/a, no traditional balance)
         state="FL",
         reference_tax_year=2026,
         start_plan_year=1,
         start_tax_year=2026,
-        plan_to_age=70,
+        plan_to_age=57,
         strategy=strategy,
         return_assumption=return_path,
+        taxable_allocation_schedule=taxable_schedule,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
+    actual_ending_balances = [year.ending_balances.taxable for year in result.years]
 
-    year = result.years[0]
-    assert year.cash_reserve_draw == pytest.approx(40_000.0)
-    assert year.cash_reserve_refill == 0.0
-    # Traditional balance only grows (by the down-year return applied to
-    # it) -- nothing drawn from it when cash alone covers spending.
-    assert year.ending_balances.traditional == pytest.approx(500_000 * 0.90)
-    assert year.ending_balances.cash == pytest.approx(100_000 - 40_000)
+    # Independent hand-simulation: 8 real sub-balances, grown individually,
+    # summed, withdrawn from pro-rata, then rebalanced to the next
+    # period's own weights -- never calling blended_pool_return().
+    weights_by_plan_year = {1: period_1_weights, 2: period_2_weights, 3: period_2_weights}
+    sub_balances = {ac: accounts.taxable * period_1_weights[ac] for ac in ASSET_CLASSES}
+    expected_ending_balances = []
+    for plan_year, year_returns in zip((1, 2, 3), per_year_returns):
+        pre_withdrawal_total = sum(sub_balances.values())
+        # Withdrawal happens BEFORE growth in this engine's own loop order
+        # (mechanics first, growth last) -- drawn pro-rata across the
+        # sub-balances (the standard "sell to raise cash" assumption).
+        withdrawal = min(40_000.0, pre_withdrawal_total)
+        if pre_withdrawal_total > 0:
+            for ac in ASSET_CLASSES:
+                sub_balances[ac] -= sub_balances[ac] / pre_withdrawal_total * withdrawal
+        # Growth: each sub-balance at its own asset-class return.
+        for ac in ASSET_CLASSES:
+            sub_balances[ac] *= 1.0 + year_returns[ac]
+        total_after_growth = sum(sub_balances.values())
+        expected_ending_balances.append(total_after_growth)
+        # Rebalance to whichever period applies NEXT plan year.
+        next_weights = weights_by_plan_year.get(plan_year + 1, weights_by_plan_year[plan_year])
+        sub_balances = {ac: total_after_growth * next_weights[ac] for ac in ASSET_CLASSES}
 
-
-def test_cash_reserve_falls_back_to_configured_order_when_cash_cant_cover_a_down_year():
-    from retirement_planner.simulation import ReturnPath
-
-    household = _single_member_household(current_age=70)
-    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000, cash=10_000)
-    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[-0.10], generation_mode="parametric", figures_used=[])
-
-    result = run_plan_projection(
-        household=household,
-        accounts=accounts,
-        traditional_ownership_shares={"you": 1.0},
-        annual_spending_need=40_000,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=70,
-        strategy=strategy,
-        return_assumption=return_path,
-    )
-
-    year = result.years[0]
-    assert year.cash_reserve_draw == pytest.approx(10_000.0)
-    assert year.cash_reserve_refill == 0.0
-    assert year.ending_balances.cash == pytest.approx(0.0)
-    # The remaining $30,000 shortfall falls back to the configured order
-    # (taxable first) -- $500,000 - $30,000, then that down-year's return.
-    assert year.ending_balances.taxable == pytest.approx((500_000 - 30_000) * 0.90)
-
-
-def test_cash_reserve_refills_from_taxable_in_an_up_year_up_to_target():
-    from retirement_planner.simulation import ReturnPath
-
-    household = _single_member_household(current_age=70)
-    accounts = AccountBalances(traditional=0, roth=0, taxable=500_000, cash=20_000)
-    strategy = _strategy(claiming_ages={"you": 99}, cash_reserve_years=3)
-    return_path = ReturnPath(start_plan_year=1, annual_returns=[0.08], generation_mode="parametric", figures_used=[])
-
-    result = run_plan_projection(
-        household=household,
-        accounts=accounts,
-        traditional_ownership_shares={"you": 1.0},
-        annual_spending_need=40_000,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=70,
-        strategy=strategy,
-        return_assumption=return_path,
-    )
-
-    year = result.years[0]
-    # Up year: spending drawn via the configured order (taxable), cash
-    # untouched for spending -- target = 3 x $40,000 = $120,000, refilled
-    # from whatever taxable has left after spending ($460,000).
-    assert year.cash_reserve_draw == 0.0
-    assert year.cash_reserve_refill == pytest.approx(100_000.0)  # $120,000 target - $20,000 current
-    assert year.ending_balances.cash == pytest.approx((20_000 + 100_000) * 1.0)  # cash_return_mean_real defaults to 0.0
-    assert year.ending_balances.taxable == pytest.approx((500_000 - 40_000 - 100_000) * 1.08)
-
-
-def test_cash_grows_at_its_own_rate_regardless_of_cash_reserve_years():
-    household = _single_member_household(current_age=70)
-    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0, cash=100_000)
-    strategy = _strategy(claiming_ages={"you": 99}, cash_return_mean_real=0.05)  # cash_reserve_years left None
-
-    result = run_plan_projection(
-        household=household,
-        accounts=accounts,
-        traditional_ownership_shares={"you": 1.0},
-        annual_spending_need=0,
-        state="FL",
-        reference_tax_year=2026,
-        start_plan_year=1,
-        start_tax_year=2026,
-        plan_to_age=72,
-        strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
-    )
-
-    assert [year.cash_reserve_draw for year in result.years] == [0.0, 0.0, 0.0]
-    assert [year.cash_reserve_refill for year in result.years] == [0.0, 0.0, 0.0]
-    assert result.years[0].ending_balances.cash == pytest.approx(105_000.0)
-    assert result.years[1].ending_balances.cash == pytest.approx(105_000.0 * 1.05)
-    assert result.years[2].ending_balances.cash == pytest.approx(105_000.0 * 1.05 * 1.05)
-
-
-def test_cash_reserve_omitted_reproduces_exact_prior_behavior():
-    household = _single_member_household(current_age=70)
-    accounts = AccountBalances(traditional=500_000, roth=0, taxable=0)
-
-    def _run(strategy_overrides: dict) -> list:
-        strategy = _strategy(claiming_ages={"you": 99}, **strategy_overrides)
-        return run_plan_projection(
-            household=household,
-            accounts=accounts,
-            traditional_ownership_shares={"you": 1.0},
-            annual_spending_need=40_000,
-            state="FL",
-            reference_tax_year=2026,
-            start_plan_year=1,
-            start_tax_year=2026,
-            plan_to_age=72,
-            strategy=strategy,
-            return_assumption=DeterministicReturnAssumption(annual_real_return=-0.10),
-        ).years
-
-    without_cash_reserve = _run({})
-    explicit_none = _run({"cash_reserve_years": None, "cash_return_mean_real": 0.0})
-
-    assert all(year.cash_reserve_draw == 0.0 for year in without_cash_reserve)
-    assert all(year.cash_reserve_refill == 0.0 for year in without_cash_reserve)
-    assert all(year.ending_balances.cash == 0.0 for year in without_cash_reserve)
-    # Byte-identical to an explicit None/0.0 -- no cash-reserve-specific
-    # code path silently altered the traditional/roth/taxable arithmetic
-    # every existing caller already depends on.
-    for a, b in zip(without_cash_reserve, explicit_none):
-        assert a.ending_balances.traditional == b.ending_balances.traditional
-        assert a.ending_balances.taxable == b.ending_balances.taxable
-        assert a.shortfall == b.shortfall
+    assert actual_ending_balances == pytest.approx(expected_ending_balances, rel=1e-9)

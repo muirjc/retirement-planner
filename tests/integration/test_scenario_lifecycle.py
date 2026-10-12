@@ -8,10 +8,13 @@ from dataclasses import replace
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import compute_rmd
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule
 from retirement_planner.scenario.loader import ScenarioParseError, parse_scenario
 from retirement_planner.scenario.store import list_scenarios, load_scenario, save_scenario
+
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 BASE_CASE_YAML = """
 name: base_case
@@ -40,13 +43,36 @@ spending:
   annual_need_real: 110000
 state: GA
 market_assumptions:
-  equity_allocation: 0.60
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.40
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 5000
   seed: 42
@@ -69,7 +95,7 @@ def test_us1_full_profile_loads_into_structured_representation():
     assert scenario.accounts[0].balance == 1_500_000
     assert scenario.spending.annual_need_real == 110_000
     assert scenario.state == "GA"
-    assert scenario.market_assumptions.equity_allocation == 0.60
+    assert scenario.market_assumptions.asset_classes["us_large"].mean_real == 0.07
     assert scenario.simulation_settings.plan_to_age == 95
 
 
@@ -142,13 +168,36 @@ spending:
   annual_need_real: 110000
 state: GA
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 5000
   seed: 42
@@ -192,13 +241,36 @@ spending:
   annual_need_real: 50000
 state: GA
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 5000
   seed: 42
@@ -254,13 +326,36 @@ spending:
   annual_need_real: 60000
 state: FL
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 1
   seed: 1
@@ -291,7 +386,9 @@ simulation_settings:
         annual_spending_need=reloaded.spending.annual_need_real, state=reloaded.state,
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026,
         plan_to_age=reloaded.simulation_settings.plan_to_age, strategy=strategy,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.0),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     expected_rmd = compute_rmd(

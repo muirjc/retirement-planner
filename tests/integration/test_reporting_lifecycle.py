@@ -16,7 +16,7 @@ from retirement_planner.reporting import (
     summarize_run,
     summarize_simulation_comparison,
 )
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember
 from retirement_planner.simulation import compare_states, generate_historical_bootstrap_paths, generate_return_paths, run_simulation
 
 _HOUSEHOLD = Household(
@@ -27,15 +27,8 @@ _HOUSEHOLD = Household(
     ],
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
-_MARKET = MarketAssumptions(
-    equity_allocation=0.60,
-    equity_return_mean_real=0.065,
-    equity_return_std_real=0.17,
-    bond_allocation=0.40,
-    bond_return_mean_real=0.015,
-    bond_return_std_real=0.06,
-    correlation=-0.10,
-)
+_MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _STRATEGY = StrategyConfiguration(
     label="fill_to_22_pct_bracket",
     withdrawal_strategy="rmd_taxable_traditional_roth",
@@ -56,6 +49,8 @@ def _base_run():
         household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, state="FL",
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=return_paths, candidate_label="base_case",
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 
@@ -86,6 +81,8 @@ def test_step2_compare_candidates_both_kinds():
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026,
         plan_to_age=60,  # single-plan-year horizon -- keeps every state within its documented tax years
         strategy=_STRATEGY, return_paths=return_paths,
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     summaries = summarize_simulation_comparison(comparison, household=_HOUSEHOLD, reference_tax_year=_REFERENCE_TAX_YEAR)
@@ -99,6 +96,8 @@ def test_step2_compare_candidates_both_kinds():
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=70,
         withdrawal_strategy="rmd_taxable_traditional_roth", claiming_ages={"you": 67, "spouse": 67},
         return_assumption=derive_deterministic_return(_MARKET),
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         candidates=[_STRATEGY],
     )
     deterministic_summaries = summarize_deterministic_comparison(
@@ -120,6 +119,8 @@ def test_step3_export_to_csv():
         household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, states=["SC", "DE", "FL"],
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=60,
         strategy=_STRATEGY, return_paths=return_paths,
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     run_csv = run_to_csv_text(run)
@@ -139,6 +140,8 @@ def test_step4_unverified_figures_stay_visible():
         household=_HOUSEHOLD, accounts=_ACCOUNTS, traditional_ownership_shares=_SHARES, annual_spending_need=110_000, state="FL",
         reference_tax_year=_REFERENCE_TAX_YEAR, start_plan_year=1, start_tax_year=2026, plan_to_age=95,
         strategy=_STRATEGY, return_paths=bootstrap_paths, candidate_label="historical_bootstrap",
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
     summary = summarize_run(bootstrap_run, household=_HOUSEHOLD, reference_tax_year=_REFERENCE_TAX_YEAR)
 

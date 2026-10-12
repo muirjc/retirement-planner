@@ -5,13 +5,13 @@ InheritedAccountBalance's balance in place year-by-year.
 """
 
 from retirement_planner.comparison import (
-    DeterministicReturnAssumption,
+    DeterministicAssetClassReturnAssumption,
     StrategyConfiguration,
     compare_roth_conversion_strategies,
     compare_withdrawal_sequencing_strategies,
 )
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 
 _HOUSEHOLD = Household(
     filing_status="single",
@@ -19,7 +19,8 @@ _HOUSEHOLD = Household(
 )
 _ACCOUNTS = AccountBalances(traditional=0, roth=0, taxable=1_000_000)
 _SHARES = {"you": 0.0}
-_RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.0)
+_RETURN_ASSUMPTION = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
+_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _candidates():
@@ -69,6 +70,9 @@ def test_callers_own_inherited_account_balance_is_never_mutated():
         withdrawal_strategy="rmd_taxable_traditional_roth",
         claiming_ages={"you": 67},
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         candidates=_candidates(),
     )
 
@@ -104,6 +108,9 @@ def test_no_cross_candidate_leakage_in_inherited_distributions():
         withdrawal_strategy="rmd_taxable_traditional_roth",
         claiming_ages={"you": 67},
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         candidates=_candidates(),
     )
 
@@ -176,6 +183,9 @@ def test_death_switch_propagates_into_every_comparison_candidate_independently()
         conversion_window=None,
         claiming_ages={"you": 67, "spouse": 67},
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         candidates=candidates,
     )
 

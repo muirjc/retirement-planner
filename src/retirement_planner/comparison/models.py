@@ -21,7 +21,7 @@ from retirement_planner.mechanics import (
     PlanYearMechanicsResult,
     WithdrawalPlan,
 )
-from retirement_planner.scenario import HsaContributionPlan
+from retirement_planner.scenario import AssetClass, HsaContributionPlan
 from retirement_planner.tax import (
     EarlyWithdrawalPenaltyResult,
     FederalTaxResult,
@@ -33,27 +33,33 @@ from retirement_planner.tax import (
 )
 
 
-class ReturnSchedule(Protocol):
-    """The seam 005-simulation-engine's research.md §1 adds: anything
-    run_plan_projection() can use for its per-plan-year growth factor.
-    DeterministicReturnAssumption (below) and 005's ReturnPath both satisfy
-    this by implementing return_for_plan_year(). See
-    specs/005-simulation-engine/contracts/simulation-api.md.
-    """
+class AssetClassReturnSchedule(Protocol):
+    """rp-aev: replaces ReturnSchedule -- anything run_plan_projection()
+    can use for its per-plan-year RAW (unblended) asset-class returns.
+    Blending by a pool's own active glide-path weights happens separately
+    (comparison/allocation.py::blended_pool_return()), inside the
+    projection loop, never here -- this seam only needs to hand back one
+    dict per plan year, the same 8 asset classes every time.
+    DeterministicAssetClassReturnAssumption (below) and simulation's
+    AssetClassReturnPath both satisfy this by implementing
+    asset_returns_for_plan_year()."""
 
-    def return_for_plan_year(self, plan_year: int) -> float: ...
+    def asset_returns_for_plan_year(self, plan_year: int) -> dict[AssetClass, float]: ...
 
 
 @dataclass
-class DeterministicReturnAssumption:
-    """data-model.md § DeterministicReturnAssumption."""
+class DeterministicAssetClassReturnAssumption:
+    """rp-aev: replaces DeterministicReturnAssumption. No variance/
+    correlation -- there's nothing to sample under the Deterministic
+    engine, so each asset class's own mean_real is held fixed for every
+    plan year."""
 
-    annual_real_return: float
+    asset_class_means: dict[AssetClass, float]
 
-    def return_for_plan_year(self, plan_year: int) -> float:
-        """Satisfies ReturnSchedule: ignores plan_year, always returns
-        annual_real_return (005-simulation-engine research.md §1)."""
-        return self.annual_real_return
+    def asset_returns_for_plan_year(self, plan_year: int) -> dict[AssetClass, float]:
+        """Satisfies AssetClassReturnSchedule: ignores plan_year, always
+        returns asset_class_means unchanged."""
+        return self.asset_class_means
 
 
 @dataclass
@@ -83,28 +89,6 @@ class StrategyConfiguration:
     itself each run/year rather than using them as given. Defaults
     reproduce every existing StrategyConfiguration construction's exact
     current behavior unmodified."""
-    cash_reserve_years: float | None = None
-    """rp-e0h: when set, run_plan_projection() draws a down plan year's
-    spending need from the household's own cash reserve first (up to
-    cash_reserve_years x that year's own spending need, the reserve's
-    target size), and refills the reserve from taxable in an up year.
-    None (the default) reproduces every existing StrategyConfiguration
-    construction's exact current behavior -- no cash-reserve logic runs
-    at all. Bundled here (like hsa_contribution above) purely as a
-    convenient threading vehicle -- it's a scenario-level setting, not a
-    withdrawal/conversion strategy choice, but StrategyConfiguration is
-    already the one object every run_plan_projection()/run_simulation()
-    caller forwards uniformly, so this avoids a new standalone parameter
-    rippling through every one of those signatures."""
-    cash_return_mean_real: float = 0.0
-    """rp-e0h: the household's own cash reserve's real annual return --
-    deliberately a single, stable mean with no std-dev/volatility
-    component (never varies by path or year), unlike the blended equity/
-    bond return_assumption every other balance grows by. Applied
-    regardless of whether cash_reserve_years is set, so a household with
-    a nonzero starting cash balance but no configured reserve policy
-    still sees it grow at this rate. Defaults to 0.0, reproducing every
-    existing StrategyConfiguration construction's exact current behavior."""
 
 
 @dataclass
@@ -271,31 +255,20 @@ class PlanYearProjection:
     inapplicable" convention. No lifetime cumulative field is added
     (PlanOutcome) -- unlike a tax, withheld Social Security is fully
     recovered via the FRA recredit, not a genuine lifetime cost."""
-    annual_return: float = 0.0
-    """rp-cqu: the blended portfolio return actually applied to every
-    account balance this plan year -- return_assumption.return_for_plan_year(plan_year),
-    captured where growth_factor is already computed rather than
-    back-derived from dollar deltas (which would be ambiguous whenever an
-    account type's own balance is $0 that year). Always populated by
+    taxable_pool_return: float = 0.0
+    """rp-aev: the taxable pool's own blended return this plan year --
+    blended_pool_return(asset_returns, taxable_allocation_schedule.weights_for_plan_year(plan_year)),
+    captured where that pool's own growth_factor is already computed
+    (replaces rp-cqu's single, whole-portfolio annual_return now that
+    each pool has its own independent allocation). Always populated by
     run_plan_projection(); 0.0 only if some other caller constructs a
     PlanYearProjection directly without setting it."""
-    cash_reserve_draw: float = 0.0
-    """rp-e0h: the amount drawn from the cash reserve to fund this year's
-    spending need -- nonzero only in a down year (annual_return < 0.0)
-    with StrategyConfiguration.cash_reserve_years set, never both
-    cash_reserve_draw and cash_reserve_refill nonzero the same year (a
-    year is either down or up, never both). Always populated by
-    run_plan_projection(); 0.0 for a household with no cash-reserve
-    policy configured, or whenever this year's draw happened to be
-    exactly 0.0 (an empty reserve, or a $0 spending need)."""
-    cash_reserve_refill: float = 0.0
-    """rp-e0h: the amount moved from taxable into the cash reserve this
-    year -- nonzero only in an up year (annual_return >= 0.0) whose
-    reserve balance was below its own cash_reserve_years x spending-need
-    target, capped by whatever taxable actually had available. Always
-    populated by run_plan_projection(); 0.0 for a household with no
-    cash-reserve policy configured, a reserve already at target, or an
-    empty taxable balance to refill from."""
+    traditional_pool_return: float = 0.0
+    """rp-aev: same convention as taxable_pool_return, for the
+    traditional pool."""
+    roth_pool_return: float = 0.0
+    """rp-aev: same convention as taxable_pool_return, for the Roth
+    pool."""
 
 
 @dataclass
@@ -315,19 +288,12 @@ class PlanOutcome:
 class PlanProjection:
     """data-model.md § PlanProjection.
 
-    return_assumption (rp-cgj): typed ReturnSchedule, not the narrower
-    DeterministicReturnAssumption this field's type annotation originally
-    had (004-strategy-comparison-layer, before 005-simulation-engine's own
-    ReturnSchedule seam existed) -- 005's data-model.md § path_results
-    already documents the real, current behavior this corrects the type
-    to match: for a Monte Carlo path, this field holds the specific
-    ReturnPath that produced it, not a DeterministicReturnAssumption at
-    all. run_plan_projection()'s own return_assumption parameter has
-    already been ReturnSchedule since 012-inherited-ira-rmd; this field
-    was simply never updated to match."""
+    return_assumption: typed AssetClassReturnSchedule (rp-aev renames/
+    widens the former ReturnSchedule) -- for a Monte Carlo path, this
+    field holds the specific AssetClassReturnPath that produced it."""
 
     strategy: StrategyConfiguration
-    return_assumption: ReturnSchedule
+    return_assumption: AssetClassReturnSchedule
     years: list[PlanYearProjection]
     outcome: PlanOutcome
     resolved_conversion_window: tuple[int, int] | None = None
@@ -351,5 +317,5 @@ class ComparisonResult:
     """data-model.md § ComparisonResult."""
 
     dimension: ComparisonDimension
-    return_assumption: DeterministicReturnAssumption
+    return_assumption: DeterministicAssetClassReturnAssumption
     projections: list[PlanProjection]

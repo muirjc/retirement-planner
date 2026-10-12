@@ -23,7 +23,7 @@ from retirement_planner.comparison import (
     run_plan_projection,
 )
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember, MarketAssumptions
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, DEFAULT_MARKET_ASSUMPTIONS, Household, HouseholdMember
 
 _HOUSEHOLD = Household(
     filing_status="married_filing_jointly",
@@ -38,15 +38,8 @@ _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000
 # below actually exercises RMD sizing; test_step0 (below) is the one that
 # does, using quickstart.md §1's own literal figures.
 _SHARES = {"you": 0.6, "spouse": 0.4}
-_MARKET = MarketAssumptions(
-    equity_allocation=0.60,
-    equity_return_mean_real=0.065,
-    equity_return_std_real=0.17,
-    bond_allocation=0.40,
-    bond_return_mean_real=0.015,
-    bond_return_std_real=0.06,
-    correlation=-0.10,
-)
+_MARKET = DEFAULT_MARKET_ASSUMPTIONS
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _STATE = "FL"
 _COMMON_KWARGS = dict(
     annual_spending_need=110_000,
@@ -55,6 +48,9 @@ _COMMON_KWARGS = dict(
     start_plan_year=1,
     start_tax_year=2026,
     plan_to_age=70,
+    taxable_allocation_schedule=_EVEN_SCHEDULE,
+    traditional_allocation_schedule=_EVEN_SCHEDULE,
+    roth_allocation_schedule=_EVEN_SCHEDULE,
 )
 
 
@@ -85,6 +81,8 @@ def test_step0_per_member_rmd_reflects_actual_ownership_not_deemed_owner():
         household=household, accounts=accounts, traditional_ownership_shares=shares,
         annual_spending_need=90_000, state=_STATE, reference_tax_year=2026, start_plan_year=1,
         start_tax_year=2026, plan_to_age=95, strategy=strategy, return_assumption=return_assumption,
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
     first_year = projection.years[0]
@@ -96,7 +94,7 @@ def test_step0_per_member_rmd_reflects_actual_ownership_not_deemed_owner():
 
 def test_step1_run_one_full_horizon_projection():
     return_assumption = derive_deterministic_return(_MARKET)
-    assert return_assumption.annual_real_return == pytest.approx(0.045)
+    assert return_assumption.asset_class_means["us_large"] == pytest.approx(_MARKET.asset_classes["us_large"].mean_real)
 
     strategy = StrategyConfiguration(
         label="fill_to_22_pct_bracket",

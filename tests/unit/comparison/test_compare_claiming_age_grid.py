@@ -5,13 +5,13 @@ import itertools
 import pytest
 
 from retirement_planner.comparison import (
-    DeterministicReturnAssumption,
+    DeterministicAssetClassReturnAssumption,
     compare_claiming_age_grid,
     run_plan_projection,
 )
 from retirement_planner.comparison.models import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 
 _HOUSEHOLD = Household(
     filing_status="married_filing_jointly",
@@ -22,7 +22,8 @@ _HOUSEHOLD = Household(
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
 _SHARES = {"you": 0.6, "spouse": 0.4}
-_RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.045)
+_RETURN_ASSUMPTION = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.045 for ac in ASSET_CLASSES})
+_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _run(grid):
@@ -41,6 +42,9 @@ def _run(grid):
         conversion_bracket_ceiling_or_amount=None,
         conversion_window=None,
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         claiming_age_grid=grid,
     )
 
@@ -90,6 +94,9 @@ def test_grid_entry_matching_original_claiming_ages_reproduces_standalone_projec
         plan_to_age=75,
         strategy=standalone_strategy,
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
     )
 
     assert matching.outcome == standalone.outcome
@@ -157,7 +164,10 @@ def _run_adjustment(grid):
         conversion_strategy=None,
         conversion_bracket_ceiling_or_amount=None,
         conversion_window=None,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.04),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.04 for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         claiming_age_grid=grid,
     )
 

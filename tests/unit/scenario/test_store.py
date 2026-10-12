@@ -5,7 +5,11 @@ BFF API Service feature can offer scenario removal over HTTP)."""
 import pytest
 
 from retirement_planner.scenario import (
+    ASSET_CLASSES,
+    DEFAULT_MARKET_ASSUMPTIONS,
     Account,
+    AllocationPeriod,
+    AllocationSchedule,
     Contribution401kPlan,
     EmployerContributionPlan,
     Household,
@@ -13,7 +17,6 @@ from retirement_planner.scenario import (
     HsaContributionPlan,
     IncomeStream,
     InheritedIraDetails,
-    MarketAssumptions,
     RothConversionPlan,
     Scenario,
     ScenarioParseError,
@@ -24,15 +27,11 @@ from retirement_planner.scenario.store import delete_scenario, list_scenarios, l
 
 
 def _market_assumptions():
-    return MarketAssumptions(
-        equity_allocation=0.6,
-        equity_return_mean_real=0.065,
-        equity_return_std_real=0.17,
-        bond_allocation=0.4,
-        bond_return_mean_real=0.015,
-        bond_return_std_real=0.06,
-        correlation=-0.10,
-    )
+    return DEFAULT_MARKET_ASSUMPTIONS
+
+
+def _even_schedule():
+    return AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _scenario(name, spending=110_000.0):
@@ -53,6 +52,9 @@ def _scenario(name, spending=110_000.0):
         spending=SpendingProfile(annual_need_real=spending),
         state="GA",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=90),
     )
 
@@ -201,6 +203,9 @@ def test_account_owner_survives_a_save_load_round_trip(scenario_store_dir):
         spending=SpendingProfile(annual_need_real=90_000.0),
         state="GA",
         market_assumptions=_market_assumptions(),
+        taxable_allocation_schedule=_even_schedule(),
+        traditional_allocation_schedule=_even_schedule(),
+        roth_allocation_schedule=_even_schedule(),
         simulation_settings=SimulationSettings(n_paths=1000, seed=1, plan_to_age=95),
     )
 

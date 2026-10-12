@@ -182,13 +182,7 @@ class InheritedIraDetails:
 class Account:
     """A single balance bucket. data-model.md § Account."""
 
-    account_type: Literal["traditional", "roth", "taxable", "cash"]
-    """rp-e0h: "cash" added here (not yet wired through the BFF's own
-    AccountRequest schema, scenario.loader.py validation against
-    STATE_MODULES-style registries, or any Streamlit UI form -- those are
-    later phases) since account_attribution.py (this same phase) directly
-    consumes list[Account], and a real cash Account is the only way to
-    exercise/test it meaningfully end-to-end."""
+    account_type: Literal["traditional", "roth", "taxable"]
     balance: float
     owner: str | None = None
     """011-per-owner-accounts: references a household.members[*].person_name.
@@ -330,25 +324,134 @@ class Contribution401kPlan:
     output unchanged."""
 
 
+AssetClass = Literal[
+    "us_large",
+    "us_small",
+    "us_medium",
+    "reit",
+    "aggregate_bond",
+    "emerging_market",
+    "international_ex_us",
+    "cash",
+]
+ASSET_CLASSES: tuple[AssetClass, ...] = (
+    "us_large",
+    "us_small",
+    "us_medium",
+    "reit",
+    "aggregate_bond",
+    "emerging_market",
+    "international_ex_us",
+    "cash",
+)
+"""rp-aev: the one canonical ordering every asset-class-keyed structure
+(correlation_matrix rows/columns, the Monte Carlo draw's per-year `rng.gauss()`
+consumption order, every AllocationPeriod.weights dict) must use -- never
+re-derived from dict iteration order, which Python does not guarantee
+matches insertion/declaration order across arbitrary construction paths."""
+
+
+@dataclass
+class AssetClassAssumptions:
+    """One asset class's own real-return distribution. 8 instances live on
+    MarketAssumptions.asset_classes, keyed by AssetClass (rp-aev)."""
+
+    mean_real: float
+    std_real: float
+
+
 @dataclass
 class MarketAssumptions:
-    """Return/allocation inputs consumed by the future simulation-engine
-    feature. data-model.md § MarketAssumptions.
-    """
+    """Return inputs for the 8-asset-class portfolio model (rp-aev) --
+    full replacement of the pre-rp-aev 2-asset (equity/bond) blend; no
+    fallback/dual-mode. Allocation WEIGHTS (how much of each pool is
+    invested in each asset class) are a separate, per-pool concern --
+    see Scenario.taxable_allocation_schedule et al. below -- this type
+    only holds the shared market-wide return distribution every pool's
+    blend draws from."""
 
-    equity_allocation: float
-    equity_return_mean_real: float
-    equity_return_std_real: float
-    bond_allocation: float
-    bond_return_mean_real: float
-    bond_return_std_real: float
-    correlation: float
-    cash_return_mean_real: float = 0.0
-    """rp-e0h: the household's own cash-reserve balance's real annual
-    return -- deliberately a single, stable mean with no std-dev/
-    correlation fields (cash is modeled as low-or-no-volatility by
-    design, not a third stochastic asset class). Defaults to 0.0,
-    reproducing every existing scenario's exact current behavior."""
+    asset_classes: dict[AssetClass, AssetClassAssumptions]
+    """Exactly 8 keys, one per ASSET_CLASSES entry (shape enforced by
+    loader.py at parse time, not here)."""
+    correlation_matrix: list[list[float]]
+    """8x8, row/column order == ASSET_CLASSES. Stored densely (not just
+    the upper triangle) for simplicity -- validated as symmetric,
+    diagonal 1.0, and positive-semi-definite by validation.py, which
+    reuses the exact same cholesky_lower() (this package's own
+    correlation.py) the real Monte Carlo draw (simulation/returns.py)
+    uses, so the two can never disagree about what counts as a valid
+    correlation matrix."""
+
+
+DEFAULT_MARKET_ASSUMPTIONS = MarketAssumptions(
+    asset_classes={
+        "us_large": AssetClassAssumptions(mean_real=0.070, std_real=0.18),
+        "us_small": AssetClassAssumptions(mean_real=0.080, std_real=0.22),
+        "us_medium": AssetClassAssumptions(mean_real=0.075, std_real=0.20),
+        "reit": AssetClassAssumptions(mean_real=0.060, std_real=0.20),
+        "aggregate_bond": AssetClassAssumptions(mean_real=0.025, std_real=0.06),
+        "emerging_market": AssetClassAssumptions(mean_real=0.070, std_real=0.25),
+        "international_ex_us": AssetClassAssumptions(mean_real=0.060, std_real=0.19),
+        "cash": AssetClassAssumptions(mean_real=0.010, std_real=0.01),
+    },
+    # Row/column order == ASSET_CLASSES: us_large, us_small, us_medium,
+    # reit, aggregate_bond, emerging_market, international_ex_us, cash.
+    correlation_matrix=[
+        [1.00, 0.85, 0.90, 0.65, 0.00, 0.70, 0.80, 0.00],
+        [0.85, 1.00, 0.90, 0.65, -0.05, 0.65, 0.70, 0.00],
+        [0.90, 0.90, 1.00, 0.65, 0.00, 0.70, 0.75, 0.00],
+        [0.65, 0.65, 0.65, 1.00, 0.05, 0.55, 0.55, 0.00],
+        [0.00, -0.05, 0.00, 0.05, 1.00, -0.05, 0.05, 0.10],
+        [0.70, 0.65, 0.70, 0.55, -0.05, 1.00, 0.75, 0.00],
+        [0.80, 0.70, 0.75, 0.55, 0.05, 0.75, 1.00, 0.00],
+        [0.00, 0.00, 0.00, 0.00, 0.10, 0.00, 0.00, 1.00],
+    ],
+)
+"""rp-aev: illustrative, not sourced/verified market data (mirrors the
+existing synthetic historical-return series' own `verified=False`
+discipline in spirit) -- a reasonable starting point for these 8
+well-known asset classes, editable by the user. Reused by
+simulation/historical_data.py's own synthetic series generator (so that
+table's defaults never drift out of sync with this one) and by the
+Streamlit UI's own seeded form defaults (apps/streamlit_ui, a separate,
+independently-maintained copy per this project's own "UI never imports
+retirement_planner directly" architecture)."""
+
+
+@dataclass
+class AllocationPeriod:
+    """One glide-path period for one pool (rp-aev): active from
+    start_plan_year (inclusive) until the next period's start_plan_year
+    (exclusive), or through the end of the horizon for a schedule's last
+    period."""
+
+    start_plan_year: int
+    weights: dict[AssetClass, float]
+    """Exactly 8 keys (ASSET_CLASSES), each >= 0, summing to 1.0 --
+    validated in validation.py, not enforced by this dataclass itself."""
+
+
+@dataclass
+class AllocationSchedule:
+    """One pool's own glide path (rp-aev): a non-empty,
+    start_plan_year-ascending list of AllocationPeriod. The first
+    period's start_plan_year must be 1 (validated) so every plan year
+    has an active period with no gap."""
+
+    periods: list[AllocationPeriod]
+
+    def weights_for_plan_year(self, plan_year: int) -> dict[AssetClass, float]:
+        """The latest period whose start_plan_year <= plan_year wins --
+        mirrors comparison/projection.py's own effective_state
+        resolution idiom for relocation (recomputed fresh on every call,
+        no caching), generalized from a hardcoded 2-period ternary to an
+        N-period scan. periods lists are always tiny (a handful of
+        entries at most), so a plain linear scan is preferable to a
+        bisect-based lookup -- there is nothing to optimize."""
+        candidates = [period for period in self.periods if period.start_plan_year <= plan_year]
+        if not candidates:
+            raise ValueError(f"no AllocationPeriod active at plan_year {plan_year}")
+        return max(candidates, key=lambda period: period.start_plan_year).weights
 
 
 @dataclass
@@ -392,6 +495,12 @@ class Scenario:
     spending: SpendingProfile
     state: str
     market_assumptions: MarketAssumptions
+    taxable_allocation_schedule: AllocationSchedule
+    """rp-aev: this pool's own glide path -- required, no default/None
+    ("no fallback" was an explicit design decision; every scenario must
+    configure all three pools' schedules)."""
+    traditional_allocation_schedule: AllocationSchedule
+    roth_allocation_schedule: AllocationSchedule
     simulation_settings: SimulationSettings
     roth_conversion: RothConversionPlan | None = None
     hsa_contribution: HsaContributionPlan | None = None
@@ -413,19 +522,6 @@ class Scenario:
     plan_year numbering PlanYearProjection.plan_year uses. Must be set
     together with relocation_state (both None, or both set) -- enforced
     by validate(), not by this dataclass itself."""
-    cash_reserve_years: float | None = None
-    """rp-e0h: holds this many years' worth of annual_need_real in the
-    household's own cash reserve as its own target -- in a down plan
-    year (the simulated blended return for that year is negative),
-    spending is drawn from cash first; in an up year, cash is refilled
-    from taxable toward that same target. Defaults to None ("no cash-
-    reserve policy configured"), reproducing every existing scenario's
-    exact current behavior. Monte Carlo only (comparison/projection.py's
-    own run_plan_projection() docstring) -- accepted here regardless of
-    engine, but only threaded onto a resolved run's own
-    StrategyConfiguration for a genuinely Monte Carlo BFF request
-    (services/bff/src/rp_bff/resolution.py's own
-    apply_cash_reserve_strategy())."""
     validation_flags: list[ValidationFlag] = field(default_factory=list)
 
     @property

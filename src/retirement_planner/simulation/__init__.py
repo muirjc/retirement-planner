@@ -8,10 +8,10 @@ contract downstream features (reporting) should code against.
 """
 
 from .models import (
+    AssetClassReturnPath,
     ComparisonAxis,
     GenerationMode,
     PercentileBand,
-    ReturnPath,
     SimulationComparisonResult,
     SimulationRun,
     StressScenario,
@@ -37,11 +37,11 @@ from .survival_data import SURVIVAL_TABLE
 
 __all__ = [
     "SURVIVAL_TABLE",
+    "AssetClassReturnPath",
     "ComparisonAxis",
     "GenerationMode",
     "HISTORICAL_RETURNS",
     "PercentileBand",
-    "ReturnPath",
     "SimulationComparisonResult",
     "SimulationRun",
     "SpendingSearchResult",

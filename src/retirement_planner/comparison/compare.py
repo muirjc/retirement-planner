@@ -21,9 +21,9 @@ from dataclasses import replace
 from typing import Literal
 
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HsaContributionPlan
+from retirement_planner.scenario import AllocationSchedule, Household, HsaContributionPlan
 
-from .models import ComparisonResult, DeterministicReturnAssumption, StrategyConfiguration
+from .models import ComparisonResult, DeterministicAssetClassReturnAssumption, StrategyConfiguration
 from .projection import run_plan_projection
 
 _MIN_CLAIMING_AGE = 62
@@ -52,7 +52,10 @@ def compare_roth_conversion_strategies(
     plan_to_age: int,
     withdrawal_strategy: str,
     claiming_ages: dict[str, int],
-    return_assumption: DeterministicReturnAssumption,
+    return_assumption: DeterministicAssetClassReturnAssumption,
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
@@ -101,6 +104,9 @@ def compare_roth_conversion_strategies(
                 hsa_contribution=hsa_contribution,
             ),
             return_assumption=return_assumption,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
             relocation_state=relocation_state,
@@ -129,7 +135,10 @@ def compare_withdrawal_sequencing_strategies(
     conversion_bracket_ceiling_or_amount: float | None,
     conversion_window: tuple[int, int] | None,
     claiming_ages: dict[str, int],
-    return_assumption: DeterministicReturnAssumption,
+    return_assumption: DeterministicAssetClassReturnAssumption,
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     candidates: list[StrategyConfiguration],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
@@ -186,6 +195,9 @@ def compare_withdrawal_sequencing_strategies(
                 conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_assumption=return_assumption,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
             relocation_state=relocation_state,
@@ -214,7 +226,10 @@ def compare_claiming_age_grid(
     conversion_strategy: str | None,
     conversion_bracket_ceiling_or_amount: float | None,
     conversion_window: tuple[int, int] | None,
-    return_assumption: DeterministicReturnAssumption,
+    return_assumption: DeterministicAssetClassReturnAssumption,
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     claiming_age_grid: list[dict[str, int]],
     hsa_contribution: HsaContributionPlan | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see _fresh_inherited_accounts()
@@ -293,6 +308,9 @@ def compare_claiming_age_grid(
                 conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_assumption=return_assumption,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             inherited_accounts=_fresh_inherited_accounts(inherited_accounts),
             net_earned_income_against_spending=net_earned_income_against_spending,
             relocation_state=relocation_state,

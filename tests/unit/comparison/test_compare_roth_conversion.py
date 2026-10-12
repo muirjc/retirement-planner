@@ -1,12 +1,12 @@
 """Unit tests for compare_roth_conversion_strategies() (US2)."""
 
 from retirement_planner.comparison import (
-    DeterministicReturnAssumption,
+    DeterministicAssetClassReturnAssumption,
     StrategyConfiguration,
     compare_roth_conversion_strategies,
 )
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 
 _HOUSEHOLD = Household(
     filing_status="married_filing_jointly",
@@ -17,7 +17,8 @@ _HOUSEHOLD = Household(
 )
 _ACCOUNTS = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
 _SHARES = {"you": 0.6, "spouse": 0.4}
-_RETURN_ASSUMPTION = DeterministicReturnAssumption(annual_real_return=0.045)
+_RETURN_ASSUMPTION = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.045 for ac in ASSET_CLASSES})
+_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _run(candidates):
@@ -34,6 +35,9 @@ def _run(candidates):
         withdrawal_strategy="rmd_taxable_traditional_roth",
         claiming_ages={"you": 67, "spouse": 67},
         return_assumption=_RETURN_ASSUMPTION,
+        taxable_allocation_schedule=_SCHEDULE,
+        traditional_allocation_schedule=_SCHEDULE,
+        roth_allocation_schedule=_SCHEDULE,
         candidates=candidates,
     )
 

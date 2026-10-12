@@ -14,27 +14,31 @@ from datetime import date
 from typing import Literal
 
 from retirement_planner.comparison import PlanProjection, StrategyConfiguration
+from retirement_planner.scenario import AssetClass
 from retirement_planner.tax import FigureUsage
 
 GenerationMode = Literal["parametric", "historical_bootstrap"]
 
 
 @dataclass
-class ReturnPath:
-    """data-model.md § ReturnPath. Satisfies
-    retirement_planner.comparison.models.ReturnSchedule via
-    return_for_plan_year() (research.md §1)."""
+class AssetClassReturnPath:
+    """rp-aev: replaces ReturnPath. Satisfies
+    retirement_planner.comparison.models.AssetClassReturnSchedule via
+    asset_returns_for_plan_year() -- stores RAW per-asset-class returns,
+    never pre-blended (blending by a pool's own active glide-path weights
+    happens inside run_plan_projection(), via
+    comparison.allocation.blended_pool_return())."""
 
     start_plan_year: int
-    annual_returns: list[float]
+    asset_returns: list[dict[AssetClass, float]]
     generation_mode: GenerationMode
     figures_used: list[FigureUsage] = field(default_factory=list)
 
-    def return_for_plan_year(self, plan_year: int) -> float:
-        """Returns annual_returns[plan_year - start_plan_year]. A
+    def asset_returns_for_plan_year(self, plan_year: int) -> dict[AssetClass, float]:
+        """Returns asset_returns[plan_year - start_plan_year]. A
         plan_year outside the covered range is a caller precondition
-        violation (data-model.md § ReturnPath) -- raises IndexError."""
-        return self.annual_returns[plan_year - self.start_plan_year]
+        violation -- raises IndexError."""
+        return self.asset_returns[plan_year - self.start_plan_year]
 
 
 @dataclass
@@ -105,5 +109,5 @@ class SimulationComparisonResult:
     """data-model.md § SimulationComparisonResult."""
 
     axis: ComparisonAxis
-    return_paths: list[ReturnPath]
+    return_paths: list[AssetClassReturnPath]
     runs: list[SimulationRun]

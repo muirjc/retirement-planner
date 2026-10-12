@@ -9,8 +9,8 @@ import pytest
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HouseholdMember
-from retirement_planner.simulation.models import ReturnPath
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
+from retirement_planner.simulation.models import AssetClassReturnPath
 
 _HOUSEHOLD = Household(
     filing_status="single",
@@ -25,6 +25,7 @@ _STRATEGY = StrategyConfiguration(
     conversion_window=None,
     claiming_ages={"you": 99},
 )
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 _COMMON_KWARGS = dict(
     household=_HOUSEHOLD,
     accounts=_ZERO_INCOME_ACCOUNTS,
@@ -34,10 +35,13 @@ _COMMON_KWARGS = dict(
     start_plan_year=1,
     start_tax_year=2026,
     plan_to_age=91,
+    taxable_allocation_schedule=_EVEN_SCHEDULE,
+    traditional_allocation_schedule=_EVEN_SCHEDULE,
+    roth_allocation_schedule=_EVEN_SCHEDULE,
 )
 _RETURN_PATHS = [
-    ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
-    ReturnPath(start_plan_year=1, annual_returns=[-0.5, 0.0], generation_mode="parametric", figures_used=[]),
+    AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[]),
+    AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: -0.5 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[]),
 ]
 
 
@@ -202,8 +206,16 @@ def test_compare_states_rejects_return_paths_mixing_generation_modes():
     from retirement_planner.simulation.compare import compare_states
 
     mixed_paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
-        ReturnPath(start_plan_year=1, annual_returns=[-0.5, 0.0], generation_mode="historical_bootstrap", figures_used=[]),
+        AssetClassReturnPath(
+            start_plan_year=1,
+            asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+            generation_mode="parametric", figures_used=[],
+        ),
+        AssetClassReturnPath(
+            start_plan_year=1,
+            asset_returns=[{ac: -0.5 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}],
+            generation_mode="historical_bootstrap", figures_used=[],
+        ),
     ]
 
     with pytest.raises(ValueError):
@@ -229,8 +241,8 @@ def test_stress_tested_return_paths_apply_the_identical_shock_to_every_candidate
     # the stress override lives in the shared return_paths list, not in
     # anything compare_states() varies per candidate.
     for run in comparison.runs:
-        assert run.path_results[0].return_assumption.annual_returns[0] == -0.90
-        assert run.path_results[1].return_assumption.annual_returns[0] == -0.90
+        assert run.path_results[0].return_assumption.asset_returns[0]["us_large"] == -0.90
+        assert run.path_results[1].return_assumption.asset_returns[0]["us_large"] == -0.90
 
 
 def test_all_four_compare_functions_accept_a_single_candidate():
@@ -298,8 +310,8 @@ def test_compare_states_reuses_the_identical_death_year_draws_across_every_candi
     # the longer horizons other fixtures in this file use for FL (which
     # has no bracket table to run out of years on).
     return_paths = [
-        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
-        ReturnPath(start_plan_year=1, annual_returns=[0.0, 0.0], generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[]),
+        AssetClassReturnPath(start_plan_year=1, asset_returns=[{ac: 0.0 for ac in ASSET_CLASSES}, {ac: 0.0 for ac in ASSET_CLASSES}], generation_mode="parametric", figures_used=[]),
     ]
     # One path with no death, one with "spouse" drawn to die at exactly
     # their own current_age (65) -- 2026 (the death year itself) stays
@@ -319,6 +331,8 @@ def test_compare_states_reuses_the_identical_death_year_draws_across_every_candi
         annual_spending_need=60_000, states=["FL", "SC"],
         reference_tax_year=2026, start_plan_year=1, start_tax_year=2026, plan_to_age=68,
         strategy=strategy, return_paths=return_paths,
+        taxable_allocation_schedule=_EVEN_SCHEDULE, traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         survival_curves=survival_curves, death_year_draws=death_year_draws,
     )
 

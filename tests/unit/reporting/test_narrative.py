@@ -9,7 +9,7 @@ assembled into SimulationRun objects directly.
 
 from datetime import date
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
 from retirement_planner.reporting import (
     attribute_plan_projection,
@@ -19,11 +19,12 @@ from retirement_planner.reporting import (
     select_representative_path,
 )
 from retirement_planner.reporting.aggregation import figure_citations, unverified_figure_names
-from retirement_planner.scenario import Account, Household, HouseholdMember, IncomeStream
+from retirement_planner.scenario import ASSET_CLASSES, Account, AllocationPeriod, AllocationSchedule, Household, HouseholdMember, IncomeStream
 from retirement_planner.simulation import PercentileBand, SimulationRun
 from retirement_planner.tax import FigureUsage
 
-_RETURN_0PCT = DeterministicReturnAssumption(annual_real_return=0.0)
+_RETURN_0PCT = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.0 for ac in ASSET_CLASSES})
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _strategy(**overrides):
@@ -56,6 +57,9 @@ def _project(
         plan_to_age=plan_to_age,
         strategy=strategy,
         return_assumption=return_assumption or _RETURN_0PCT,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         inherited_accounts=inherited_accounts or [],
         relocation_state=relocation_state,
         relocation_plan_year=relocation_plan_year,
@@ -244,53 +248,6 @@ def test_shortfall_fires_on_every_occurrence_not_just_the_first():
 
     shortfall_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "shortfall"]
     assert shortfall_years == [1, 2, 3]
-
-
-def test_cash_reserve_draw_fires_in_a_down_year():
-    """rp-e0h.4: a constantly-negative return assumption makes every year
-    a "down year" -- cash_reserve_draw fires until the $40,000 cash
-    balance is exhausted (two $20k/yr draws), never again afterwards."""
-    household = Household(
-        filing_status="single",
-        members=[HouseholdMember(person_name="Alex", current_age=60, ss_claim_age=99, ss_annual_benefit=0)],
-    )
-    strategy = _strategy(claiming_ages={"Alex": 99}, cash_reserve_years=2.0)
-    projection = _project(
-        household,
-        AccountBalances(traditional=500_000, roth=0, taxable=0, cash=40_000),
-        strategy,
-        plan_to_age=63,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=-0.05),
-    )
-
-    stories = build_year_stories(projection, household, reference_tax_year=2026)
-
-    draw_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "cash_reserve_draw"]
-    assert draw_years == [1, 2]
-
-
-def test_cash_reserve_refill_fires_in_an_up_year():
-    """rp-e0h.4: a constantly-positive return assumption makes every year
-    an "up year" -- cash starts below its $40,000 target (2 years x
-    $20k spending) and taxable has plenty to refill from, so the refill
-    entry fires every year until the target is reached."""
-    household = Household(
-        filing_status="single",
-        members=[HouseholdMember(person_name="Alex", current_age=60, ss_claim_age=99, ss_annual_benefit=0)],
-    )
-    strategy = _strategy(claiming_ages={"Alex": 99}, cash_reserve_years=2.0)
-    projection = _project(
-        household,
-        AccountBalances(traditional=0, roth=0, taxable=500_000, cash=0),
-        strategy,
-        plan_to_age=62,
-        return_assumption=DeterministicReturnAssumption(annual_real_return=0.05),
-    )
-
-    stories = build_year_stories(projection, household, reference_tax_year=2026)
-
-    refill_years = [s.plan_year for s in stories for e in s.entries if e.driver_key == "cash_reserve_refill"]
-    assert refill_years == [1]
 
 
 def test_every_year_has_at_least_one_entry():

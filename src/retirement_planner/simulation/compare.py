@@ -14,16 +14,16 @@ from typing import Literal
 
 from retirement_planner.comparison import StrategyConfiguration
 from retirement_planner.mechanics import AccountBalances, InheritedAccountBalance
-from retirement_planner.scenario import Household, HsaContributionPlan
+from retirement_planner.scenario import AllocationSchedule, Household, HsaContributionPlan
 
-from .models import ReturnPath, SimulationComparisonResult, SurvivalCurve
+from .models import AssetClassReturnPath, SimulationComparisonResult, SurvivalCurve
 from .monte_carlo import run_simulation
 
 _MIN_CLAIMING_AGE = 62
 _MAX_CLAIMING_AGE = 70
 
 
-def _validate_consistent_generation_mode(return_paths: list[ReturnPath]) -> None:
+def _validate_consistent_generation_mode(return_paths: list[AssetClassReturnPath]) -> None:
     """Raises ValueError if return_paths mixes generation_mode values
     (FR-011, US3 Acceptance Scenario 3, research.md §2's "structurally
     guaranteed... per candidate, checked once per shared list" note)."""
@@ -43,7 +43,10 @@ def compare_states(
     start_tax_year: int,
     plan_to_age: int,
     strategy: StrategyConfiguration,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
     inherited_accounts: list[InheritedAccountBalance] = [],  # noqa: B006 -- see run_simulation()'s own docstring
@@ -86,6 +89,9 @@ def compare_states(
             plan_to_age=plan_to_age,
             strategy=strategy,
             return_paths=return_paths,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             candidate_label=state,
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
@@ -109,7 +115,10 @@ def compare_roth_conversion_strategies(
     plan_to_age: int,
     withdrawal_strategy: str,
     claiming_ages: dict[str, int],
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
@@ -155,6 +164,9 @@ def compare_roth_conversion_strategies(
                 hsa_contribution=hsa_contribution,
             ),
             return_paths=return_paths,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
@@ -182,7 +194,10 @@ def compare_withdrawal_sequencing_strategies(
     conversion_bracket_ceiling_or_amount: float | None,
     conversion_window: tuple[int, int] | None,
     claiming_ages: dict[str, int],
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     candidates: list[StrategyConfiguration],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
@@ -235,6 +250,9 @@ def compare_withdrawal_sequencing_strategies(
                 conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_paths=return_paths,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             candidate_label=candidate.label,
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,
@@ -262,7 +280,10 @@ def compare_claiming_age_grid(
     conversion_strategy: str | None,
     conversion_bracket_ceiling_or_amount: float | None,
     conversion_window: tuple[int, int] | None,
-    return_paths: list[ReturnPath],
+    return_paths: list[AssetClassReturnPath],
+    taxable_allocation_schedule: AllocationSchedule,
+    traditional_allocation_schedule: AllocationSchedule,
+    roth_allocation_schedule: AllocationSchedule,
     claiming_age_grid: list[dict[str, int]],
     survival_curves: dict[str, SurvivalCurve] | None = None,
     death_year_draws: list[dict[str, int | None]] | None = None,
@@ -334,6 +355,9 @@ def compare_claiming_age_grid(
                 conversion_named_bracket_rate=conversion_named_bracket_rate,
             ),
             return_paths=return_paths,
+            taxable_allocation_schedule=taxable_allocation_schedule,
+            traditional_allocation_schedule=traditional_allocation_schedule,
+            roth_allocation_schedule=roth_allocation_schedule,
             candidate_label=f"claiming_ages_{index}",
             survival_curves=survival_curves,
             death_year_draws=death_year_draws,

@@ -9,9 +9,9 @@ laptop. This is a coarse smoke check, not a benchmark.
 import itertools
 import time
 
-from retirement_planner.comparison import DeterministicReturnAssumption, compare_claiming_age_grid
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, compare_claiming_age_grid
 from retirement_planner.mechanics import AccountBalances
-from retirement_planner.scenario import Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 
 # Generous budget: "a few seconds" per plan.md, with headroom for slow CI runners.
 _BUDGET_SECONDS = 5.0
@@ -26,7 +26,8 @@ def test_full_claiming_age_grid_over_a_35_year_horizon_completes_within_budget()
         ],
     )
     accounts = AccountBalances(traditional=1_500_000, roth=400_000, taxable=200_000)
-    return_assumption = DeterministicReturnAssumption(annual_real_return=0.045)
+    return_assumption = DeterministicAssetClassReturnAssumption(asset_class_means={ac: 0.045 for ac in ASSET_CLASSES})
+    even_schedule = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
     grid = [
         {"you": you_age, "spouse": spouse_age}
         for you_age, spouse_age in itertools.product(range(62, 71), range(62, 71))
@@ -48,6 +49,9 @@ def test_full_claiming_age_grid_over_a_35_year_horizon_completes_within_budget()
         conversion_bracket_ceiling_or_amount=206_000,
         conversion_window=(2028, 2034),
         return_assumption=return_assumption,
+        taxable_allocation_schedule=even_schedule,
+        traditional_allocation_schedule=even_schedule,
+        roth_allocation_schedule=even_schedule,
         claiming_age_grid=grid,
     )
     elapsed = time.perf_counter() - start

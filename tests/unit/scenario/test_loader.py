@@ -33,13 +33,36 @@ roth_conversion:
   window: [2028, 2034]
 state: GA
 market_assumptions:
-  equity_allocation: 0.60
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.40
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 5000
   seed: 42
@@ -60,7 +83,8 @@ def test_parse_scenario_happy_path_full_profile():
     assert scenario.roth_conversion.strategy == "fill_to_bracket"
     assert scenario.roth_conversion.window == (2028, 2034)
     assert scenario.state == "GA"
-    assert scenario.market_assumptions.equity_allocation == 0.60
+    assert scenario.market_assumptions.asset_classes["us_large"].mean_real == 0.07
+    assert scenario.taxable_allocation_schedule.periods[0].weights["us_large"] == 0.125
     assert scenario.simulation_settings.n_paths == 5000
     assert scenario.simulation_settings.seed == 42
     assert scenario.simulation_settings.plan_to_age == 95
@@ -369,13 +393,36 @@ spending:
   annual_need_real: 60000
 state: FL
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.05
-  equity_return_std_real: 0.15
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.02
-  bond_return_std_real: 0.05
-  correlation: 0.0
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 1
   seed: 1
@@ -423,13 +470,36 @@ spending:
   annual_need_real: 50000
 state: FL
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.065
-  equity_return_std_real: 0.17
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.015
-  bond_return_std_real: 0.06
-  correlation: -0.10
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 1000
   seed: 1
@@ -485,13 +555,36 @@ spending:
   annual_need_real: 60000
 state: FL
 market_assumptions:
-  equity_allocation: 0.6
-  equity_return_mean_real: 0.05
-  equity_return_std_real: 0.15
-  bond_allocation: 0.4
-  bond_return_mean_real: 0.02
-  bond_return_std_real: 0.05
-  correlation: 0.0
+  asset_classes:
+    us_large: {mean_real: 0.07, std_real: 0.18}
+    us_small: {mean_real: 0.08, std_real: 0.22}
+    us_medium: {mean_real: 0.075, std_real: 0.20}
+    reit: {mean_real: 0.06, std_real: 0.20}
+    aggregate_bond: {mean_real: 0.025, std_real: 0.06}
+    emerging_market: {mean_real: 0.07, std_real: 0.25}
+    international_ex_us: {mean_real: 0.06, std_real: 0.19}
+    cash: {mean_real: 0.01, std_real: 0.01}
+  correlation_matrix:
+    - [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+taxable_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+traditional_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
+roth_allocation_schedule:
+  periods:
+    - start_plan_year: 1
+      weights: {us_large: 0.125, us_small: 0.125, us_medium: 0.125, reit: 0.125, aggregate_bond: 0.125, emerging_market: 0.125, international_ex_us: 0.125, cash: 0.125}
 simulation_settings:
   n_paths: 1
   seed: 1

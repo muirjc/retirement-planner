@@ -7,6 +7,18 @@ sections.
 
 import pytest
 
+_ASSET_CLASSES = (
+    "us_large",
+    "us_small",
+    "us_medium",
+    "reit",
+    "aggregate_bond",
+    "emerging_market",
+    "international_ex_us",
+    "cash",
+)
+_EVEN_WEIGHTS = {ac: 1.0 / 8 for ac in _ASSET_CLASSES}
+
 _SCENARIO_BODY = {
     "household": {
         "filing_status": "married_filing_jointly",
@@ -23,14 +35,30 @@ _SCENARIO_BODY = {
     "spending": {"annual_need_real": 110_000},
     "state": "FL",
     "market_assumptions": {
-        "equity_allocation": 0.60,
-        "equity_return_mean_real": 0.065,
-        "equity_return_std_real": 0.17,
-        "bond_allocation": 0.40,
-        "bond_return_mean_real": 0.015,
-        "bond_return_std_real": 0.06,
-        "correlation": -0.10,
+        "asset_classes": {
+            "us_large": {"mean_real": 0.070, "std_real": 0.18},
+            "us_small": {"mean_real": 0.080, "std_real": 0.22},
+            "us_medium": {"mean_real": 0.075, "std_real": 0.20},
+            "reit": {"mean_real": 0.060, "std_real": 0.20},
+            "aggregate_bond": {"mean_real": 0.025, "std_real": 0.06},
+            "emerging_market": {"mean_real": 0.070, "std_real": 0.25},
+            "international_ex_us": {"mean_real": 0.060, "std_real": 0.19},
+            "cash": {"mean_real": 0.010, "std_real": 0.01},
+        },
+        "correlation_matrix": [
+            [1.00, 0.85, 0.90, 0.65, 0.00, 0.70, 0.80, 0.00],
+            [0.85, 1.00, 0.90, 0.65, -0.05, 0.65, 0.70, 0.00],
+            [0.90, 0.90, 1.00, 0.65, 0.00, 0.70, 0.75, 0.00],
+            [0.65, 0.65, 0.65, 1.00, 0.05, 0.55, 0.55, 0.00],
+            [0.00, -0.05, 0.00, 0.05, 1.00, -0.05, 0.05, 0.10],
+            [0.70, 0.65, 0.70, 0.55, -0.05, 1.00, 0.75, 0.00],
+            [0.80, 0.70, 0.75, 0.55, 0.05, 0.75, 1.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 0.10, 0.00, 0.00, 1.00],
+        ],
     },
+    "taxable_allocation_schedule": {"periods": [{"start_plan_year": 1, "weights": _EVEN_WEIGHTS}]},
+    "traditional_allocation_schedule": {"periods": [{"start_plan_year": 1, "weights": _EVEN_WEIGHTS}]},
+    "roth_allocation_schedule": {"periods": [{"start_plan_year": 1, "weights": _EVEN_WEIGHTS}]},
     "simulation_settings": {"n_paths": 200, "seed": 42, "plan_to_age": 95},
     "roth_conversion": {"strategy": "fill_to_bracket", "bracket_ceiling_or_amount": 206_700, "window": [2028, 2034]},
 }
@@ -51,6 +79,12 @@ def test_save_read_and_list_round_trip(client):
     # inherited (None -- no account in this request is inherited).
     expected_accounts = [{**account, "account_id": f"{account['account_type']}-{index}", "inherited": None} for index, account in enumerate(_SCENARIO_BODY["accounts"])]
     assert read_response.json()["accounts"] == expected_accounts  # US1.1
+    # rp-aev: the 8-asset-class market_assumptions shape and all 3 pools'
+    # allocation schedules round-trip with full shape fidelity.
+    assert read_response.json()["market_assumptions"] == _SCENARIO_BODY["market_assumptions"]
+    assert read_response.json()["taxable_allocation_schedule"] == _SCENARIO_BODY["taxable_allocation_schedule"]
+    assert read_response.json()["traditional_allocation_schedule"] == _SCENARIO_BODY["traditional_allocation_schedule"]
+    assert read_response.json()["roth_allocation_schedule"] == _SCENARIO_BODY["roth_allocation_schedule"]
 
     list_response = client.get("/api/v1/scenarios")
     assert "base_case" in list_response.json()["scenarios"]  # US1.2
@@ -1232,6 +1266,106 @@ def test_hsa_contribution_reaches_the_withdrawal_sequencing_comparison_axis(clie
     assert with_hsa_summary["median_lifetime_tax_paid"] < without_hsa_summary["median_lifetime_tax_paid"]
 
 
+def _single_asset_schedule(asset_class):
+    return {"periods": [{"start_plan_year": 1, "weights": {ac: (1.0 if ac == asset_class else 0.0) for ac in _ASSET_CLASSES}}]}
+
+
+def test_allocation_schedule_reaches_every_comparison_axis_on_both_engines(client):
+    """rp-aev: the 3 allocation schedules are forced into
+    resolve_and_compare_deterministic()'s/resolve_and_compare_simulated()'s
+    own shared `common` dict -- deliberately NOT threaded through
+    StrategyConfiguration (resolution.py's own ResolvedRunContext
+    docstring), exactly the gap rp-e0h's own cash_reserve_years left open
+    (it never reached 2 of 3 comparison axes, because comparison_candidates.py
+    builds fresh StrategyConfiguration objects for those axes). This proves
+    the schedule actually reaches a built claiming_age_grid candidate on
+    both engines, by comparing an all-growth vs. an all-cash glide path for
+    otherwise identical scenarios -- a status-code-only check would pass
+    even with that exact bug reintroduced."""
+    growth_body = {
+        **_SCENARIO_BODY,
+        "taxable_allocation_schedule": _single_asset_schedule("us_small"),
+        "traditional_allocation_schedule": _single_asset_schedule("us_small"),
+        "roth_allocation_schedule": _single_asset_schedule("us_small"),
+    }
+    cash_body = {
+        **_SCENARIO_BODY,
+        "taxable_allocation_schedule": _single_asset_schedule("cash"),
+        "traditional_allocation_schedule": _single_asset_schedule("cash"),
+        "roth_allocation_schedule": _single_asset_schedule("cash"),
+    }
+    client.put("/api/v1/scenarios/growth_case", json=growth_body)
+    client.put("/api/v1/scenarios/cash_case", json=cash_body)
+
+    candidates = [{"you": 67, "spouse": 67}]
+
+    def final_year_total_balance(scenario_name, endpoint, plan_to_age=None):
+        body = {**_RUN_BODY, "scenario_name": scenario_name, "axis": "claiming_age_grid", "candidates": candidates}
+        if plan_to_age is not None:
+            body["plan_to_age"] = plan_to_age
+        response = client.post(endpoint, json=body)
+        assert response.status_code == 200
+        final_year = response.json()["account_detail"][0][-1]
+        return sum(row["ending_balance"] for row in final_year["accounts"])
+
+    growth_det = final_year_total_balance("growth_case", "/api/v1/comparisons/deterministic")
+    cash_det = final_year_total_balance("cash_case", "/api/v1/comparisons/deterministic")
+    assert growth_det > cash_det
+
+    # Same seed/market_assumptions on both scenarios -- only the glide-path
+    # weights differ -- so path 0's blended return (and this comparison's
+    # direction) is exact, not just true in expectation.
+    growth_sim = final_year_total_balance("growth_case", "/api/v1/comparisons/simulated", plan_to_age=61)
+    cash_sim = final_year_total_balance("cash_case", "/api/v1/comparisons/simulated", plan_to_age=61)
+    assert growth_sim > cash_sim
+
+
+def test_invalid_correlation_matrix_is_a_blocking_flag_not_a_500(client):
+    """rp-aev: a non-positive-semi-definite correlation matrix is rejected
+    by scenario/validation.py's _validate_correlation_matrix() as a
+    blocking ValidationFlag -- PUT always succeeds (001's own "saving
+    never requires validity" contract), never a bare 500."""
+    bad_matrix = [[1.0 if i == j else 0.99 for j in range(8)] for i in range(8)]
+    bad_matrix[0][1] = bad_matrix[1][0] = -0.99  # breaks positive-semi-definiteness
+    body = {
+        **_SCENARIO_BODY,
+        "market_assumptions": {**_SCENARIO_BODY["market_assumptions"], "correlation_matrix": bad_matrix},
+    }
+
+    response = client.put("/api/v1/scenarios/bad_correlation_case", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["is_usable"] is False
+    assert any(
+        flag["field"] == "market_assumptions.correlation_matrix" for flag in response.json()["validation_flags"]
+    )
+
+
+def test_mis_summing_allocation_weights_is_a_blocking_flag_not_a_500(client):
+    """rp-aev: an allocation period whose weights don't sum to 1.0 is
+    rejected by scenario/validation.py's _validate_allocation_schedule()
+    as a blocking ValidationFlag, never a bare 500 -- exercised through
+    both the save route and the run route (FR-009's own blocking-flags
+    rejection, mirroring every other blocking-flag regression above)."""
+    bad_weights = {ac: 1.0 if ac == "us_large" else 0.0 for ac in _ASSET_CLASSES}
+    bad_weights["us_large"] = 0.5  # sums to 0.5, not 1.0
+    body = {
+        **_SCENARIO_BODY,
+        "taxable_allocation_schedule": {"periods": [{"start_plan_year": 1, "weights": bad_weights}]},
+    }
+
+    save_response = client.put("/api/v1/scenarios/bad_weights_case", json=body)
+    assert save_response.status_code == 200
+    assert save_response.json()["is_usable"] is False
+    assert any(
+        flag["field"] == "taxable_allocation_schedule.periods[0].weights" for flag in save_response.json()["validation_flags"]
+    )
+
+    run_response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "bad_weights_case"})
+    assert run_response.status_code == 422
+    assert run_response.json()["error"] == "blocking_validation_flags"
+
+
 # --- User Story 5: export a run or comparison as a downloadable report ---
 
 
@@ -1534,86 +1668,6 @@ def test_relocation_state_without_relocation_plan_year_is_a_blocking_validation_
     run_response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "bad_relocation"})
     assert run_response.status_code == 422
     assert run_response.json()["error"] == "blocking_validation_flags"
-
-
-# --- rp-e0h: cash-reserve (bucket) withdrawal strategy ---
-
-
-def test_cash_reserve_years_round_trips_through_save_and_read(client):
-    body = {**_SCENARIO_BODY, "cash_reserve_years": 3}
-    save_response = client.put("/api/v1/scenarios/cash_reserve_case", json=body)
-    assert save_response.json()["is_usable"] is True
-
-    read_response = client.get("/api/v1/scenarios/cash_reserve_case")
-    assert read_response.json()["cash_reserve_years"] == 3
-
-
-def test_cash_account_saves_and_loads_correctly(client):
-    body = {
-        **_SCENARIO_BODY,
-        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 75_000, "owner": "you"}],
-    }
-    save_response = client.put("/api/v1/scenarios/cash_account_case", json=body)
-    assert save_response.json()["is_usable"] is True
-
-    read_response = client.get("/api/v1/scenarios/cash_account_case")
-    accounts = read_response.json()["accounts"]
-    cash_accounts = [a for a in accounts if a["account_type"] == "cash"]
-    assert len(cash_accounts) == 1
-    assert cash_accounts[0]["balance"] == 75_000
-
-
-def test_cash_return_mean_real_round_trips_through_save_and_read(client):
-    body = {
-        **_SCENARIO_BODY,
-        "market_assumptions": {**_SCENARIO_BODY["market_assumptions"], "cash_return_mean_real": 0.02},
-    }
-    client.put("/api/v1/scenarios/cash_yield_case", json=body)
-
-    read_response = client.get("/api/v1/scenarios/cash_yield_case")
-    assert read_response.json()["market_assumptions"]["cash_return_mean_real"] == 0.02
-
-
-def test_simulations_resolves_cash_reserve_years_and_it_reaches_run_simulation(client):
-    """rp-e0h: can't assert an exact draw/refill figure (real Monte Carlo
-    volatility, not a controlled ReturnPath like the core-level tests use)
-    -- instead confirms the field flows all the way through the real
-    stack end-to-end, by scanning every path's own years for at least one
-    real nonzero draw or refill, which a long, volatile-enough horizon
-    makes a near statistical certainty."""
-    body = {
-        **_SCENARIO_BODY,
-        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 100_000, "owner": "you"}],
-        "cash_reserve_years": 3,
-    }
-    client.put("/api/v1/scenarios/cash_reserve_e2e_case", json=body)
-
-    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "cash_reserve_e2e_case"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    all_years = [year for path in payload["run"]["path_results"] for year in path["years"]]
-    assert all_years  # the scenario actually produced years
-    assert all("cash_reserve_draw" in year and "cash_reserve_refill" in year for year in all_years)
-    assert any(year["cash_reserve_draw"] > 0 or year["cash_reserve_refill"] > 0 for year in all_years)
-
-
-def test_cash_reserve_years_omitted_never_affects_cash_balance(client):
-    body = {
-        **_SCENARIO_BODY,
-        "accounts": [*_SCENARIO_BODY["accounts"], {"account_type": "cash", "balance": 50_000, "owner": "you"}],
-    }
-    client.put("/api/v1/scenarios/cash_no_policy_case", json=body)
-
-    response = client.post("/api/v1/simulations", json={**_RUN_BODY, "scenario_name": "cash_no_policy_case"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    all_years = [year for path in payload["run"]["path_results"] for year in path["years"]]
-    assert all(year["cash_reserve_draw"] == 0.0 and year["cash_reserve_refill"] == 0.0 for year in all_years)
-    # cash_return_mean_real also defaults to 0.0 -- the $50,000 starting
-    # cash balance never moves at all without a configured policy.
-    assert all(year["ending_balances"]["cash"] == 50_000.0 for year in all_years)
 
 
 def test_unregistered_account_type_is_a_clean_422_not_a_bare_500(client):

@@ -46,7 +46,6 @@ from ..resolution import (
     ResolvedRunContext,
     SurvivalCurveAgeOutOfRangeError,
     UnknownReferenceValueError,
-    apply_cash_reserve_strategy,
     build_survival_curves,
     check_run_cost,
     generate_configured_return_paths,
@@ -138,11 +137,6 @@ def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | No
             status_code=422,
             detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value},
         )
-    # rp-e0h: this route is genuinely Monte Carlo (run_simulation() below)
-    # -- see apply_cash_reserve_strategy()'s own docstring for why this
-    # isn't done inside resolve_run_context() itself.
-    context = apply_cash_reserve_strategy(context)
-
     try:
         check_run_cost(context)
     except CostBudgetExceededError as exc:
@@ -213,6 +207,9 @@ def resolve_and_run_simulation(body: SimulationRequest, scenarios_dir: Path | No
             net_earned_income_against_spending=context.net_earned_income_against_spending,
             relocation_state=context.relocation_state,
             relocation_plan_year=context.relocation_plan_year,
+            taxable_allocation_schedule=context.taxable_allocation_schedule,
+            traditional_allocation_schedule=context.traditional_allocation_schedule,
+            roth_allocation_schedule=context.roth_allocation_schedule,
         )
     except UnsupportedTaxYearError as exc:
         raise unsupported_tax_year_error(exc)
@@ -328,10 +325,6 @@ def resolve_and_search_sustainable_spending(
             status_code=422,
             detail={"error": "unknown_reference_value", "field": exc.field, "value": exc.value},
         )
-    # rp-e0h: this route is genuinely Monte Carlo (find_sustainable_spending_range()
-    # below) -- see apply_cash_reserve_strategy()'s own docstring.
-    context = apply_cash_reserve_strategy(context)
-
     owner = deemed_rmd_owner(context.household)
     horizon_years = context.plan_to_age - owner.current_age + 1
 
@@ -395,6 +388,9 @@ def resolve_and_search_sustainable_spending(
             net_earned_income_against_spending=context.net_earned_income_against_spending,
             relocation_state=context.relocation_state,
             relocation_plan_year=context.relocation_plan_year,
+            taxable_allocation_schedule=context.taxable_allocation_schedule,
+            traditional_allocation_schedule=context.traditional_allocation_schedule,
+            roth_allocation_schedule=context.roth_allocation_schedule,
             max_bracket_expansions=_MAX_BRACKET_EXPANSIONS,
             max_bisection_iterations=_MAX_BISECTION_ITERATIONS,
         )

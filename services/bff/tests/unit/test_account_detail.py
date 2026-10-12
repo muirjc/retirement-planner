@@ -5,10 +5,10 @@ retirement_planner.reporting.account_attribution
 
 import pytest
 
-from retirement_planner.comparison import DeterministicReturnAssumption, StrategyConfiguration, run_plan_projection
+from retirement_planner.comparison import DeterministicAssetClassReturnAssumption, StrategyConfiguration, run_plan_projection
 from retirement_planner.mechanics import AccountBalances
 from retirement_planner.reporting import compute_account_shares
-from retirement_planner.scenario import Account, Household, HouseholdMember
+from retirement_planner.scenario import ASSET_CLASSES, Account, AllocationPeriod, AllocationSchedule, Household, HouseholdMember
 from retirement_planner.simulation import SimulationRun
 
 from rp_bff.account_detail import (
@@ -17,6 +17,8 @@ from rp_bff.account_detail import (
     build_account_detail_for_run,
     path_index_out_of_range_error,
 )
+
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _household():
@@ -45,7 +47,10 @@ def _projection(annual_real_return=0.0):
             label="test", withdrawal_strategy="rmd_taxable_traditional_roth", conversion_strategy=None,
             conversion_bracket_ceiling_or_amount=None, conversion_window=None, claiming_ages={"you": 99},
         ),
-        return_assumption=DeterministicReturnAssumption(annual_real_return=annual_real_return),
+        return_assumption=DeterministicAssetClassReturnAssumption(asset_class_means={ac: annual_real_return for ac in ASSET_CLASSES}),
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
     )
 
 

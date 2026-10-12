@@ -109,7 +109,7 @@ class InheritedIraDetailsRequest(BaseModel):
 class AccountRequest(BaseModel):
     """Mirrors 001's Account fields exactly."""
 
-    account_type: Literal["traditional", "roth", "taxable", "cash"]
+    account_type: Literal["traditional", "roth", "taxable"]
     balance: float
     owner: str | None = None
     """011-per-owner-accounts."""
@@ -128,19 +128,49 @@ class SpendingProfileRequest(BaseModel):
     exact current behavior. See scenario/models.py."""
 
 
-class MarketAssumptionsRequest(BaseModel):
-    """Mirrors 001's MarketAssumptions fields exactly."""
+AssetClassRequest = Literal[
+    "us_large",
+    "us_small",
+    "us_medium",
+    "reit",
+    "aggregate_bond",
+    "emerging_market",
+    "international_ex_us",
+    "cash",
+]
+"""rp-aev: mirrors scenario/models.py's own AssetClass Literal exactly."""
 
-    equity_allocation: float
-    equity_return_mean_real: float
-    equity_return_std_real: float
-    bond_allocation: float
-    bond_return_mean_real: float
-    bond_return_std_real: float
-    correlation: float
-    cash_return_mean_real: float = 0.0
-    """rp-e0h: defaults to 0.0, reproducing every existing request's exact
-    current behavior."""
+
+class AssetClassAssumptionsRequest(BaseModel):
+    """Mirrors 001's AssetClassAssumptions fields exactly (rp-aev)."""
+
+    mean_real: float
+    std_real: float
+
+
+class MarketAssumptionsRequest(BaseModel):
+    """Mirrors 001's MarketAssumptions fields exactly (rp-aev): full
+    replacement of the pre-rp-aev 2-asset equity/bond blend. Shape
+    (exactly 8 asset_classes keys, an 8x8 correlation_matrix) is enforced
+    by scenario/loader.py and scenario/validation.py at parse/validate
+    time, not here -- same "no fallback" discipline as every other
+    rp-aev shape mirror in this module."""
+
+    asset_classes: dict[AssetClassRequest, AssetClassAssumptionsRequest]
+    correlation_matrix: list[list[float]]
+
+
+class AllocationPeriodRequest(BaseModel):
+    """Mirrors 001's AllocationPeriod fields exactly (rp-aev)."""
+
+    start_plan_year: int
+    weights: dict[AssetClassRequest, float]
+
+
+class AllocationScheduleRequest(BaseModel):
+    """Mirrors 001's AllocationSchedule fields exactly (rp-aev)."""
+
+    periods: list[AllocationPeriodRequest]
 
 
 class SimulationSettingsRequest(BaseModel):
@@ -201,6 +231,12 @@ class ScenarioRequest(BaseModel):
     spending: SpendingProfileRequest
     state: str
     market_assumptions: MarketAssumptionsRequest
+    taxable_allocation_schedule: AllocationScheduleRequest
+    """rp-aev: this pool's own glide path -- required, no default/None
+    ("no fallback" design decision; every scenario must configure all
+    three pools' schedules, mirrors Scenario's own requirement)."""
+    traditional_allocation_schedule: AllocationScheduleRequest
+    roth_allocation_schedule: AllocationScheduleRequest
     simulation_settings: SimulationSettingsRequest
     roth_conversion: RothConversionPlanRequest | None = None
     hsa_contribution: HsaContributionPlanRequest | None = None
@@ -208,7 +244,4 @@ class ScenarioRequest(BaseModel):
     relocation_state: str | None = None
     relocation_plan_year: int | None = None
     """rp-vim: both default to None (no relocation configured),
-    reproducing every existing request's exact current behavior."""
-    cash_reserve_years: float | None = None
-    """rp-e0h: defaults to None (no cash-reserve policy configured),
     reproducing every existing request's exact current behavior."""

@@ -6,11 +6,14 @@ Request/Response).
 import pytest
 
 from retirement_planner.scenario import (
+    ASSET_CLASSES,
     Account,
+    AllocationPeriod,
+    AllocationSchedule,
+    DEFAULT_MARKET_ASSUMPTIONS,
     Household,
     HouseholdMember,
     InheritedIraDetails,
-    MarketAssumptions,
     RothConversionPlan,
     Scenario,
     SimulationSettings,
@@ -18,17 +21,7 @@ from retirement_planner.scenario import (
     save_scenario,
 )
 
-
-def _market_assumptions():
-    return MarketAssumptions(
-        equity_allocation=0.6,
-        equity_return_mean_real=0.065,
-        equity_return_std_real=0.17,
-        bond_allocation=0.4,
-        bond_return_mean_real=0.015,
-        bond_return_std_real=0.06,
-        correlation=-0.10,
-    )
+_EVEN_SCHEDULE = AllocationSchedule(periods=[AllocationPeriod(start_plan_year=1, weights={ac: 1.0 / 8 for ac in ASSET_CLASSES})])
 
 
 def _scenario(name="base_case", roth_conversion=None, state="FL"):
@@ -49,7 +42,10 @@ def _scenario(name="base_case", roth_conversion=None, state="FL"):
         ],
         spending=SpendingProfile(annual_need_real=110_000),
         state=state,
-        market_assumptions=_market_assumptions(),
+        market_assumptions=DEFAULT_MARKET_ASSUMPTIONS,
+        taxable_allocation_schedule=_EVEN_SCHEDULE,
+        traditional_allocation_schedule=_EVEN_SCHEDULE,
+        roth_allocation_schedule=_EVEN_SCHEDULE,
         simulation_settings=SimulationSettings(n_paths=200, seed=42, plan_to_age=95),
         roth_conversion=roth_conversion,
     )
@@ -538,8 +534,8 @@ def test_stress_scenario_overrides_the_configured_window_regardless_of_mode(tmp_
     )
 
     for path in paths:
-        assert path.annual_returns[0] == pytest.approx(-0.5)
-        assert path.annual_returns[1] == pytest.approx(-0.5)
+        assert path.asset_returns[0] == {ac: pytest.approx(-0.5) for ac in ASSET_CLASSES}
+        assert path.asset_returns[1] == {ac: pytest.approx(-0.5) for ac in ASSET_CLASSES}
 
 
 def test_none_stress_scenario_leaves_paths_unmodified(tmp_path):

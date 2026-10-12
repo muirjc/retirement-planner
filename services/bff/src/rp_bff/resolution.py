@@ -10,7 +10,7 @@ computation of its own -- it only assembles already-validated inputs for
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -22,11 +22,11 @@ from retirement_planner.mechanics import (
     InheritedAccountBalance,
     WITHDRAWAL_STRATEGIES,
 )
-from retirement_planner.scenario import Household, Scenario, load_scenario
+from retirement_planner.scenario import AllocationSchedule, Household, Scenario, load_scenario
 from retirement_planner.simulation import (
     SURVIVAL_TABLE,
+    AssetClassReturnPath,
     GenerationMode,
-    ReturnPath,
     StressScenario,
     SurvivalCurve,
     apply_stress_scenario,
@@ -175,6 +175,13 @@ class ResolvedRunContext:
     plan_to_age: int
     n_paths: int
     seed: int
+    taxable_allocation_schedule: AllocationSchedule
+    """rp-aev: this pool's own glide path, sourced from the scenario
+    unconditionally -- mandatory core math for every run on both
+    engines (Deterministic and Monte Carlo alike), unlike rp-e0h's own
+    opt-in apply_cash_reserve_strategy() this replaces."""
+    traditional_allocation_schedule: AllocationSchedule
+    roth_allocation_schedule: AllocationSchedule
     net_earned_income_against_spending: bool = False
     """rp-595: sourced from scenario.spending.net_earned_income_against_spending.
     Defaults to False, reproducing every existing caller's exact prior
@@ -198,12 +205,12 @@ def _sum_accounts(scenario: Scenario) -> AccountBalances:
     inherited account is excluded entirely -- it is never legally
     commingled with the beneficiary's own accounts (research.md §5), and
     is instead tracked independently via _inherited_accounts() below."""
-    totals = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0, "cash": 0.0}
+    totals = {"traditional": 0.0, "roth": 0.0, "taxable": 0.0}
     for account in scenario.accounts:
         if account.inherited is not None:
             continue
         totals[account.account_type] += account.balance
-    return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"], cash=totals["cash"])
+    return AccountBalances(traditional=totals["traditional"], roth=totals["roth"], taxable=totals["taxable"])
 
 
 def _traditional_ownership_shares(scenario: Scenario) -> dict[str, float]:
@@ -438,38 +445,12 @@ def resolve_run_context(
         plan_to_age=plan_to_age if plan_to_age is not None else scenario.simulation_settings.plan_to_age,
         n_paths=n_paths if n_paths is not None else scenario.simulation_settings.n_paths,
         seed=seed if seed is not None else scenario.simulation_settings.seed,
+        taxable_allocation_schedule=scenario.taxable_allocation_schedule,
+        traditional_allocation_schedule=scenario.traditional_allocation_schedule,
+        roth_allocation_schedule=scenario.roth_allocation_schedule,
         net_earned_income_against_spending=scenario.spending.net_earned_income_against_spending,
         relocation_state=resolved_relocation_state,
         relocation_plan_year=resolved_relocation_plan_year,
-    )
-
-
-def apply_cash_reserve_strategy(context: ResolvedRunContext) -> ResolvedRunContext:
-    """rp-e0h: threads the scenario's own configured cash_reserve_years/
-    cash_return_mean_real onto context.strategy.
-
-    Deliberately NOT applied inside resolve_run_context() itself, which
-    is shared by every caller including the Deterministic (004) engine's
-    own resolution and the "state" comparison axis -- comparison/
-    projection.py's run_plan_projection() docstring documents that this
-    feature's own down-year detection never actually fires for a fixed,
-    single-value return (004), so threading it in there would be dead
-    configuration with no behavioral payoff, exactly the "Monte Carlo
-    only" scoping this feature's own design settled on. Callers that are
-    genuinely Monte Carlo -- resolve_and_run_simulation() and
-    resolve_and_search_sustainable_spending() (routes/simulations.py),
-    resolve_and_compare_simulated() (routes/comparisons.py) -- call this
-    explicitly, right after resolve_run_context() succeeds.
-    resolve_and_compare_deterministic() never does, so
-    context.strategy.cash_reserve_years stays None there, reproducing
-    comparison/compare.py's own behavior exactly unchanged."""
-    return replace(
-        context,
-        strategy=replace(
-            context.strategy,
-            cash_reserve_years=context.scenario.cash_reserve_years,
-            cash_return_mean_real=context.scenario.market_assumptions.cash_return_mean_real,
-        ),
     )
 
 
@@ -491,7 +472,7 @@ def generate_configured_return_paths(
     stress_scenario: StressScenario | None,
     path_count: int | None = None,
     seed: int | None = None,
-) -> list[ReturnPath]:
+) -> list[AssetClassReturnPath]:
     """Builds this run's return paths per generation_mode
     (026-advanced-simulation-options, research.md Decision 1) --
     generate_return_paths() for "parametric" (default, every existing

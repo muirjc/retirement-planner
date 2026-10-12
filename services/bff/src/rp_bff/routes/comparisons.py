@@ -193,6 +193,12 @@ def resolve_and_compare_deterministic(body: ComparisonRequest, scenarios_dir: Pa
         # candidate (none of 004's axes vary state).
         relocation_state=context.relocation_state,
         relocation_plan_year=context.relocation_plan_year,
+        # rp-aev: mandatory core math for every run on every axis --
+        # safe to force into every branch below the same way
+        # hsa_contribution/inherited_accounts already are.
+        taxable_allocation_schedule=context.taxable_allocation_schedule,
+        traditional_allocation_schedule=context.traditional_allocation_schedule,
+        roth_allocation_schedule=context.roth_allocation_schedule,
     )
 
     try:
@@ -336,6 +342,10 @@ def resolve_and_compare_simulated(body: ComparisonRequest, scenarios_dir: Path |
         # rp-595: see resolve_and_compare_deterministic()'s own `common`
         # for why this is safe to force into every branch below.
         net_earned_income_against_spending=context.net_earned_income_against_spending,
+        # rp-aev: mandatory core math for every run on every axis.
+        taxable_allocation_schedule=context.taxable_allocation_schedule,
+        traditional_allocation_schedule=context.traditional_allocation_schedule,
+        roth_allocation_schedule=context.roth_allocation_schedule,
     )
 
     try:

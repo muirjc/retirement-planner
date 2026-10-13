@@ -63,13 +63,8 @@ def test_build_a_roth_spouse_edb_inherited_account_and_run_both_engines(page, e2
 
     fill_field(page, "Annual spending need ($, today's dollars)", "40000")
     select_option(page, "State", "FL")
-    fill_field(page, "Equity allocation", "0.6")
-    fill_field(page, "Equity return mean (real)", "0.05")
-    fill_field(page, "Equity return std (real)", "0.15")
-    fill_field(page, "Correlation", "-0.2")
-    fill_field(page, "Bond allocation", "0.4")
-    fill_field(page, "Bond return mean (real)", "0.02")
-    fill_field(page, "Bond return std (real)", "0.05")
+    # rp-aev: the asset-class/correlation/allocation-schedule sections are
+    # left untouched -- see test_scenarios_page.py's own identical note.
     fill_field(page, "Paths", "100")
     fill_field(page, "Seed", "1")
     fill_field(page, "Plan to age", "90")

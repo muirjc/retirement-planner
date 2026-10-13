@@ -26,6 +26,24 @@ SCENARIOS_PAGE = PACKAGE_ROOT / "pages" / "1_Scenarios.py"
 RUN_PAGE = PACKAGE_ROOT / "pages" / "2_Run_Simulation.py"
 COMPARE_PAGE = PACKAGE_ROOT / "pages" / "3_Compare.py"
 
+_ASSET_CLASSES_FIXTURE = (
+    "us_large", "us_small", "us_medium", "reit",
+    "aggregate_bond", "emerging_market", "international_ex_us", "cash",
+)
+# rp-aev: the 8-asset-class market_assumptions/allocation-schedule shape,
+# shared by every fake-store GET fixture below that needs a scenario to
+# round-trip -- replaces the pre-rp-aev 2-asset equity/bond shape these
+# fixtures used to spell out individually. Exact values don't matter for
+# these tests (none of them exercise allocation math); only shape fidelity
+# through _apply_scenario_to_form()/_build_body() does.
+_MARKET_ASSUMPTIONS_FIXTURE = {
+    "asset_classes": {ac: {"mean_real": 0.05, "std_real": 0.15} for ac in _ASSET_CLASSES_FIXTURE},
+    "correlation_matrix": [[1.0 if i == j else 0.0 for j in range(8)] for i in range(8)],
+}
+_EVEN_SCHEDULE_FIXTURE = {
+    "periods": [{"start_plan_year": 1, "weights": {ac: 1.0 / 8 for ac in _ASSET_CLASSES_FIXTURE}}]
+}
+
 
 @pytest.fixture(autouse=True)
 def _reset_transport():
@@ -192,7 +210,7 @@ def _fill_minimal_valid_scenario(at: AppTest, *, name: str, state: str = "FL") -
 
 def test_us2_married_household_renders_per_member_account_fields_with_structural_owner():
     """011-per-owner-accounts User Story 2: a married household gets its
-    own row of account fields per member (traditional/roth/taxable/cash), and
+    own row of account fields per member (traditional/roth/taxable), and
     the owner submitted for each is exactly whichever member's row it was
     entered in -- never a free-text or omittable field."""
     handler, store = make_fake_bff()
@@ -229,7 +247,7 @@ def test_us2_married_household_renders_per_member_account_fields_with_structural
 
     assert not at.exception
     saved_accounts = store["couple"]["accounts"]
-    assert len(saved_accounts) == 8  # 4 (traditional/roth/taxable/cash) per member
+    assert len(saved_accounts) == 6  # 3 (traditional/roth/taxable) per member
     you_traditional = next(a for a in saved_accounts if a["owner"] == "you" and a["account_type"] == "traditional")
     spouse_traditional = next(a for a in saved_accounts if a["owner"] == "spouse" and a["account_type"] == "traditional")
     assert you_traditional["balance"] == 900_000.0
@@ -426,15 +444,10 @@ def test_hsa_and_hdhp_load_round_trip_and_survive_an_untouched_save():
         "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.05,
-            "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.02,
-            "bond_return_std_real": 0.05,
-            "correlation": 0.0,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "hsa_contribution": {"annual_amount": 3_850.0},
@@ -541,15 +554,10 @@ def test_contribution_401k_load_round_trip_and_survives_an_untouched_save():
         "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.05,
-            "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.02,
-            "bond_return_std_real": 0.05,
-            "correlation": 0.0,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "hsa_contribution": None,
@@ -677,15 +685,10 @@ def test_employer_contribution_load_round_trip_and_survives_an_untouched_save():
         "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.05,
-            "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.02,
-            "bond_return_std_real": 0.05,
-            "correlation": 0.0,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "hsa_contribution": None,
@@ -749,15 +752,10 @@ def test_income_stream_loads_into_editing_widgets_and_round_trips_unedited():
         "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.065,
-            "equity_return_std_real": 0.17,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.015,
-            "bond_return_std_real": 0.06,
-            "correlation": -0.10,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "validation_flags": [],
@@ -985,15 +983,10 @@ def test_us3_loading_a_stale_owner_account_leaves_its_balance_absent_not_guessed
         ],
         "spending": {"annual_need_real": 90_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.065,
-            "equity_return_std_real": 0.17,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.015,
-            "bond_return_std_real": 0.06,
-            "correlation": -0.10,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "validation_flags": [{"field": "accounts[1].owner", "message": "does not match any household member", "severity": "blocking"}],
@@ -1070,7 +1063,7 @@ def test_inherited_ira_save_round_trip_produces_inherited_account():
 
     assert not at.exception
     saved_accounts = store["inherited_case"]["accounts"]
-    assert len(saved_accounts) == 5  # 4 ordinary (traditional/roth/taxable/cash) + 1 inherited
+    assert len(saved_accounts) == 4  # 3 ordinary (traditional/roth/taxable) + 1 inherited
     inherited_account = next(a for a in saved_accounts if a.get("inherited") is not None)
     assert inherited_account["account_type"] == "traditional"
     assert inherited_account["balance"] == 250_000.0
@@ -1134,15 +1127,10 @@ def test_inherited_ira_load_round_trip_populates_fields_without_double_counting(
         ],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.05,
-            "equity_return_std_real": 0.15,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.02,
-            "bond_return_std_real": 0.05,
-            "correlation": 0.0,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1, "seed": 1, "plan_to_age": 95},
         "roth_conversion": None,
         "validation_flags": [],
@@ -1370,15 +1358,10 @@ def test_roth_conversion_auto_window_and_named_bracket_load_round_trip():
         "accounts": [{"account_type": "traditional", "balance": 500_000.0, "owner": "Alex"}],
         "spending": {"annual_need_real": 60_000.0},
         "state": "FL",
-        "market_assumptions": {
-            "equity_allocation": 0.6,
-            "equity_return_mean_real": 0.065,
-            "equity_return_std_real": 0.17,
-            "bond_allocation": 0.4,
-            "bond_return_mean_real": 0.015,
-            "bond_return_std_real": 0.06,
-            "correlation": -0.10,
-        },
+        "market_assumptions": _MARKET_ASSUMPTIONS_FIXTURE,
+        "taxable_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "traditional_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
+        "roth_allocation_schedule": _EVEN_SCHEDULE_FIXTURE,
         "simulation_settings": {"n_paths": 1000, "seed": 1, "plan_to_age": 95},
         "roth_conversion": {
             "strategy": "fill_to_bracket",
@@ -2787,126 +2770,174 @@ def test_relocation_checkbox_resets_when_loading_a_scenario_without_relocation()
     assert at.checkbox(key="include_relocation").value is False
 
 
-# -- rp-e0h.4: cash-reserve ("bucket") withdrawal strategy -------------------
+# -- rp-aev: 8-asset-class allocation (asset-class grid, correlation -------
+# matrix, 3 pools' glide-path schedules) -------------------------------------
 
 
-def test_cash_balance_fields_save_and_load_round_trip():
-    """Cash is a fourth account-type field per member, alongside
-    traditional/roth/taxable -- not gated by the cash-reserve checkbox
-    below (a household can hold cash without opting into the reserve
-    strategy, rp-e0h's own design)."""
+def test_asset_class_grid_has_all_8_rows_and_round_trips():
+    """rp-aev: one mean/std row per asset class -- editing one class's
+    pair and saving round-trips exactly, leaving every other class at
+    its own seeded default untouched."""
     handler, store = make_fake_bff()
     _install(handler)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    _fill_minimal_valid_scenario(at, name="cash_case")
-    at.number_input(key="member1_cash_balance").set_value(60_000.0)
+    for ac in _ASSET_CLASSES_FIXTURE:
+        assert at.number_input(key=f"asset_{ac}_mean") is not None
+        assert at.number_input(key=f"asset_{ac}_std") is not None
+
+    _fill_minimal_valid_scenario(at, name="asset_class_case")
+    at.number_input(key="asset_us_large_mean").set_value(0.09)
+    at.number_input(key="asset_us_large_std").set_value(0.21)
     at.run()
     at.button(key="save_button").click().run()
-
     assert not at.exception
-    saved_accounts = store["cash_case"]["accounts"]
-    cash_account = next(a for a in saved_accounts if a["account_type"] == "cash")
-    assert cash_account["balance"] == 60_000.0
-    assert cash_account["owner"] == "Alex"
+
+    asset_classes = store["asset_class_case"]["market_assumptions"]["asset_classes"]
+    assert asset_classes["us_large"] == {"mean_real": 0.09, "std_real": 0.21}
+    assert asset_classes["cash"] == {"mean_real": 0.010, "std_real": 0.01}  # untouched page default
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    at.selectbox(key="scenario_load_select").set_value("cash_case")
+    at.selectbox(key="scenario_load_select").set_value("asset_class_case")
     at.button(key="load_button").click().run()
-    assert at.number_input(key="member1_cash_balance").value == 60_000.0
+    assert at.number_input(key="asset_us_large_mean").value == 0.09
+    assert at.number_input(key="asset_us_large_std").value == 0.21
 
 
-def test_cash_yield_defaults_zero_and_is_saved_and_reloaded():
+def test_correlation_matrix_upper_triangle_edit_mirrors_to_lower_triangle_on_save():
+    """rp-aev: corr_{i}_{j} (i<j) is the only real widget per pair -- the
+    lower triangle is a read-only mirror, never independently editable
+    (there is no corr_1_0 widget key at all). Saving must still produce a
+    symmetric 8x8 matrix with a 1.00 diagonal, since that's what the
+    backend's own _validate_correlation_matrix() requires."""
     handler, store = make_fake_bff()
     _install(handler)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    assert at.number_input(key="cash_return_mean_real").value == 0.0
+    with pytest.raises(KeyError):
+        at.number_input(key="corr_1_0")  # the lower-triangle cell is never a real widget
 
-    _fill_minimal_valid_scenario(at, name="cash_yield_case")
-    at.number_input(key="cash_return_mean_real").set_value(0.015)
+    _fill_minimal_valid_scenario(at, name="correlation_case")
+    at.number_input(key="corr_0_1").set_value(0.42)  # us_large/us_small
     at.run()
     at.button(key="save_button").click().run()
-
     assert not at.exception
-    assert store["cash_yield_case"]["market_assumptions"]["cash_return_mean_real"] == 0.015
 
-    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    at.selectbox(key="scenario_load_select").set_value("cash_yield_case")
-    at.button(key="load_button").click().run()
-    assert at.number_input(key="cash_return_mean_real").value == 0.015
+    matrix = store["correlation_case"]["market_assumptions"]["correlation_matrix"]
+    assert matrix[0][1] == 0.42
+    assert matrix[1][0] == 0.42  # mirrored
+    assert all(matrix[i][i] == 1.0 for i in range(8))
 
 
-def test_cash_reserve_section_hidden_until_checkbox_checked():
+def test_allocation_schedule_last_period_cannot_be_removed():
+    """rp-aev: a schedule can never be empty (scenario/validation.py's
+    own blocking rule) -- with only the one seeded default period, the
+    pool's own remove button isn't even rendered (mirrors income
+    streams' own "Add button always present" shape, inverted)."""
     handler, _store = make_fake_bff()
     _install(handler)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    assert at.checkbox(key="include_cash_reserve").value is False
+    (only_period_id,) = at.session_state["taxable_schedule_ids"]
     with pytest.raises(KeyError):
-        at.number_input(key="cash_reserve_years")
-
-    at.checkbox(key="include_cash_reserve").set_value(True)
-    at.run()
-    assert at.number_input(key="cash_reserve_years").value == 2.0
+        at.button(key=f"taxable_period_{only_period_id}_remove")
 
 
-def test_cash_reserve_save_round_trip():
+def test_allocation_schedule_can_be_added_edited_and_removed_for_all_three_pools():
+    """rp-aev: "+ Add period" reveals a new row defaulting to a copy of
+    the prior row's own weights (never a fresh even split) with
+    start_plan_year = prior + 1; removing a row (once there are >= 2)
+    deletes only that one, leaving the other's already-entered values
+    undisturbed -- mirrors income streams' own add/edit/remove shape,
+    independently for each of the 3 pools."""
     handler, store = make_fake_bff()
     _install(handler)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    _fill_minimal_valid_scenario(at, name="cash_reserve_case")
-    at.checkbox(key="include_cash_reserve").set_value(True)
-    at.run()
-    at.number_input(key="cash_reserve_years").set_value(3.0)
-    at.run()
-    at.button(key="save_button").click().run()
+    _fill_minimal_valid_scenario(at, name="glide_path_case")
 
+    for pool_key in ("taxable", "traditional", "roth"):
+        (first_id,) = at.session_state[f"{pool_key}_schedule_ids"]
+        at.number_input(key=f"{pool_key}_period_{first_id}_weight_us_large").set_value(0.5)
+        at.number_input(key=f"{pool_key}_period_{first_id}_weight_cash").set_value(0.0)
+        at.run()
+
+        at.button(key=f"{pool_key}_add_period").click().run()
+        assert not at.exception
+        first_id, second_id = at.session_state[f"{pool_key}_schedule_ids"]
+        # The new period copies the prior row's own weights, not a fresh
+        # even split, and starts the plan year right after it.
+        assert at.number_input(key=f"{pool_key}_period_{second_id}_weight_us_large").value == 0.5
+        assert at.number_input(key=f"{pool_key}_period_{second_id}_weight_cash").value == 0.0
+        assert (
+            at.number_input(key=f"{pool_key}_period_{second_id}_start_plan_year").value
+            == at.number_input(key=f"{pool_key}_period_{first_id}_start_plan_year").value + 1
+        )
+
+        at.number_input(key=f"{pool_key}_period_{second_id}_start_plan_year").set_value(10)
+        at.run()
+
+    at.button(key="save_button").click().run()
     assert not at.exception
-    assert store["cash_reserve_case"]["cash_reserve_years"] == 3.0
 
+    for pool_key in ("taxable", "traditional", "roth"):
+        periods = store["glide_path_case"][f"{pool_key}_allocation_schedule"]["periods"]
+        assert len(periods) == 2
+        assert periods[0]["start_plan_year"] == 1
+        assert periods[0]["weights"]["us_large"] == 0.5
+        assert periods[1]["start_plan_year"] == 10
+        assert periods[1]["weights"]["us_large"] == 0.5
 
-def test_cash_reserve_unchecked_saves_none():
-    handler, store = make_fake_bff()
-    _install(handler)
-
+    # Now remove the first period of just the taxable pool -- the second
+    # period's own values, and both other pools, must be unaffected.
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    _fill_minimal_valid_scenario(at, name="no_cash_reserve_case")
-    at.button(key="save_button").click().run()
-
+    at.selectbox(key="scenario_load_select").set_value("glide_path_case")
+    at.button(key="load_button").click().run()
+    first_id, second_id = at.session_state["taxable_schedule_ids"]
+    at.button(key=f"taxable_period_{first_id}_remove").click().run()
     assert not at.exception
-    assert store["no_cash_reserve_case"]["cash_reserve_years"] is None
+    assert at.session_state["taxable_schedule_ids"] == [second_id]
+    assert at.number_input(key=f"taxable_period_{second_id}_weight_us_large").value == 0.5
+
+    at.button(key="save_button").click().run()
+    assert not at.exception
+    taxable_periods = store["glide_path_case"]["taxable_allocation_schedule"]["periods"]
+    assert len(taxable_periods) == 1
+    assert taxable_periods[0]["start_plan_year"] == 10
+    # The other two pools kept both their own periods.
+    assert len(store["glide_path_case"]["traditional_allocation_schedule"]["periods"]) == 2
+    assert len(store["glide_path_case"]["roth_allocation_schedule"]["periods"]) == 2
 
 
-def test_cash_reserve_checkbox_resets_when_loading_a_scenario_without_it():
-    """rp-e0h.4: mirrors test_relocation_checkbox_resets_when_loading_a_scenario_without_relocation
-    and rp-04u.5's own fixed stale-checkbox bug class -- loading a scenario
-    with no cash reserve configured must reset the checkbox to False,
-    never leaving a previously-loaded scenario's own True value stuck on."""
+def test_allocation_schedule_round_trips_distinct_weights_per_pool():
+    """rp-aev: the 3 pools' schedules are independent -- each one's own
+    edited weights round-trip through save/load without leaking into
+    another pool's rows."""
     handler, store = make_fake_bff()
     _install(handler)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    _fill_minimal_valid_scenario(at, name="cash_reserve_case")
-    at.checkbox(key="include_cash_reserve").set_value(True)
-    at.run()
-    at.number_input(key="cash_reserve_years").set_value(3.0)
+    _fill_minimal_valid_scenario(at, name="per_pool_case")
+    (taxable_id,) = at.session_state["taxable_schedule_ids"]
+    (traditional_id,) = at.session_state["traditional_schedule_ids"]
+    (roth_id,) = at.session_state["roth_schedule_ids"]
+    at.number_input(key=f"taxable_period_{taxable_id}_weight_us_large").set_value(1.0)
+    at.number_input(key=f"taxable_period_{taxable_id}_weight_cash").set_value(0.0)
+    at.number_input(key=f"traditional_period_{traditional_id}_weight_us_large").set_value(0.0)
+    at.number_input(key=f"traditional_period_{traditional_id}_weight_cash").set_value(1.0)
     at.run()
     at.button(key="save_button").click().run()
+    assert not at.exception
+
+    assert store["per_pool_case"]["taxable_allocation_schedule"]["periods"][0]["weights"]["us_large"] == 1.0
+    assert store["per_pool_case"]["traditional_allocation_schedule"]["periods"][0]["weights"]["cash"] == 1.0
+    # Roth was never touched -- still its own seeded even split.
+    assert store["per_pool_case"]["roth_allocation_schedule"]["periods"][0]["weights"]["us_large"] == pytest.approx(0.125)
 
     at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    _fill_minimal_valid_scenario(at, name="plain_case")
-    at.button(key="save_button").click().run()
-
-    assert "cash_reserve_case" in store and "plain_case" in store
-
-    at = AppTest.from_file(str(SCENARIOS_PAGE)).run()
-    at.selectbox(key="scenario_load_select").set_value("cash_reserve_case")
+    at.selectbox(key="scenario_load_select").set_value("per_pool_case")
     at.button(key="load_button").click().run()
-    assert at.checkbox(key="include_cash_reserve").value is True
-    assert at.number_input(key="cash_reserve_years").value == 3.0
-
-    at.selectbox(key="scenario_load_select").set_value("plain_case")
-    at.button(key="load_button").click().run()
-    assert at.checkbox(key="include_cash_reserve").value is False
+    (taxable_id,) = at.session_state["taxable_schedule_ids"]
+    (traditional_id,) = at.session_state["traditional_schedule_ids"]
+    assert at.number_input(key=f"taxable_period_{taxable_id}_weight_us_large").value == 1.0
+    assert at.number_input(key=f"traditional_period_{traditional_id}_weight_cash").value == 1.0

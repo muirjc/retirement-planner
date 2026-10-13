@@ -98,27 +98,29 @@ def test_comparison_bar_chart_yaxis_and_hover_use_currency_formatting():
     assert fig.data[0].hovertemplate == "%{x}<br>%{y:$,.2f}<extra>%{fullData.name}</extra>"
 
 
-# --- rp-cqu: returns_by_year_chart ---
+# --- rp-aev: returns_by_year_chart (replaces rp-cqu's single-series version) ---
 
 _YEARS = [
-    {"plan_year": 1, "annual_return": 0.08},
-    {"plan_year": 2, "annual_return": -0.05},
-    {"plan_year": 3, "annual_return": 0.0},
+    {"plan_year": 1, "taxable_pool_return": 0.08, "traditional_pool_return": 0.06, "roth_pool_return": 0.07},
+    {"plan_year": 2, "taxable_pool_return": -0.05, "traditional_pool_return": -0.02, "roth_pool_return": -0.03},
+    {"plan_year": 3, "taxable_pool_return": 0.0, "traditional_pool_return": 0.01, "roth_pool_return": 0.02},
 ]
 
 
-def test_returns_by_year_chart_has_one_bar_per_plan_year():
+def test_returns_by_year_chart_has_one_line_per_pool():
     fig = returns_by_year_chart(_YEARS)
-    assert len(fig.data) == 1
+    assert len(fig.data) == 3
+    assert [trace.name for trace in fig.data] == ["Taxable", "Traditional", "Roth"]
     assert list(fig.data[0].x) == [1, 2, 3]
     assert list(fig.data[0].y) == [0.08, -0.05, 0.0]
+    assert list(fig.data[1].y) == [0.06, -0.02, 0.01]
+    assert list(fig.data[2].y) == [0.07, -0.03, 0.02]
 
 
-def test_returns_by_year_chart_colors_negative_years_differently():
+def test_returns_by_year_chart_lines_use_distinct_colors():
     fig = returns_by_year_chart(_YEARS)
-    colors = list(fig.data[0].marker.color)
-    assert colors[0] == colors[2]  # both non-negative (0.08, 0.0)
-    assert colors[1] != colors[0]  # the one negative year
+    colors = [trace.line.color for trace in fig.data]
+    assert len(set(colors)) == 3
 
 
 def test_returns_by_year_chart_yaxis_is_percent_formatted():

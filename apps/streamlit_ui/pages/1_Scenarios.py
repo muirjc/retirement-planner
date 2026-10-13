@@ -7,7 +7,7 @@ Household member count is fixed to 1 (single) or 2 (married_filing_jointly)
 by 001's own Scenario.household rule (FR-013 of 001), so this form shows a
 second member's fields only when filing_status is married -- there is no
 free-form add/remove list to build here. Accounts are fixed to exactly one
-balance per account type per household member (traditional/roth/taxable/cash),
+balance per account type per household member (traditional/roth/taxable),
 mirroring that same fixed-shape convention -- a scenario with two
 "traditional" accounts *for the same person* is not a case this form needs
 to support (011-per-owner-accounts). Each account's owner is therefore
@@ -19,10 +19,26 @@ enter, not merely disallowed by a validator (contracts/ui-pages.md).
 Each member's income streams (021-pension-annuity-income, rp-pid) ARE a
 genuine free-form repeating list -- a member can have any number of
 pensions/annuities/phased-retirement earned-income sources, unlike every
-other list on this page. See _render_income_streams()/_add_income_stream()/
-_remove_income_stream() below (rp-5cq) for the widget-identity scheme this
-requires: each row is keyed by a monotonically increasing id, never a
-list index, so removing one row never shifts another row's widget state.
+other list on this page (prior to rp-aev). See _render_income_streams()/
+_add_income_stream()/_remove_income_stream() below (rp-5cq) for the
+widget-identity scheme this requires: each row is keyed by a monotonically
+increasing id, never a list index, so removing one row never shifts
+another row's widget state.
+
+rp-aev: each pool's (taxable/traditional/roth) own allocation schedule is
+a second genuine free-form repeating list, reusing that exact same
+widget-identity scheme verbatim -- see _render_allocation_schedule()/
+_add_allocation_period()/_remove_allocation_period() below. Unlike income
+streams (0 is a valid count), an allocation schedule can never be empty --
+every pool always has at least one period, its first starting at plan
+year 1 -- so DEFAULTS below pre-seeds exactly one period per pool, and
+_remove_allocation_period() refuses to remove a pool's last remaining one.
+
+The 8 asset classes (ASSET_CLASSES in scenario/models.py) are NOT imported
+from retirement_planner here -- this file keeps its own independently-
+maintained copy (_ASSET_CLASSES below), matching the existing "UI never
+imports retirement_planner directly" architecture (apps talk to 007 over
+HTTP only) already documented on that constant's own docstring.
 """
 
 import streamlit as st
@@ -41,6 +57,76 @@ from rp_ui.errors import BackendUnreachableError, InvalidScenarioError, RpUiErro
 
 st.set_page_config(page_title="Scenarios -- Retirement Planner", page_icon="\U0001f4dd")
 st.title("Scenarios")
+
+# -- rp-aev: 8-asset-class portfolio allocation -----------------------------
+#
+# Independently-maintained copy of scenario/models.py's ASSET_CLASSES/
+# AssetClass -- see this module's own docstring for why. Row/column order
+# here must match that module's own canonical order exactly (both feed a
+# correlation_matrix whose row/column meaning is purely positional).
+
+_ASSET_CLASSES = (
+    "us_large",
+    "us_small",
+    "us_medium",
+    "reit",
+    "aggregate_bond",
+    "emerging_market",
+    "international_ex_us",
+    "cash",
+)
+_ASSET_CLASS_LABELS = {
+    "us_large": "US Large",
+    "us_small": "US Small",
+    "us_medium": "US Medium",
+    "reit": "REIT",
+    "aggregate_bond": "Aggregate Bond",
+    "emerging_market": "Emerging Market",
+    "international_ex_us": "International ex US",
+    "cash": "Cash",
+}
+_ASSET_CLASS_SHORT = {
+    "us_large": "US Lg",
+    "us_small": "US Sm",
+    "us_medium": "US Md",
+    "reit": "REIT",
+    "aggregate_bond": "Bond",
+    "emerging_market": "EM",
+    "international_ex_us": "Intl",
+    "cash": "Cash",
+}
+_DEFAULT_ASSET_CLASS_ASSUMPTIONS = {
+    "us_large": (0.070, 0.18),
+    "us_small": (0.080, 0.22),
+    "us_medium": (0.075, 0.20),
+    "reit": (0.060, 0.20),
+    "aggregate_bond": (0.025, 0.06),
+    "emerging_market": (0.070, 0.25),
+    "international_ex_us": (0.060, 0.19),
+    "cash": (0.010, 0.01),
+}
+"""rp-aev: illustrative, not sourced/verified market data -- mirrors
+DEFAULT_MARKET_ASSUMPTIONS (scenario/models.py), independently maintained
+here per this module's own docstring. (mean_real, std_real) per class."""
+
+# Row/column order == _ASSET_CLASSES: us_large, us_small, us_medium, reit,
+# aggregate_bond, emerging_market, international_ex_us, cash.
+_DEFAULT_CORRELATION_MATRIX = (
+    (1.00, 0.85, 0.90, 0.65, 0.00, 0.70, 0.80, 0.00),
+    (0.85, 1.00, 0.90, 0.65, -0.05, 0.65, 0.70, 0.00),
+    (0.90, 0.90, 1.00, 0.65, 0.00, 0.70, 0.75, 0.00),
+    (0.65, 0.65, 0.65, 1.00, 0.05, 0.55, 0.55, 0.00),
+    (0.00, -0.05, 0.00, 0.05, 1.00, -0.05, 0.05, 0.10),
+    (0.70, 0.65, 0.70, 0.55, -0.05, 1.00, 0.75, 0.00),
+    (0.80, 0.70, 0.75, 0.55, 0.05, 0.75, 1.00, 0.00),
+    (0.00, 0.00, 0.00, 0.00, 0.10, 0.00, 0.00, 1.00),
+)
+"""rp-aev: mirrors DEFAULT_MARKET_ASSUMPTIONS.correlation_matrix exactly,
+independently maintained here per this module's own docstring."""
+
+_ALLOCATION_POOLS = (("taxable", "Taxable"), ("traditional", "Traditional"), ("roth", "Roth"))
+"""rp-aev: the 3 pools, in the order their sections render -- (session-
+state key prefix, display label)."""
 
 DEFAULTS = {
     "scenario_name": "",
@@ -87,24 +173,12 @@ DEFAULTS = {
     "member1_traditional_balance": 0.0,
     "member1_roth_balance": 0.0,
     "member1_taxable_balance": 0.0,
-    "member1_cash_balance": 0.0,  # rp-e0h.4
     "member2_traditional_balance": 0.0,
     "member2_roth_balance": 0.0,
     "member2_taxable_balance": 0.0,
-    "member2_cash_balance": 0.0,  # rp-e0h.4
     "annual_need_real": 0.0,
     "net_earned_income_against_spending": False,  # rp-0ff
     "state": None,
-    "equity_allocation": 0.6,
-    "equity_return_mean_real": 0.05,
-    "equity_return_std_real": 0.18,
-    "bond_allocation": 0.4,
-    "bond_return_mean_real": 0.02,
-    "bond_return_std_real": 0.06,
-    "correlation": 0.0,
-    "cash_return_mean_real": 0.0,  # rp-e0h.4
-    "include_cash_reserve": False,  # rp-e0h.4
-    "cash_reserve_years": 2.0,
     "n_paths": 1000,
     "seed": 42,
     "plan_to_age": 95,
@@ -132,6 +206,30 @@ DEFAULTS = {
     "inherited_beneficiary_relationship": "other_individual",
     "inherited_beneficiary_classification": "non_eligible_designated_beneficiary",
 }
+
+# rp-aev: asset-class assumptions (8 x mean/std) and the correlation
+# matrix's upper-triangle cells (28 editable; the diagonal is fixed at
+# 1.00 and the lower triangle mirrors the upper one -- neither is a real
+# widget key, see _render_correlation_matrix()) -- generated rather than
+# spelled out, same reasoning as the allocation-schedule defaults below.
+for _ac, (_mean, _std) in _DEFAULT_ASSET_CLASS_ASSUMPTIONS.items():
+    DEFAULTS[f"asset_{_ac}_mean"] = _mean
+    DEFAULTS[f"asset_{_ac}_std"] = _std
+for _i in range(len(_ASSET_CLASSES)):
+    for _j in range(_i + 1, len(_ASSET_CLASSES)):
+        DEFAULTS[f"corr_{_i}_{_j}"] = _DEFAULT_CORRELATION_MATRIX[_i][_j]
+
+# rp-aev: each pool's allocation schedule is a genuine repeating list
+# (module docstring) -- but unlike income streams (0 is valid), a
+# schedule can never be empty, so DEFAULTS pre-seeds exactly one period
+# (id 0, start_plan_year 1, an even 1/8 split) per pool here, rather than
+# an empty ids list the user must first click "+ Add period" to escape.
+for _pool_key, _ in _ALLOCATION_POOLS:
+    DEFAULTS[f"{_pool_key}_schedule_ids"] = [0]
+    DEFAULTS[f"{_pool_key}_schedule_next_id"] = 1
+    DEFAULTS[f"{_pool_key}_period_0_start_plan_year"] = 1
+    for _ac in _ASSET_CLASSES:
+        DEFAULTS[f"{_pool_key}_period_0_weight_{_ac}"] = 1.0 / len(_ASSET_CLASSES)
 
 
 def _apply_scenario_to_form(scenario: dict) -> None:
@@ -242,7 +340,7 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         if owner in member_names:
             balances_by_owner[(account["account_type"], owner)] = account["balance"]
     for index, person_name in enumerate(member_names, start=1):
-        for account_type in ("traditional", "roth", "taxable", "cash"):  # rp-e0h.4: cash added
+        for account_type in ("traditional", "roth", "taxable"):
             st.session_state[f"member{index}_{account_type}_balance"] = balances_by_owner.get(
                 (account_type, person_name), 0.0
             )
@@ -278,23 +376,16 @@ def _apply_scenario_to_form(scenario: dict) -> None:
         st.session_state["relocation_state"] = relocation_state
         st.session_state["relocation_plan_year"] = scenario["relocation_plan_year"]
     ma = scenario["market_assumptions"]
-    for field in (
-        "equity_allocation", "equity_return_mean_real", "equity_return_std_real",
-        "bond_allocation", "bond_return_mean_real", "bond_return_std_real", "correlation",
-    ):
-        st.session_state[field] = ma[field]
-    # rp-e0h.4: `.get(..., 0.0)` guards a hand-built fixture predating this
-    # field, mirroring survivor_spending_reduction_pct's own guard comment
-    # above -- the real backend always resolves this to a concrete float.
-    st.session_state["cash_return_mean_real"] = ma.get("cash_return_mean_real", 0.0)
-    # rp-e0h.4: reset unconditionally (not nested inside the `if` below) --
-    # mirrors include_relocation's own precedent above, so a stale True
-    # from a previously loaded scenario can never leak through when the
-    # newly loaded scenario has no cash reserve configured at all.
-    cash_reserve_years = scenario.get("cash_reserve_years")
-    st.session_state["include_cash_reserve"] = cash_reserve_years is not None
-    if cash_reserve_years is not None:
-        st.session_state["cash_reserve_years"] = cash_reserve_years
+    for ac in _ASSET_CLASSES:
+        assumptions = ma["asset_classes"][ac]
+        st.session_state[f"asset_{ac}_mean"] = assumptions["mean_real"]
+        st.session_state[f"asset_{ac}_std"] = assumptions["std_real"]
+    matrix = ma["correlation_matrix"]
+    for i in range(len(_ASSET_CLASSES)):
+        for j in range(i + 1, len(_ASSET_CLASSES)):
+            st.session_state[f"corr_{i}_{j}"] = matrix[i][j]
+    for pool_key, _ in _ALLOCATION_POOLS:
+        _load_allocation_schedule(pool_key, scenario[f"{pool_key}_allocation_schedule"]["periods"])
     ss = scenario["simulation_settings"]
     st.session_state["n_paths"] = ss["n_paths"]
     st.session_state["seed"] = ss["seed"]
@@ -471,6 +562,153 @@ def _render_income_streams(member_key: str) -> None:
         help="Add a pension, annuity, or phased-retirement earned-income source for this member.",
         on_click=_add_income_stream,
         args=(member_key,),
+    )
+
+
+# -- Allocation schedules (rp-aev) -----------------------------------------
+#
+# One pool's own glide path -- a second genuine free-form repeating list
+# (module docstring), reusing the income-streams section's own widget-
+# identity scheme above verbatim: a monotonically increasing id per row,
+# never a list index. Unlike income streams, a schedule can never be
+# empty (DEFAULTS pre-seeds one period per pool; _remove_allocation_period()
+# refuses to drop a pool's last one) and a new period's weights default
+# to a copy of the prior row's own weights, not a fresh even split -- a
+# glide-path edit is usually "start from where I was and nudge a few
+# percentages," not from scratch.
+
+_WEIGHT_FIELD_SUFFIXES = tuple(f"weight_{ac}" for ac in _ASSET_CLASSES)
+
+
+def _period_prefix(pool_key: str, period_id: int) -> str:
+    return f"{pool_key}_period_{period_id}_"
+
+
+def _add_allocation_period(pool_key: str) -> None:
+    """on_click handler for a pool's "+ Add period" button."""
+    next_id_key = f"{pool_key}_schedule_next_id"
+    period_id = st.session_state[next_id_key]
+    st.session_state[next_id_key] = period_id + 1
+    ids = st.session_state[f"{pool_key}_schedule_ids"]
+    prefix = _period_prefix(pool_key, period_id)
+    if ids:
+        prior_prefix = _period_prefix(pool_key, ids[-1])
+        st.session_state[prefix + "start_plan_year"] = st.session_state[prior_prefix + "start_plan_year"] + 1
+        for suffix in _WEIGHT_FIELD_SUFFIXES:
+            st.session_state[prefix + suffix] = st.session_state[prior_prefix + suffix]
+    else:
+        # Unreachable via the UI (the last period can never be removed --
+        # see _remove_allocation_period()), but kept so this function has
+        # a sensible result if ever called with no existing periods.
+        st.session_state[prefix + "start_plan_year"] = 1
+        for ac in _ASSET_CLASSES:
+            st.session_state[prefix + f"weight_{ac}"] = 1.0 / len(_ASSET_CLASSES)
+    ids.append(period_id)
+
+
+def _remove_allocation_period(pool_key: str, period_id: int) -> None:
+    """on_click handler for one period row's "Remove" button. A no-op
+    when this is the pool's last remaining period -- every allocation
+    schedule must have at least one (scenario/validation.py's own
+    blocking rule), and this form never lets the user even attempt the
+    now-guaranteed-invalid empty state."""
+    ids = st.session_state[f"{pool_key}_schedule_ids"]
+    if len(ids) <= 1:
+        return
+    ids.remove(period_id)
+    prefix = _period_prefix(pool_key, period_id)
+    st.session_state.pop(prefix + "start_plan_year", None)
+    for suffix in _WEIGHT_FIELD_SUFFIXES:
+        st.session_state.pop(prefix + suffix, None)
+
+
+def _load_allocation_schedule(pool_key: str, periods: list[dict]) -> None:
+    """Replaces a pool's period rows with `periods` (a get_scenario()-
+    shaped AllocationSchedule.periods list). Called from
+    _apply_scenario_to_form(); the Load button handler below must
+    st.rerun() afterwards -- see the income-streams section's own
+    module-level comment for why."""
+    for period_id in st.session_state.get(f"{pool_key}_schedule_ids", []):
+        prefix = _period_prefix(pool_key, period_id)
+        st.session_state.pop(prefix + "start_plan_year", None)
+        for suffix in _WEIGHT_FIELD_SUFFIXES:
+            st.session_state.pop(prefix + suffix, None)
+    next_id = st.session_state.get(f"{pool_key}_schedule_next_id", 0)
+    new_ids = []
+    for period in periods:
+        period_id = next_id
+        next_id += 1
+        new_ids.append(period_id)
+        prefix = _period_prefix(pool_key, period_id)
+        st.session_state[prefix + "start_plan_year"] = period["start_plan_year"]
+        weights = period["weights"]
+        for ac in _ASSET_CLASSES:
+            st.session_state[prefix + f"weight_{ac}"] = weights.get(ac, 0.0)
+    st.session_state[f"{pool_key}_schedule_ids"] = new_ids
+    st.session_state[f"{pool_key}_schedule_next_id"] = next_id
+
+
+def _collect_allocation_schedule(pool_key: str) -> dict:
+    """The inverse of _load_allocation_schedule() -- reads a pool's
+    currently-live period rows back into a get_scenario()/PUT-shaped
+    AllocationSchedule dict, in row order."""
+    periods = []
+    for period_id in st.session_state[f"{pool_key}_schedule_ids"]:
+        prefix = _period_prefix(pool_key, period_id)
+        periods.append(
+            {
+                "start_plan_year": st.session_state[prefix + "start_plan_year"],
+                "weights": {ac: st.session_state[prefix + f"weight_{ac}"] for ac in _ASSET_CLASSES},
+            }
+        )
+    return {"periods": periods}
+
+
+_PERIOD_START_HELP = (
+    "This period's weights apply from this plan year (inclusive) through the plan year just before "
+    "the next period's own start (or through the end of the horizon, for the last period). The "
+    "first period must start at plan year 1."
+)
+
+
+def _render_allocation_schedule(pool_key: str, pool_label: str) -> None:
+    """One row of start_plan_year + 8 weight widgets per currently-live
+    period id, each with a live "Sum: X%" caption, plus an Add button --
+    mirrors _render_income_streams()'s own shape."""
+    st.subheader(f"{pool_label} allocation schedule")
+    ids = st.session_state[f"{pool_key}_schedule_ids"]
+    for period_id in ids:
+        prefix = _period_prefix(pool_key, period_id)
+        head_cols = st.columns([2, 6, 1])
+        head_cols[0].number_input(
+            "Start plan year", min_value=1, step=1, key=prefix + "start_plan_year", help=_PERIOD_START_HELP
+        )
+        if len(ids) > 1:
+            head_cols[2].button(
+                "✕",
+                key=prefix + "remove",
+                help="Remove this period.",
+                on_click=_remove_allocation_period,
+                args=(pool_key, period_id),
+            )
+        weight_cols = st.columns(len(_ASSET_CLASSES))
+        for col, ac in zip(weight_cols, _ASSET_CLASSES):
+            col.number_input(
+                _ASSET_CLASS_SHORT[ac],
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
+                key=prefix + f"weight_{ac}",
+                help=_ASSET_CLASS_LABELS[ac],
+            )
+        total = sum(st.session_state[prefix + f"weight_{ac}"] for ac in _ASSET_CLASSES)
+        st.caption(f"Sum: {total * 100:.1f}%" + ("" if abs(total - 1.0) < 1e-6 else "  ⚠️ must total 100%"))
+    st.button(
+        f"+ Add {pool_label.lower()} period",
+        key=f"{pool_key}_add_period",
+        help=f"Add a new glide-path period for the {pool_label.lower()} pool, starting the year after the current last period.",
+        on_click=_add_allocation_period,
+        args=(pool_key,),
     )
 
 
@@ -760,29 +998,21 @@ st.subheader("Accounts")
 _TRADITIONAL_HELP = "This person's own pre-tax IRA/401(k) balance. Entered per person, never combined with a spouse's."
 _ROTH_HELP = "This person's own Roth IRA/401(k) balance."
 _TAXABLE_HELP = "This person's own ordinary (non-retirement) brokerage or savings balance."
-_CASH_HELP = (
-    "This person's own low-volatility cash/savings balance. Grows at the Cash yield set under "
-    "Market assumptions below, every year, regardless of whether a cash reserve strategy is "
-    "enabled further down -- the reserve strategy only controls whether it's ever drawn from or "
-    "refilled (rp-e0h)."
-)
 
 member1_label = st.session_state["member1_person_name"] or "Member 1"
 st.markdown(f"**{member1_label}**")
-a1, a2, a3, a4 = st.columns(4)
+a1, a2, a3 = st.columns(3)
 a1.number_input("Traditional balance ($)", step=1000.0, key="member1_traditional_balance", help=_TRADITIONAL_HELP)
 a2.number_input("Roth balance ($)", step=1000.0, key="member1_roth_balance", help=_ROTH_HELP)
 a3.number_input("Taxable balance ($)", step=1000.0, key="member1_taxable_balance", help=_TAXABLE_HELP)
-a4.number_input("Cash balance ($)", step=1000.0, key="member1_cash_balance", help=_CASH_HELP)
 
 if st.session_state["filing_status"] == "married_filing_jointly":
     member2_label = st.session_state["member2_person_name"] or "Member 2"
     st.markdown(f"**{member2_label}**")
-    a1, a2, a3, a4 = st.columns(4)
+    a1, a2, a3 = st.columns(3)
     a1.number_input("Traditional balance ($)", step=1000.0, key="member2_traditional_balance", help=_TRADITIONAL_HELP)
     a2.number_input("Roth balance ($)", step=1000.0, key="member2_roth_balance", help=_ROTH_HELP)
     a3.number_input("Taxable balance ($)", step=1000.0, key="member2_taxable_balance", help=_TAXABLE_HELP)
-    a4.number_input("Cash balance ($)", step=1000.0, key="member2_cash_balance", help=_CASH_HELP)
 
 st.subheader("Inherited IRA (optional)")
 # 012-inherited-ira-rmd: a separate, always-independent account from the
@@ -1001,86 +1231,56 @@ if st.session_state["include_relocation"]:
         help="The first plan year the new state above applies -- the State above applies through the plan year just before this one.",
     )
 
-st.subheader("Market assumptions")
+st.subheader("Asset class assumptions")
 # These are your own forward-looking planning inputs, not something the
 # tool looks up (see the Instructions page's Market Assumptions section)
 # -- every help text below explains what the number means, not what
-# value to use.
-m1, m2 = st.columns(2)
-with m1:
-    st.number_input(
-        "Equity allocation",
-        min_value=0.0,
-        max_value=1.0,
-        key="equity_allocation",
-        help="Fraction of the portfolio in equities, 0 to 1 (e.g. 0.6 = 60% stocks). Together with Bond allocation, should sum to 1.",
+# value to use. One row per asset class -- mean/std of that class's own
+# annual real return (rp-aev, full replacement of the pre-rp-aev 2-asset
+# equity/bond blend).
+for _ac in _ASSET_CLASSES:
+    ac1, ac2, ac3 = st.columns([2, 2, 2])
+    ac1.markdown(f"**{_ASSET_CLASS_LABELS[_ac]}**")
+    ac2.number_input(
+        "Mean (real)",
+        key=f"asset_{_ac}_mean",
+        help=f"Expected average annual {_ASSET_CLASS_LABELS[_ac]} return, inflation-adjusted (real), as a decimal (e.g. 0.05 = 5%).",
     )
-    st.number_input(
-        "Equity return mean (real)",
-        key="equity_return_mean_real",
-        help="Expected average annual equity return, inflation-adjusted (real), as a decimal (e.g. 0.05 = 5%).",
-    )
-    st.number_input(
-        "Equity return std (real)",
-        key="equity_return_std_real",
-        help="Expected annual volatility (standard deviation) of equity returns, inflation-adjusted.",
-    )
-    st.number_input(
-        "Correlation",
-        min_value=-1.0,
-        max_value=1.0,
-        key="correlation",
-        help="Correlation between equity and bond returns, -1 to 1. 0 means uncorrelated.",
-    )
-with m2:
-    st.number_input(
-        "Bond allocation",
-        min_value=0.0,
-        max_value=1.0,
-        key="bond_allocation",
-        help="Fraction of the portfolio in bonds, 0 to 1. Together with Equity allocation, should sum to 1.",
-    )
-    st.number_input(
-        "Bond return mean (real)",
-        key="bond_return_mean_real",
-        help="Expected average annual bond return, inflation-adjusted (real), as a decimal.",
-    )
-    st.number_input(
-        "Bond return std (real)",
-        key="bond_return_std_real",
-        help="Expected annual volatility (standard deviation) of bond returns, inflation-adjusted.",
-    )
-    st.number_input(
-        "Cash yield (real)",
-        key="cash_return_mean_real",
-        help=(
-            "Expected average annual yield on the Cash balance(s) above, inflation-adjusted, as a "
-            "decimal (e.g. 0.01 = 1%). No volatility field -- cash is modeled as stable, not a third "
-            "stochastic asset class (rp-e0h)."
-        ),
+    ac3.number_input(
+        "Std (real)",
+        key=f"asset_{_ac}_std",
+        help=f"Expected annual volatility (standard deviation) of {_ASSET_CLASS_LABELS[_ac]} returns, inflation-adjusted.",
     )
 
-st.subheader("Cash reserve strategy (optional)")
-st.checkbox(
-    "Maintain a cash reserve for down years",
-    key="include_cash_reserve",
-    help=(
-        "When a simulated year's blended portfolio return is negative, spending is drawn from the "
-        "Cash balance(s) above first (up to what's available), leaving equities/bonds untouched that "
-        "year; in a positive-return year, Cash is topped back up toward its target from the Taxable "
-        "balance. Only affects Monte Carlo simulation runs -- the Deterministic engine's single fixed "
-        "return never produces a down year, so this has no effect there. Leave unchecked if you don't "
-        "want this behavior; a Cash balance above still earns the Cash yield either way (rp-e0h)."
-    ),
+st.subheader("Correlation matrix")
+st.caption(
+    "Only the upper triangle is editable -- the lower triangle mirrors it automatically (a "
+    "correlation matrix is symmetric by construction); the diagonal is fixed at 1.00."
 )
-if st.session_state["include_cash_reserve"]:
-    st.number_input(
-        "Years of spending to hold in cash",
-        min_value=0.0,
-        step=0.5,
-        key="cash_reserve_years",
-        help="The cash target each year = this number x that year's spending need, in real dollars.",
-    )
+_corr_header_cols = st.columns([1.4] + [1] * len(_ASSET_CLASSES))
+for _col, _ac in zip(_corr_header_cols[1:], _ASSET_CLASSES):
+    _col.markdown(f"**{_ASSET_CLASS_SHORT[_ac]}**")
+for _i, _row_ac in enumerate(_ASSET_CLASSES):
+    _row_cols = st.columns([1.4] + [1] * len(_ASSET_CLASSES))
+    _row_cols[0].markdown(f"**{_ASSET_CLASS_SHORT[_row_ac]}**")
+    for _j, _col_ac in enumerate(_ASSET_CLASSES):
+        _cell = _row_cols[_j + 1]
+        if _j == _i:
+            _cell.markdown("1.00")
+        elif _j > _i:
+            _cell.number_input(
+                f"{_row_ac}/{_col_ac}",
+                min_value=-1.0,
+                max_value=1.0,
+                step=0.05,
+                key=f"corr_{_i}_{_j}",
+                label_visibility="collapsed",
+            )
+        else:
+            _cell.markdown(f"{st.session_state.get(f'corr_{_j}_{_i}', 0.0):.2f}")
+
+for _pool_key, _pool_label in _ALLOCATION_POOLS:
+    _render_allocation_schedule(_pool_key, _pool_label)
 
 st.subheader("Simulation settings")
 s1, s2, s3 = st.columns(3)
@@ -1259,11 +1459,6 @@ def _build_body() -> dict:
                 "balance": st.session_state["member1_taxable_balance"],
                 "owner": st.session_state["member1_person_name"],
             },
-            {
-                "account_type": "cash",
-                "balance": st.session_state["member1_cash_balance"],
-                "owner": st.session_state["member1_person_name"],
-            },
         ],
         "spending": {
             "annual_need_real": st.session_state["annual_need_real"],
@@ -1275,24 +1470,28 @@ def _build_body() -> dict:
         "relocation_state": st.session_state["relocation_state"] if st.session_state["include_relocation"] else None,
         "relocation_plan_year": st.session_state["relocation_plan_year"] if st.session_state["include_relocation"] else None,
         "market_assumptions": {
-            "equity_allocation": st.session_state["equity_allocation"],
-            "equity_return_mean_real": st.session_state["equity_return_mean_real"],
-            "equity_return_std_real": st.session_state["equity_return_std_real"],
-            "bond_allocation": st.session_state["bond_allocation"],
-            "bond_return_mean_real": st.session_state["bond_return_mean_real"],
-            "bond_return_std_real": st.session_state["bond_return_std_real"],
-            "correlation": st.session_state["correlation"],
-            "cash_return_mean_real": st.session_state["cash_return_mean_real"],
+            "asset_classes": {
+                ac: {"mean_real": st.session_state[f"asset_{ac}_mean"], "std_real": st.session_state[f"asset_{ac}_std"]}
+                for ac in _ASSET_CLASSES
+            },
+            "correlation_matrix": [
+                [
+                    1.0
+                    if j == i
+                    else (st.session_state[f"corr_{i}_{j}"] if j > i else st.session_state[f"corr_{j}_{i}"])
+                    for j in range(len(_ASSET_CLASSES))
+                ]
+                for i in range(len(_ASSET_CLASSES))
+            ],
         },
+        "taxable_allocation_schedule": _collect_allocation_schedule("taxable"),
+        "traditional_allocation_schedule": _collect_allocation_schedule("traditional"),
+        "roth_allocation_schedule": _collect_allocation_schedule("roth"),
         "simulation_settings": {
             "n_paths": st.session_state["n_paths"],
             "seed": st.session_state["seed"],
             "plan_to_age": st.session_state["plan_to_age"],
         },
-        # rp-e0h.4: None when the checkbox is off, mirroring
-        # relocation_state's own "flat optional scalar, always present"
-        # convention immediately above.
-        "cash_reserve_years": st.session_state["cash_reserve_years"] if st.session_state["include_cash_reserve"] else None,
         "roth_conversion": None,
         "hsa_contribution": None,
     }
@@ -1324,11 +1523,6 @@ def _build_body() -> dict:
                 {
                     "account_type": "taxable",
                     "balance": st.session_state["member2_taxable_balance"],
-                    "owner": st.session_state["member2_person_name"],
-                },
-                {
-                    "account_type": "cash",
-                    "balance": st.session_state["member2_cash_balance"],
                     "owner": st.session_state["member2_person_name"],
                 },
             ]

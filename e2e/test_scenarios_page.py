@@ -26,13 +26,10 @@ def _fill_minimal_single_filer(page, name: str) -> None:
     fill_field(page, "Taxable balance ($)", "100000")
     fill_field(page, "Annual spending need ($, today's dollars)", "40000")
     select_option(page, "State", "FL")
-    fill_field(page, "Equity allocation", "0.6")
-    fill_field(page, "Equity return mean (real)", "0.05")
-    fill_field(page, "Equity return std (real)", "0.15")
-    fill_field(page, "Correlation", "-0.2")
-    fill_field(page, "Bond allocation", "0.4")
-    fill_field(page, "Bond return mean (real)", "0.02")
-    fill_field(page, "Bond return std (real)", "0.05")
+    # rp-aev: the asset-class/correlation/allocation-schedule sections are
+    # left untouched -- every one of those 44+ fields comes pre-seeded
+    # with a valid default (1_Scenarios.py's own DEFAULTS), so a minimal
+    # scenario needs no further input there.
     fill_field(page, "Paths", "100")
     fill_field(page, "Seed", "1")
     fill_field(page, "Plan to age", "90")

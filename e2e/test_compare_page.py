@@ -8,6 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from conftest import DEFAULT_MARKET_ASSUMPTIONS, EVEN_ALLOCATION_SCHEDULE
 from helpers import fill_field, select_option, select_radio, wait_for_ready, wait_for_results
 
 _SCENARIO_NAME = "e2e_compare"
@@ -27,11 +28,10 @@ _SCENARIO_BODY = {
     ],
     "spending": {"annual_need_real": 70_000},
     "state": "FL",
-    "market_assumptions": {
-        "equity_allocation": 0.60, "equity_return_mean_real": 0.065, "equity_return_std_real": 0.17,
-        "bond_allocation": 0.40, "bond_return_mean_real": 0.015, "bond_return_std_real": 0.06,
-        "correlation": -0.10,
-    },
+    "market_assumptions": DEFAULT_MARKET_ASSUMPTIONS,
+    "taxable_allocation_schedule": EVEN_ALLOCATION_SCHEDULE,
+    "traditional_allocation_schedule": EVEN_ALLOCATION_SCHEDULE,
+    "roth_allocation_schedule": EVEN_ALLOCATION_SCHEDULE,
     "simulation_settings": {"n_paths": 100, "seed": 42, "plan_to_age": 95},
 }
 

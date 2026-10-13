@@ -37,11 +37,14 @@ def _year_detail(plan_year: int, tax_year: int) -> dict:
     return {
         "plan_year": plan_year,
         "tax_year": tax_year,
-        "ending_balances": {"traditional": 100_000.0, "roth": 0.0, "taxable": 0.0, "cash": 0.0},  # rp-e0h.4
+        "ending_balances": {"traditional": 100_000.0, "roth": 0.0, "taxable": 0.0},
         "federal_tax": {"federal_tax_owed": 100.0},
         "state_tax": {"state_tax_owed": 50.0},
         "shortfall": 0.0,
-        "annual_return": 0.0,  # rp-cqu
+        # rp-aev: replaces rp-cqu's single blended annual_return.
+        "taxable_pool_return": 0.0,
+        "traditional_pool_return": 0.0,
+        "roth_pool_return": 0.0,
     }
 
 

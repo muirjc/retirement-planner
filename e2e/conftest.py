@@ -78,6 +78,42 @@ def _terminate(process: subprocess.Popen) -> None:
         process.wait(timeout=10)
 
 
+_ASSET_CLASSES = (
+    "us_large", "us_small", "us_medium", "reit",
+    "aggregate_bond", "emerging_market", "international_ex_us", "cash",
+)
+DEFAULT_MARKET_ASSUMPTIONS = {
+    "asset_classes": {
+        "us_large": {"mean_real": 0.070, "std_real": 0.18},
+        "us_small": {"mean_real": 0.080, "std_real": 0.22},
+        "us_medium": {"mean_real": 0.075, "std_real": 0.20},
+        "reit": {"mean_real": 0.060, "std_real": 0.20},
+        "aggregate_bond": {"mean_real": 0.025, "std_real": 0.06},
+        "emerging_market": {"mean_real": 0.070, "std_real": 0.25},
+        "international_ex_us": {"mean_real": 0.060, "std_real": 0.19},
+        "cash": {"mean_real": 0.010, "std_real": 0.01},
+    },
+    "correlation_matrix": [
+        [1.00, 0.85, 0.90, 0.65, 0.00, 0.70, 0.80, 0.00],
+        [0.85, 1.00, 0.90, 0.65, -0.05, 0.65, 0.70, 0.00],
+        [0.90, 0.90, 1.00, 0.65, 0.00, 0.70, 0.75, 0.00],
+        [0.65, 0.65, 0.65, 1.00, 0.05, 0.55, 0.55, 0.00],
+        [0.00, -0.05, 0.00, 0.05, 1.00, -0.05, 0.05, 0.10],
+        [0.70, 0.65, 0.70, 0.55, -0.05, 1.00, 0.75, 0.00],
+        [0.80, 0.70, 0.75, 0.55, 0.05, 0.75, 1.00, 0.00],
+        [0.00, 0.00, 0.00, 0.00, 0.10, 0.00, 0.00, 1.00],
+    ],
+}
+"""rp-aev: shared by every e2e test module's own direct-PUT scenario seed
+-- mirrors scenario/models.py's own DEFAULT_MARKET_ASSUMPTIONS exactly,
+independently maintained here (this suite never imports retirement_planner,
+module docstring)."""
+EVEN_ALLOCATION_SCHEDULE = {"periods": [{"start_plan_year": 1, "weights": {ac: 1.0 / 8 for ac in _ASSET_CLASSES}}]}
+"""rp-aev: a single, plan-year-1 period with an even 1/8 split -- the
+simplest valid AllocationSchedule, reused for all 3 pools by every e2e
+test module that doesn't itself care about glide-path weights."""
+
+
 @dataclass(frozen=True)
 class Stack:
     """The two base URLs a test needs -- ui_base_url to navigate

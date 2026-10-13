@@ -88,29 +88,40 @@ def comparison_overlay_chart(summaries: list[dict]) -> go.Figure:
 
 
 _RETURN_HOVERTEMPLATE = "Plan year %{x}<br>%{y:.1%}<extra></extra>"
-_POSITIVE_RETURN_COLOR = "#2a9d4a"
-_NEGATIVE_RETURN_COLOR = "#c0392b"
+_POOL_LINES = (
+    ("taxable_pool_return", "Taxable", "#2a78d6"),
+    ("traditional_pool_return", "Traditional", "#eb6834"),
+    ("roth_pool_return", "Roth", "#1baf7a"),
+)
+"""rp-aev: dataviz skill's reference categorical palette, slots 1-3 (blue/
+orange/aqua) -- the only three that validate for all-pairs comparison
+(every pair of lines can appear together, not just adjacent ones), fixed
+order, one per pool."""
 
 
 def returns_by_year_chart(years: list[dict]) -> go.Figure:
-    """rp-cqu: one bar per plan year, that year's own annual_return
-    (comparison.PlanYearProjection, the single blended rate actually
-    applied to every account balance that year) -- colored by sign so a
-    down year (equities/bonds both fell, or fell more than the other
-    rose) is visible at a glance, directly answering "how is the market
-    driving the portfolio" rather than requiring a reader to infer it
-    from ending-balance deltas alone."""
+    """rp-aev: one line per pool (taxable/traditional/roth), each pool's
+    own blended return (comparison.PlanYearProjection.*_pool_return --
+    the rate actually applied to that pool's balance that year, per its
+    own active glide-path weights) -- replaces rp-cqu's single blended-
+    portfolio bar series now that there are 3 independently-allocated
+    pools, not one shared blend."""
     fig = go.Figure()
     if not years:
         return fig
 
     plan_years = [year["plan_year"] for year in years]
-    returns = [year["annual_return"] for year in years]
-    colors = [_POSITIVE_RETURN_COLOR if r >= 0 else _NEGATIVE_RETURN_COLOR for r in returns]
-
-    fig.add_trace(
-        go.Bar(x=plan_years, y=returns, marker_color=colors, hovertemplate=_RETURN_HOVERTEMPLATE)
-    )
+    for field, label, color in _POOL_LINES:
+        fig.add_trace(
+            go.Scatter(
+                x=plan_years,
+                y=[year[field] for year in years],
+                mode="lines",
+                name=label,
+                line=dict(color=color, width=2),
+                hovertemplate=f"{label}<br>{_RETURN_HOVERTEMPLATE}",
+            )
+        )
     fig.update_layout(
         title="Portfolio return by plan year",
         xaxis_title="Plan year",

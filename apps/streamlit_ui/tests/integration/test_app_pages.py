@@ -2654,7 +2654,11 @@ def test_us2_instructions_page_writes_no_session_state_of_its_own():
     in-progress form state."""
     at = AppTest.from_file(str(INSTRUCTIONS_PAGE)).run()
     assert not at.exception
-    assert dict(at.session_state.filtered_state) == {}
+    # Streamlit's AppTest.session_state wraps SafeSessionState rather than
+    # exposing it directly (as of streamlit 1.65) -- .filtered_state is no
+    # longer a passthrough attribute, so the user-visible state is read via
+    # to_dict() instead (the class's own documented equivalent).
+    assert at.session_state.to_dict() == {}
 
 
 # -- Polish (009): the full quickstart.md (009) walkthrough, chained (T010) --

@@ -87,17 +87,18 @@ the analysis from scratch each time.
   income tax resolved correctly for each plan year against whichever
   state applied that year. Narrated on the Walkthrough page the plan
   year the move takes effect
-- Cash-reserve ("bucket") withdrawal strategy (`rp-e0h`): a household
-  can hold a low-volatility cash balance (a fourth account type,
-  alongside traditional/Roth/taxable) and optionally configure
-  `cash_reserve_years` — a target of that many years' worth of
-  spending held in cash. In a simulated plan year with a negative
-  blended portfolio return, spending is drawn from cash first instead
-  of selling equities/bonds at a loss; in a positive-return year, cash
-  is topped back up toward its target from the taxable account. Cash
-  itself always grows at its own configured yield regardless of
-  whether the reserve strategy is enabled. Narrated on the Walkthrough
-  page every year cash is drawn from or refilled
+- 8-asset-class portfolio allocation across 3 independently-rebalanced
+  pools (`rp-aev`, retires `rp-e0h`'s prior cash-reserve bucket
+  strategy entirely): each of taxable/traditional/Roth holds its own
+  glide path — one or more allocation periods, each an 8-way split across
+  US Large/Small/Medium-cap equity, REIT, Aggregate Bond, Emerging
+  Market, International ex-US, and Cash — taking effect at different
+  plan years, fully rebalanced to its active period's target weights
+  every plan year. Monte Carlo draws each asset class's own return from
+  a correlated 8-asset distribution (a user-editable 8x8 correlation
+  matrix); the Deterministic engine uses each class's own fixed mean,
+  no variance (§6.7a). Cash is simply asset class #8 here — an ordinary
+  weight with no special down-year-draw/up-year-refill behavior
 
 ### 2.2 Explicit non-goals
 
@@ -149,27 +150,21 @@ first draft:
   state," unaffected by a scenario's own configured relocation (an
   explicit override disables that scenario's relocation for the one
   resolved run, rather than combining the two).
-- **Cash-reserve strategy non-goals (`rp-e0h`)**: more than one
-  cash-like bucket, or a general N-bucket glide path — this is
-  specifically a two-tier model, cash vs. everything else, not an
-  arbitrary bucket ladder; any effect under the Deterministic engine
-  or any comparison axis other than "state" — `cash_reserve_years` is
-  accepted on a scenario, but only the two genuinely single-run Monte
-  Carlo resolution paths (`resolve_and_run_simulation()`,
-  `resolve_and_search_sustainable_spending()`) apply it. The
-  Deterministic engine's one fixed return never produces a "down year"
-  to trigger it at all, and the `roth_conversion_strategy`/
-  `withdrawal_sequencing` comparison axes build their own
-  `StrategyConfiguration` from scratch rather than inheriting the
-  resolved one, so a configured cash reserve silently has no effect
-  there either — a known, deliberate gap, not yet extended to those
-  axes; a configurable down-year threshold (always "any negative
-  blended portfolio return," never a tunable percentage); and a third
-  stochastic asset class with its own volatility or correlation to
-  equity/bond returns — cash's own yield (`cash_return_mean_real`) is
-  a single fixed mean applied identically every plan year and every
-  simulated path, never varied by the Monte Carlo draw the way equity/
-  bond returns are.
+- **Portfolio allocation non-goals (`rp-aev`)**: more than 3 pools, or
+  a general N-pool model — taxable/traditional/Roth remain the only
+  three, matching this schema's own fixed account-type model above;
+  partial or threshold-based rebalancing — every pool is always fully
+  rebalanced to its active period's target weights every plan year,
+  never a drift band or a transaction-minimizing partial trade; any
+  transaction costs, bid/ask spread, or realized capital gains that
+  rebalancing would trigger in reality (§7); asset-location
+  optimization — a household can manually configure a different glide
+  path per pool, but this tool never recommends or computes which
+  asset classes belong in which account type for tax efficiency; and
+  sourcing or verifying the real-world historical mean/std/correlation
+  figures the 8 asset classes ship with by default — they are
+  illustrative planning inputs, editable by the household, not a
+  researched/cited dataset (§6.7a, §7).
 
 ### 2.3 Reference use case
 
@@ -1066,12 +1061,77 @@ success rate for this household") from Monte Carlo sampling noise that
 would otherwise dominate a smaller effect size if each candidate drew its
 own independent random paths.
 
+### 6.7a Portfolio allocation & rebalancing (`rp-aev`)
+
+Replaces the pre-`rp-aev` 2-asset (equity/bond) blended-return model
+entirely — there is no fallback or dual-mode. Every plan year, each of
+the three pools (taxable, traditional, Roth) grows by its **own** real
+return, independently of the other two pools: `comparison/allocation.py`'s
+`blended_pool_return()` computes it as the weighted average of that
+year's 8 asset-class returns (US Large/Small/Medium-cap equity, REIT,
+Aggregate Bond, Emerging Market, International ex-US, Cash), using
+whichever `AllocationPeriod` is active for that pool at that plan year —
+a pool's glide path (`AllocationSchedule`) is one or more such periods,
+each a full 8-way percentage split, configured once at scenario creation
+and taking effect at different plan years.
+
+**Full rebalance every year, no sub-balance tracking needed.** Each pool
+is assumed fully rebalanced to its active period's target weights every
+single plan year — no drift is ever carried forward from the prior
+year's actual market movement. Because of that, a pool's real
+dollar-for-dollar behavior (8 independent sub-balances, each grown by its
+own asset class's return, then sold/bought back to target weights) is
+mathematically identical to simply growing the pool's one scalar total by
+`blended_pool_return()` — a weighted average of returns applied to a
+total equals the weighted average of the same returns applied
+individually and summed, by linearity, regardless of withdrawals or
+glide-path changes between plan years. This is proven, not just assumed:
+a property test
+(`test_blended_scalar_growth_matches_independently_simulated_sub_balances`)
+hand-simulates both methods independently across a withdrawal event and a
+glide-path period change and confirms bit-identical results. The
+practical consequence is that RMD/withdrawal-sequencing/Roth-conversion
+mechanics needed **zero** changes for this feature — they only ever read
+and write each pool's own scalar total, never a per-asset-class
+sub-balance that doesn't exist.
+
+**Monte Carlo**: `simulation/returns.py` draws all 8 asset classes'
+returns together each plan year as one correlated draw — 8 independent
+standard-normal samples, transformed through a Cholesky decomposition of
+the scenario's own user-editable 8x8 correlation matrix
+(`scenario/correlation.py::cholesky_lower()`, pure Python, no numpy/scipy
+dependency), then scaled by each class's own configured mean/std. The raw,
+unblended per-asset-class returns are what's stored and reused across
+every comparison candidate (the paired-draw methodology, §6.7) — blending
+by a pool's own active weights happens afterward, inside the projection
+loop, never baked into the stored path itself. The same correlated-draw
+treatment also widens the historical-bootstrap series (§6.9) from 2
+columns to 8.
+
+**Deterministic engine**: no draw at all — each asset class's own
+configured mean is held fixed for every plan year
+(`comparison/returns.py::derive_deterministic_return()`), so a pool's
+blended return is just the weighted average of 8 fixed numbers using the
+plan year's active weights. There is no variance or correlation to apply
+in a single-path engine, and (unchanged from before this feature) the
+Monte-Carlo-only sequence-of-returns stress overlay (§6.8) still has no
+effect here at all. Within the Monte Carlo engine itself, that overlay
+now shocks all 8 asset classes simultaneously to the same magnitude,
+reproducing the pre-`rp-aev` pool-level override exactly — a weighted
+average of 8 identical values is that value.
+
+Default asset-class means/standard deviations and the 8x8 correlation
+matrix are illustrative planning inputs (§7), fully editable by the
+household on the Scenarios page — not sourced or verified market data,
+the same `verified=False` discipline this project already applies to its
+synthetic historical-return series (§6.9).
+
 ### 6.8 Monte Carlo simulation
 
-- **Parametric mode**: correlated-normal draws for an equity/bond blend,
-  consuming one `random.Random(seed)` instance in a fixed, deterministic
-  order (path 0's years, then path 1's, ...) — same seed always produces
-  the same paths.
+- **Parametric mode**: correlated-normal draws across the 8 asset
+  classes (§6.7a), consuming one `random.Random(seed)` instance in a
+  fixed, deterministic order (path 0's years, then path 1's, ...) — same
+  seed always produces the same paths.
 - **Historical-bootstrap mode** (opt-in, rp-741): moving-block resampling
   from an annual real-return series, instead of only parametric normal
   draws, to capture fat tails and genuine historical sequencing. Exposed
@@ -1294,17 +1354,18 @@ simulation at that figure directly.
   GPU with an 8B-class quantized model at roughly 5-10 seconds per
   question once warm, but a lower-end machine may need a smaller model
   or will simply run this one feature slower.
-- **Account growth is one blended total-return number, with no concept
-  of income character (yield/interest/dividends) distinct from price
-  appreciation, and no annual taxation of a taxable account's own
-  investment income (§6.3)**: every plan year, each account's
-  entire balance — traditional, Roth, and taxable alike — is multiplied
-  by the same single real-return rate derived from
-  `market_assumptions` (equity/bond allocation-weighted mean), applied
-  uniformly regardless of whether that return would, in reality, arrive
-  as a bond fund's coupon/interest, a stock fund's dividend, or
-  unrealized price appreciation (`comparison/returns.py`,
-  `comparison/projection.py`). For Traditional and Roth this is
+- **Account growth is one blended total-return number per pool, with no
+  concept of income character (yield/interest/dividends) distinct from
+  price appreciation, and no annual taxation of a taxable account's own
+  investment income (§6.3)**: every plan year, each pool's (taxable,
+  traditional, Roth) entire balance is multiplied by that pool's own
+  single blended real-return rate — `blended_pool_return()`'s weighted
+  average across the 8 asset classes, using that pool's own active
+  glide-path weights (§6.7a) — applied uniformly regardless of whether
+  that return would, in reality, arrive as a bond fund's coupon/
+  interest, a stock fund's dividend, or unrealized price appreciation
+  (`comparison/allocation.py`, `comparison/projection.py`). For
+  Traditional and Roth this is
   correct — neither is taxed annually on investment income regardless
   of its character. For the **taxable** account it understates real
   tax drag: a real taxable brokerage account's interest and
@@ -1326,31 +1387,23 @@ simulation at that figure directly.
   ownership_shares` above both already identify as absent from this
   schema — a coordinated, not yet scheduled, follow-on feature, not a
   quick fix to this one area alone.
-- **Cash-reserve interest is not taxed annually (`rp-e0h`) — a
-  resolved, deliberate extension of the taxable-account simplification
-  immediately above, not an oversight left open by this feature's own
-  design**: a cash balance's `cash_return_mean_real` growth is applied
-  the same untaxed way Traditional/Roth growth already is, every plan
-  year. It is never fed into NIIT's own `investment_income` stand-in
-  (computed strictly from `sequence_withdrawals` where `account_type
-  == "taxable"`, §6.3 — a `cash_reserve_draw` never appears in that
-  sum) and never fed into `ordinary_income` either, regardless of
-  whether or when it's drawn. In the real world this is arguably a
-  *larger* simplification than the taxable account's own immediately
-  above: real cash/high-yield-savings interest is 100% ordinary
-  taxable income every year it's earned, with no capital-gains/cost-
-  basis complexity to even partially excuse deferring it, unlike a
-  taxable brokerage's dividends and realized gains. The decision here
-  is to accept that larger simplification rather than build a
-  one-off, cash-only annual-interest-taxation path: doing this
-  correctly needs the same account-level interest-vs-principal
-  tracking the taxable-account bullet above already identifies as
-  absent from this schema, so it is deferred to that same coordinated,
-  not-yet-scheduled follow-on feature rather than solved in isolation
-  for cash alone. Net effect: a household funding a large or long-held
-  cash reserve will see this tool overstate that balance's real
-  after-tax growth, compounding the same direction of error the
-  taxable-account bullet above already describes.
+- **Full rebalance every year is assumed, with no transaction costs or
+  realized capital gains, and the default asset-class figures are
+  illustrative, not sourced (`rp-aev`, §6.7a, §2.2)**: each pool is
+  modeled as if sold and bought back to its active period's exact
+  target weights every single plan year, for free — a real investor
+  rebalancing a taxable account this way would realize capital gains
+  (or losses) and pay trading costs/spread on every trade, neither of
+  which this engine computes (the same cost-basis/lot-tracking gap the
+  taxable-account bullet above already identifies as absent from this
+  schema). For Traditional/Roth this is a smaller simplification (no
+  capital-gains event inside a tax-advantaged account in reality
+  either), but still ignores any real trading friction. Separately, the
+  8 asset classes' default means/standard deviations and their default
+  8x8 correlation matrix are planning-assumption illustrations the
+  household is expected to edit, not a researched, cited, or verified
+  dataset — the same `verified=False` discipline this project already
+  applies to its synthetic historical-return series (§6.9).
 
 ## 8. Non-Functional Requirements
 
